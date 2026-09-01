@@ -1,16 +1,38 @@
 'use strict';
 
 // ============================================================
-//  LLM 层离线评测：本机 Ollama 可用时，用固定用例跑真实 Agent，
-//  度量接受率 / 轮数 / 分数增益 / 延迟，写 evals/llm-report.json。
-//  无 Ollama 时优雅跳过（exit 0）——规则层评测见 run-evals.js。
-//  用法：node evals/run-llm-eval.js
+//  LLM 层离线评测：优先用应用保存的云端配置（DeepSeek / Kimi 等），
+//  回退本地 Ollama；都没有则优雅跳过（exit 0）。
+//  每个用例跑两种模式：pipeline（确定性编排）与 agentic（function-calling
+//  自主循环），度量成功率 / 接受率 / 轮数 / 分数增益 / 延迟。
+//  报告写 evals/llm-report.json。
+//  用法：npm run eval:llm
 // ============================================================
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
-const { createOllamaClient } = require('../src/main/llm-client');
+const { createLlmClient } = require('../src/main/llm-client');
 const agent = require('../src/main/agent');
+
+// 读取应用保存的 Agent 配置（云端优先），没有则回退本地 Ollama
+function loadLlmConfig() {
+  const roots = [
+    path.join(os.homedir(), 'AppData', 'Roaming', 'grad-resume-forge'),
+    path.join(os.homedir(), 'AppData', 'Roaming', '简历锻造炉'),
+    path.join(os.homedir(), '.config', 'grad-resume-forge')
+  ];
+  for (const root of roots) {
+    const p = path.join(root, 'grad-resume-data', 'db.json');
+    try {
+      const db = JSON.parse(fs.readFileSync(p, 'utf8'));
+      if (db.settings && db.settings.agent && db.settings.agent.apiKey) {
+        return { cfg: db.settings.agent, source: '应用配置 ' + p };
+      }
+    } catch (_) {} // eslint-disable-line no-empty
+  }
+  return { cfg: {}, source: null };
+}
 
 // 固定评测用例：覆盖「脏简历 / 干净简历 / 算法方向」三种形态
 const CASES = [
@@ -55,80 +77,113 @@ const CASES = [
   }
 ];
 
+// 对单个用例跑一种模式，返回汇总行
+async function runOne(mode, c, client) {
+  const t0 = Date.now();
+  let r;
+  let err = null;
+  try {
+    const runner = mode === 'agentic' ? agent.agenticLoop : agent.runAgent;
+    const opts = mode === 'agentic' ? { llm: client, maxSteps: 10 } : { llm: client, maxRounds: 2 };
+    r = await runner(c.profile, c.jd, opts);
+  } catch (e) {
+    err = e.message;
+  }
+  const ms = Date.now() - t0;
+  return {
+    mode,
+    case: c.name,
+    ok: !!(r && r.ok),
+    error: err || (r && r.error) || null,
+    rounds: r ? r.rounds : 0,
+    accepted: r ? r.accepted.length : 0,
+    rejected: r ? r.rejected.length : 0,
+    auditBefore: r ? r.auditBefore : null,
+    auditAfter: r ? r.auditAfter : null,
+    jdBefore: r ? r.jdBefore : null,
+    jdAfter: r ? r.jdAfter : null,
+    ms
+  };
+}
+
+function fmtRow(row) {
+  return (row.ok ? '✅' : '⚠️ ') + ' [' + row.mode + '] ' + row.case +
+    ' | 轮/步 ' + row.rounds +
+    ' | 接受 ' + row.accepted + ' / 拒收 ' + row.rejected +
+    ' | 体检 ' + (row.auditBefore != null ? row.auditBefore + '→' + row.auditAfter : '-') +
+    ' | JD ' + (row.jdBefore != null ? row.jdBefore + '%→' + row.jdAfter + '%' : '-') +
+    ' | ' + row.ms + 'ms' +
+    (row.error ? ' | ' + row.error : '');
+}
+
 (async () => {
-  const client = createOllamaClient({});
+  const { cfg, source } = loadLlmConfig();
+  const client = createLlmClient(cfg);
   const st = await client.status();
   if (!st.available) {
-    console.log('⏩ 未检测到 Ollama（' + client.config.endpoint + '），跳过 LLM 评测。');
-    console.log('   启动方式：ollama serve && ollama pull ' + client.config.model);
+    console.log('⏩ 模型服务不可用（' + (st.error || '未配置') + '），跳过 LLM 评测。');
+    console.log('   云端：应用内 ⚙ 配置填 API 密钥；本地：ollama serve && ollama pull qwen2.5:7b');
     process.exitCode = 0;
     return;
   }
-  console.log('已连接 Ollama，模型：' + client.config.model + '（已装 ' + st.models.length + ' 个）\n');
+  console.log('模型服务：' + (client.provider === 'cloud' ? '云端 ' : '本地 ') + client.config.model +
+    (st.models && st.models.length ? '（可用 ' + st.models.length + ' 个模型）' : ''));
+  if (source) console.log('配置来源：' + source);
+  console.log('');
 
   const runs = [];
   for (const c of CASES) {
-    const t0 = Date.now();
-    let r;
-    let err = null;
-    try {
-      r = await agent.runAgent(c.profile, c.jd, { llm: client, maxRounds: 2 });
-    } catch (e) {
-      err = e.message;
-    }
-    const ms = Date.now() - t0;
-    const accepted = r ? r.accepted.length : 0;
-    const rejected = r ? r.rejected.length : 0;
-    const row = {
-      case: c.name,
-      ok: !!(r && r.ok),
-      error: err || (r && r.error) || null,
-      rounds: r ? r.rounds : 0,
-      accepted,
-      rejected,
-      auditDelta: r ? r.auditAfter - r.auditBefore : 0,
-      jdDelta: r ? r.jdAfter - r.jdBefore : 0,
-      ms
-    };
-    runs.push(row);
-    console.log(
-      (row.ok ? '✅' : '⚠️ ') + ' ' + c.name +
-      ' | 轮数 ' + row.rounds +
-      ' | 接受 ' + accepted + ' / 拒收 ' + rejected +
-      ' | 体检 ' + (r ? r.auditBefore + '→' + r.auditAfter : '-') +
-      ' | JD ' + (r ? r.jdBefore + '%→' + r.jdAfter + '%' : '-') +
-      ' | ' + ms + 'ms' +
-      (row.error ? ' | ' + row.error : '')
-    );
+    // 每个用例先跑 pipeline 再跑 agentic（同 JD 同档案，可直接对比）
+    const p = await runOne('pipeline', c, client);
+    console.log(fmtRow(p));
+    runs.push(p);
+    const a = await runOne('agentic', c, client);
+    console.log(fmtRow(a));
+    runs.push(a);
   }
 
-  const n = runs.length || 1;
-  const sumAccepted = runs.reduce((s, r) => s + r.accepted, 0);
-  const sumRejected = runs.reduce((s, r) => s + r.rejected, 0);
-  const denom = sumAccepted + sumRejected;
+  // 汇总（整体 + 分模式）
+  function summarize(list) {
+    const n = list.length || 1;
+    const acc = list.reduce((s, r) => s + r.accepted, 0);
+    const rej = list.reduce((s, r) => s + r.rejected, 0);
+    return {
+      successRate: list.filter((r) => r.ok).length / n,
+      acceptanceRate: (acc + rej) ? acc / (acc + rej) : 0,
+      avgRounds: list.reduce((s, r) => s + r.rounds, 0) / n,
+      avgAuditDelta: list.reduce((s, r) => s + (r.auditAfter != null && r.auditBefore != null ? r.auditAfter - r.auditBefore : 0), 0) / n,
+      avgJdDelta: list.reduce((s, r) => s + (r.jdAfter != null && r.jdBefore != null ? r.jdAfter - r.jdBefore : 0), 0) / n,
+      avgMs: list.reduce((s, r) => s + r.ms, 0) / n
+    };
+  }
+  const pipelines = runs.filter((r) => r.mode === 'pipeline');
+  const agentics = runs.filter((r) => r.mode === 'agentic');
+
   const report = {
     timestamp: new Date().toISOString(),
     suite: 'llm-layer',
+    provider: client.provider,
     model: client.config.model,
     endpoint: client.config.endpoint,
-    successRate: runs.filter((r) => r.ok).length / n,
-    acceptanceRate: denom ? sumAccepted / denom : 0,
-    avgRounds: runs.reduce((s, r) => s + r.rounds, 0) / n,
-    avgAuditDelta: runs.reduce((s, r) => s + r.auditDelta, 0) / n,
-    avgJdDelta: runs.reduce((s, r) => s + r.jdDelta, 0) / n,
-    avgMs: runs.reduce((s, r) => s + r.ms, 0) / n,
+    overall: summarize(runs),
+    byMode: { pipeline: summarize(pipelines), agentic: summarize(agentics) },
     runs
   };
 
   const reportFile = path.join(__dirname, 'llm-report.json');
   fs.writeFileSync(reportFile, JSON.stringify(report, null, 2), 'utf-8');
 
+  const line = (s) =>
+    '成功率 ' + (s.successRate * 100).toFixed(0) + '%' +
+    ' | 接受率 ' + (s.acceptanceRate * 100).toFixed(0) + '%' +
+    ' | 平均轮数 ' + s.avgRounds.toFixed(1) +
+    ' | 体检增益 ' + s.avgAuditDelta.toFixed(1) +
+    ' | JD 增益 ' + s.avgJdDelta.toFixed(1) + 'pp' +
+    ' | 耗时 ' + Math.round(s.avgMs) + 'ms';
+
   console.log('');
-  console.log('成功率 ' + (report.successRate * 100).toFixed(0) + '%' +
-    ' | 接受率 ' + (report.acceptanceRate * 100).toFixed(0) + '%' +
-    ' | 平均轮数 ' + report.avgRounds.toFixed(1) +
-    ' | 平均体检增益 ' + report.avgAuditDelta.toFixed(1) +
-    ' | 平均 JD 增益 ' + report.avgJdDelta.toFixed(1) + 'pp' +
-    ' | 平均耗时 ' + Math.round(report.avgMs) + 'ms');
+  console.log('—— pipeline：' + line(report.byMode.pipeline));
+  console.log('—— agentic ：' + line(report.byMode.agentic));
+  console.log('—— 整体　　：' + line(report.overall));
   console.log('报告已写入 ' + reportFile);
 })();
