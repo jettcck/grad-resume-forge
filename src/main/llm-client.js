@@ -63,30 +63,47 @@ function createOllamaClient(config) {
       }
     },
 
-    // 非流式 / 流式对话；format:'json' 让 Ollama 约束输出为 JSON。
-    // opts.onChunk存在时走流式：每个分片回调一次（打字机效果），返回全文。
+    // 非流式 / 流式对话。
+    // opts.onChunk → 流式打字机；opts.tools → 原生 function calling。
+    // 返回值：无 tools 时为 string（兼容旧行为）；
+    //         有 tools 时为 { content, toolCalls: [{name, args}] }，
+    //         两个协议（Ollama/OpenAI）的响应都归一化成这个形状。
     async chat(messages, opts) {
-      const onChunk = opts && typeof opts.onChunk === 'function' ? opts.onChunk : null;
+      const o = opts || {};
+      const onChunk = typeof o.onChunk === 'function' ? o.onChunk : null;
+      const tools = Array.isArray(o.tools) && o.tools.length ? o.tools : null;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), cfg.timeout);
       try {
+        const body = {
+          model: cfg.model,
+          messages,
+          stream: !!onChunk && !tools, // function-calling 循环不需要流式（要完整 JSON 决策）
+          options: { temperature: cfg.temperature }
+        };
+        if (tools) body.tools = tools;
+        else body.format = 'json';
+
         const resp = await fetch(base + '/api/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            model: cfg.model,
-            messages,
-            stream: !!onChunk,
-            format: 'json',
-            options: { temperature: cfg.temperature }
-          }),
+          body: JSON.stringify(body),
           signal: ctrl.signal
         });
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
 
         if (!onChunk || !resp.body) {
           const r = await resp.json();
-          const content = r && r.message && r.message.content;
+          const msg = (r && r.message) || {};
+          const content = msg.content;
+          if (tools) {
+            const toolCalls = normalizeToolCalls(msg.tool_calls);
+            return {
+              content: content || '',
+              toolCalls,
+              rawToolCalls: msg.tool_calls || []
+            };
+          }
           if (!content) throw new Error('模型未返回内容');
           return content;
         }
@@ -124,6 +141,22 @@ function createOllamaClient(config) {
   };
 }
 
+// 归一化 function-calling 响应：
+// Ollama: tool_calls: [{function: {name, arguments: {...}}}]（arguments 已是对象）
+// OpenAI: tool_calls: [{id, function: {name, arguments: "{\"a\":1}"}}]（arguments 是 JSON 串）
+// 返回 {name, args} 列表；同时 rawToolCalls 保留原始结构（OpenAI 协议要求回填原样）
+function normalizeToolCalls(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((tc) => {
+    const fn = (tc && tc.function) || {};
+    let args = fn.arguments;
+    if (typeof args === 'string') {
+      try { args = JSON.parse(args); } catch (_) { args = {}; } // eslint-disable-line no-empty
+    }
+    return { name: fn.name || '', args: args || {}, raw: tc };
+  }).filter((c) => c.name);
+}
+
 // ---------------- 云端（OpenAI 兼容） ----------------
 function httpHint(status) {
   if (status === 401 || status === 403) return 'API 密钥无效或未授权（' + status + '）';
@@ -137,8 +170,9 @@ function createOpenAiClient(config) {
   const cfg = Object.assign({}, CLOUD_DEFAULTS, config || {});
   const base = String(cfg.endpoint || '').replace(/\/+$/, '');
 
-  // 单次请求（流式或非流式）；失败抛带 status 的错误
-  async function postChat(body, onChunk) {
+  // 单次请求。raw=true 返回原始 Response（由 chat 层按 tools/普通路径解析）；
+  // raw=false 时消费 body：流式 → 返回拼接全文；非流式 → 返回 content 字符串
+  async function postChat(body, onChunk, raw) {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), cfg.timeout);
     try {
@@ -162,6 +196,8 @@ function createOpenAiClient(config) {
         err.status = resp.status;
         throw err;
       }
+
+      if (raw) return resp;
 
       if (!onChunk || !resp.body) {
         const r = await resp.json();
@@ -240,24 +276,54 @@ function createOpenAiClient(config) {
     },
 
     // 对话：默认带 response_format:json_object 约束 JSON；
-    // 服务商不支持（400/422）时自动降级重试一次（prompt 纪律 + 松散解析兜底）
+    // opts.tools → 原生 function calling（不走流式，决策需要完整 JSON）；
+    // 服务商不支持 response_format（400/422）时自动降级重试一次。
+    // 返回值与 Ollama 客户端对齐：有 tools → {content, toolCalls}；否则 string。
     async chat(messages, opts) {
-      const onChunk = opts && typeof opts.onChunk === 'function' ? opts.onChunk : null;
+      const o = opts || {};
+      const onChunk = typeof o.onChunk === 'function' && !o.tools ? o.onChunk : null;
+      const tools = Array.isArray(o.tools) && o.tools.length ? o.tools : null;
       const body = {
         model: cfg.model,
         messages,
         temperature: cfg.temperature,
         stream: !!onChunk
       };
-      if (cfg.jsonMode !== false) body.response_format = { type: 'json_object' };
+      if (tools) {
+        body.tools = tools;
+        body.tool_choice = 'auto';
+      } else if (cfg.jsonMode !== false) {
+        body.response_format = { type: 'json_object' };
+      }
+
+      async function extract(res) {
+        if (tools) {
+          const r = await res.json();
+          const msg = (r.choices && r.choices[0] && r.choices[0].message) || {};
+          const toolCalls = normalizeToolCalls(msg.tool_calls);
+          return {
+            content: msg.content || '',
+            toolCalls,
+            rawToolCalls: msg.tool_calls || []
+          };
+        }
+        const r = await res.json();
+        const content = r && r.choices && r.choices[0] && r.choices[0].message && r.choices[0].message.content;
+        if (!content) throw new Error('模型未返回内容');
+        return content;
+      }
 
       try {
-        return await postChat(body, onChunk);
+        if (onChunk) return await postChat(body, onChunk); // 流式路径直接拿全文
+        const res = await postChat(body, null, true);
+        return await extract(res);
       } catch (err) {
         if ((err.status === 400 || err.status === 422) && body.response_format) {
           const retry = Object.assign({}, body);
           delete retry.response_format;
-          return await postChat(retry, onChunk);
+          if (onChunk) return await postChat(retry, onChunk);
+          const res = await postChat(retry, null, true);
+          return await extract(res);
         }
         throw err;
       }
@@ -276,6 +342,7 @@ module.exports = {
   createOllamaClient,
   createOpenAiClient,
   createLlmClient,
+  normalizeToolCalls,
   DEFAULTS,
   CLOUD_DEFAULTS
 };

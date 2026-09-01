@@ -1132,6 +1132,7 @@ async function openJdMatch() {
 
 // ---------------- Agent 深度优化（本地 LLM · Ollama） ----------------
 let _agentStatus = null; // { available, models, config } | null=未检测
+let _agentMode = 'pipeline'; // 'pipeline' 确定性编排 | 'agentic' LLM 自主选工具
 
 async function refreshAgentStatus() {
   try {
@@ -1175,13 +1176,16 @@ function buildAgentCard() {
       ['○ ' + (isCloud ? '云端模型未就绪（仍可用规则引擎）' : '未检测到 Ollama（仍可用规则引擎）')]);
   }
 
-  const desc = isCloud
-    ? '云端模型（OpenAI 兼容：DeepSeek / Kimi / 通义 / OpenAI 均可）按 JD 改写条目；每轮产出仍先过本地确定性校验门，档案不会越改越差。API 密钥只保存在本机。'
-    : '本地 LLM 按 JD 改写条目，每轮产出先过「确定性校验门」（套话 / 丢数字 / 评分下降一律拒收重生成），档案不会越改越差。全程不出本机。';
-
   const runLabel = _agentStatus.available
     ? '⚡ 对着这份 JD 跑一轮'
     : (isCloud ? '运行（需先配置云端密钥）' : '运行（需先启动 Ollama）');
+
+  const modeBtns = {
+    pipeline: el('button', { class: 'seg-btn' + (_agentMode === 'pipeline' ? ' active' : ''), type: 'button', title: '固定流程：分析 JD → 改写 → 校验 → 复测，快且稳' }, ['流水线']),
+    agentic: el('button', { class: 'seg-btn' + (_agentMode === 'agentic' ? ' active' : ''), type: 'button', title: 'LLM 通过原生 function calling 自主决定调用哪个工具、何时收工' }, ['自主 Agent'])
+  };
+  modeBtns.pipeline.addEventListener('click', () => { _agentMode = 'pipeline'; renderResumePage(); });
+  modeBtns.agentic.addEventListener('click', () => { _agentMode = 'agentic'; renderResumePage(); });
 
   return el('div', { class: 'audit' }, [
     el('div', { class: 'card-title mb-0' }, [
@@ -1192,7 +1196,12 @@ function buildAgentCard() {
       }, [window.Icons.icon('gear', 13), '配置'])
     ]),
     statusLine,
-    el('p', { style: 'font-size:12.5px;color:var(--ink-2);line-height:1.7;margin:8px 0 12px;' }, [desc]),
+    el('div', { class: 'seg seg-thin' }, [modeBtns.pipeline, modeBtns.agentic]),
+    el('p', { style: 'font-size:12px;color:var(--ink-2);line-height:1.7;margin:0 0 12px;' }, [
+      _agentMode === 'agentic'
+        ? '自主模式：LLM 通过 function calling 自主调用分析 / 体检 / 改写工具，自己决定何时收工。产出仍过确定性校验门。'
+        : '流水线模式：固定流程「分析 JD → 改写 → 校验 → 复测」，轮次少、速度快，产出过确定性校验门。'
+    ]),
     el('button', {
       class: 'btn btn-primary btn-sm', type: 'button', style: 'width:100%;',
       onclick: openAgentRun
@@ -1388,7 +1397,7 @@ async function openAgentRun() {
   let result = null;
   let error = null;
   try {
-    result = await call(window.api.agent.run(state.profile, jd, {}));
+    result = await call(window.api.agent.run(state.profile, jd, { mode: _agentMode }));
   } catch (err) {
     error = err.message;
   } finally {

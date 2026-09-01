@@ -876,6 +876,8 @@ em { font-style: normal; color: var(--gold); }
 
 /* ---------- Agent 深度优化 ---------- */
 .seg { display: flex; border: 1px solid var(--line); border-radius: var(--radius-sm); overflow: hidden; margin-bottom: 14px; }
+.seg-thin { margin: 10px 0 8px; }
+.seg-thin .seg-btn { padding: 7px 8px; font-size: 12px; }
 .seg-btn { flex: 1; padding: 9px; background: var(--bg-2); color: var(--ink-2); font-size: 13px; font-weight: 600; transition: .18s; }
 .seg-btn:hover { color: var(--ink-1); }
 .seg-btn.active { background: rgba(240,161,60,.12); color: var(--gold-soft); box-shadow: inset 0 0 0 1px rgba(240,161,60,.3); }

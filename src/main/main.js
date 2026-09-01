@@ -184,11 +184,12 @@ ipcMain.handle('agent:status', async () => {
   }
 });
 
-// 运行 Agent：分析 JD → 上下文裁剪 → LLM 改写 → 确定性校验门 → 复测
-// 步骤经 'agent:progress'、LLM 分片经 'agent:stream' 实时推送到渲染层
+// 运行 Agent：mode='pipeline'（默认，确定性编排）或 'agentic'（LLM 原生
+// function-calling 自主选工具循环）。步骤经 'agent:progress' 实时推送渲染层。
 ipcMain.handle('agent:run', async (_e, profile, jdText, opts) => {
   try {
-    const cfg = Object.assign({}, store.getSetting('agent') || {}, opts || {});
+    const o = opts || {};
+    const cfg = Object.assign({}, store.getSetting('agent') || {}, o);
     const llm = createLlmClient(cfg);
     const send = (s) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -200,7 +201,8 @@ ipcMain.handle('agent:run', async (_e, profile, jdText, opts) => {
         mainWindow.webContents.send('agent:stream', { round, piece });
       }
     };
-    const result = await agent.runAgent(profile, jdText, { llm, onStep: send, onChunk: sendStream });
+    const runner = o.mode === 'agentic' ? agent.agenticLoop : agent.runAgent;
+    const result = await runner(profile, jdText, { llm, onStep: send, onChunk: sendStream });
     return ok(result);
   } catch (err) {
     return fail(err.message);

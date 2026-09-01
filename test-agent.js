@@ -2,9 +2,16 @@
 
 // Agent 运行时自测：注入 mock LLM，覆盖「改写 → 校验门 → 重生成 → 复测」全链路
 // 不需要真实 Ollama；llm-client 的探测行为单独验证（本机无服务时应返回 false）
+const http = require('http');
 const { createOllamaClient } = require('./src/main/llm-client');
 const agent = require('./src/main/agent');
 const engine = require('./src/main/resume-engine');
+
+// 看门狗：任何悬挂（伪服务器未关 / fetch 未归）60 秒后强制退出，防止 CI 假死
+setTimeout(() => {
+  console.error('⏰ 看门狗超时：测试疑似悬挂，强制退出（exit 1）');
+  process.exit(1);
+}, 60000).unref();
 
 let pass = 0, failCnt = 0;
 function assert(cond, msg) {
@@ -190,7 +197,6 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
   assert(resultS.accepted.length === 0 && resultS.error == null, '空改写集不报错');
 
   // ---------- 12) llm-client 流式解析（本地起伪 Ollama 服务） ----------
-  const http = require('http');
   const srv = http.createServer((req, res) => {
     res.setHeader('Content-Type', 'application/x-ndjson');
     res.write(JSON.stringify({ message: { content: '{"re' } }) + '\n');
@@ -198,6 +204,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     res.end();
   });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  srv.unref();
   const streamClient = createOllamaClient({
     endpoint: 'http://127.0.0.1:' + srv.address().port,
     timeout: 5000
@@ -216,13 +223,16 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     let failFirstRf = false;
     const srv2 = http.createServer((req, res) => {
       sawAuth = req.headers['authorization'];
-      if (req.url.endsWith('/models')) {
-        if (sawAuth === 'Bearer good-key') {
+      if (req.method !== 'POST' || req.url.endsWith('/models')) {
+        if (req.url.endsWith('/models') && sawAuth === 'Bearer good-key') {
           res.setHeader('Content-Type', 'application/json');
           res.end(JSON.stringify({ data: [{ id: 'deepseek-chat' }, { id: 'deepseek-reasoner' }] }));
-        } else {
+        } else if (req.url.endsWith('/models')) {
           res.statusCode = 401;
           res.end(JSON.stringify({ error: { message: 'Invalid API key' } }));
+        } else {
+          res.setHeader('Content-Type', 'application/json');
+          res.end(JSON.stringify({ data: [] }));
         }
         return;
       }
@@ -255,6 +265,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
       });
     });
     await new Promise((r) => srv2.listen(0, '127.0.0.1', r));
+    srv2.unref();
     const cloudUrl = 'http://127.0.0.1:' + srv2.address().port;
     const baseCfg = { provider: 'cloud', endpoint: cloudUrl, model: 'deepseek-chat', timeout: 5000 };
 
@@ -301,7 +312,129 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     const stN = await noKey.status();
     assert(stN.available === false && /密钥/.test(stN.error || ''), '云端未配密钥返回不可用');
 
-    srv2.close();
+    // i. tools 透传 + tool_calls 归一化（OpenAI 格式：arguments 为 JSON 串）
+    let lastBody = null;
+    const srv3 = http.createServer((req, res) => {
+      if (req.method !== 'POST') { // GET /models 等兜底，避免悬挂
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ data: [] }));
+        return;
+      }
+      let raw = '';
+      req.on('data', (c) => { raw += c; });
+      req.on('end', () => {
+        lastBody = JSON.parse(raw || '{}');
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({
+          choices: [{
+            message: {
+              content: '',
+              tool_calls: [{
+                id: 'call_001',
+                type: 'function',
+                function: { name: 'rewrite_bullets', arguments: '{"rewrites":[{"id":"p0-b0","text":"主导订单系统优化，P99 从 800ms 降到 120ms"}]}' }
+              }]
+            }
+          }]
+        }));
+      });
+    });
+    srv3.unref();
+    await new Promise((r) => srv3.listen(0, '127.0.0.1', r));
+    const toolsClient = createLlmClient({
+      provider: 'cloud',
+      endpoint: 'http://127.0.0.1:' + srv3.address().port,
+      apiKey: 'good-key', model: 'm', timeout: 5000
+    });
+    const reply = await toolsClient.chat([{ role: 'user', content: 'x' }], {
+      tools: [{ type: 'function', function: { name: 'rewrite_bullets', description: 'd', parameters: { type: 'object', properties: {} } } }]
+    });
+    assert(lastBody.tools && lastBody.tools.length === 1 && lastBody.tool_choice === 'auto', '云端请求透传 tools + tool_choice:auto');
+    assert(reply.toolCalls.length === 1 && reply.toolCalls[0].name === 'rewrite_bullets', 'tool_calls 归一化（name）');
+    assert(reply.toolCalls[0].args.rewrites[0].id === 'p0-b0', 'tool_calls arguments JSON 串被解析为对象');
+    assert(reply.rawToolCalls[0].id === 'call_001', 'rawToolCalls 保留原始 id（OpenAI 回填用）');
+    srv3.close();
+  }
+
+  // ---------- 14) Agentic Loop：LLM 自主选工具全链路（mock function-calling） ----------
+  {
+    const { agenticLoop, buildAgentTools, toolsToProtocol } = require('./src/main/agent');
+
+    // 14a. 工具集构建与协议转换
+    const ctxX = { profile: PROFILE, jd: JD, items: agent.buildTaskItems(PROFILE), accepted: new Map(), rejected: [] };
+    const atools = buildAgentTools(ctxX);
+    assert(atools.length === 4, 'agentic 工具集含 4 个工具');
+    const proto = toolsToProtocol(atools);
+    assert(proto[0].type === 'function' && proto[0].function.name === 'analyze_jd', 'toolsToProtocol 输出 OpenAI function 格式');
+    assert(proto.every((t) => t.function.parameters && t.function.parameters.type === 'object'), '全部工具带 parameters schema');
+
+    // 14b. happy path：模型自主走完「分析 → 改写 → 收工」
+    const script = [
+      { toolCalls: [{ name: 'analyze_jd', args: {} }] },
+      { toolCalls: [{ name: 'audit_text', args: {} }] },
+      { toolCalls: [{ name: 'rewrite_bullets', args: { rewrites: [
+        { id: 'p0-b0', text: '主导订单系统查询优化，引入缓存，P99 从 800ms 降到 120ms' },
+        { id: 'p0-b1', text: '承担用户模块开发，支撑日活 3 万' },
+        { id: 'summary', text: '后端方向应届生，有可量化的项目经历' }
+      ] } }] },
+      { toolCalls: [{ name: 'submit_result', args: {} }] }
+    ];
+    const callsSeen = [];
+    const llmA = {
+      chat: async (_msgs, opts) => {
+        assert(Array.isArray(opts.tools) && opts.tools.length === 4, 'agenticLoop 向 LLM 传入 4 个工具定义');
+        const r = script[Math.min(callsSeen.length, script.length - 1)];
+        callsSeen.push(1);
+        return { content: '', toolCalls: r.toolCalls, rawToolCalls: [] };
+      }
+    };
+    const resultA = await agenticLoop(PROFILE, JD, { llm: llmA, maxSteps: 10 });
+    assert(resultA.ok === true, 'agentic happy path：整体成功');
+    assert(resultA.mode === 'agentic', '结果标记 mode=agentic');
+    assert(resultA.accepted.length === 3, '3 条改写通过校验门并留存');
+    assert(resultA.auditAfter > resultA.auditBefore, '体检分提升（' + resultA.auditBefore + '→' + resultA.auditAfter + '）');
+    assert(resultA.stepsUsed === 4, '4 步收工（analyze→audit→rewrite→submit）');
+    const names = resultA.steps.map((s) => s.tool);
+    assert(names.includes('analyze_jd') && names.includes('rewrite_bullets') && names.includes('submit_result'), '步骤轨迹含关键工具调用');
+    assert(resultA.steps.every((s) => s.ok), '所有步骤成功');
+
+    // 14c. 校验门仍在：模型提交套话 → 被拒收，工具结果带回原因
+    const ctxY = { profile: PROFILE, jd: JD, items: agent.buildTaskItems(PROFILE), accepted: new Map(), rejected: [] };
+    const ytools = buildAgentTools(ctxY);
+    const rw = ytools.find((t) => t.name === 'rewrite_bullets');
+    const outY = rw.run({ rewrites: [{ id: 'p0-b0', text: '通过赋能业务实现订单优化' }] });
+    assert(outY.accepted === 0 && outY.rejected.length === 1 && /套话/.test(outY.rejected[0].reason), 'agentic 模式下校验门照常拒收套话');
+
+    // 14d. 防失控：模型一直不调工具 → 连续 2 次后终止
+    const llmB = { chat: async () => ({ content: '我觉得挺好的', toolCalls: [] }) };
+    const resultB = await agenticLoop(PROFILE, JD, { llm: llmB, maxSteps: 10 });
+    assert(resultB.ok === false && /未调用工具/.test(resultB.error), '模型不调工具时终止并给出原因');
+    assert(resultB.stepsUsed <= 2, '终止及时（第 2 步即停）');
+
+    // 14e. 防失控：步数上限
+    const llmC = { chat: async () => ({ content: '', toolCalls: [{ name: 'audit_text', args: {} }] }) };
+    const resultC = await agenticLoop(PROFILE, JD, { llm: llmC, maxSteps: 4 });
+    assert(resultC.ok === false && /步数上限/.test(resultC.error), '达到步数上限终止');
+    assert(resultC.stepsUsed === 4, '恰好执行 maxSteps 步');
+
+    // 14f. 未知工具：报错回给模型而不是崩溃
+    const scriptD = [
+      { toolCalls: [{ name: 'hack_tool', args: {} }] },
+      { toolCalls: [{ name: 'submit_result', args: {} }] }
+    ];
+    let di = 0;
+    const llmD = { chat: async () => { const r = scriptD[Math.min(di, 1)]; di++; return { content: '', toolCalls: r.toolCalls, rawToolCalls: [] }; } };
+    const resultD = await agenticLoop(PROFILE, JD, { llm: llmD, maxSteps: 6 });
+    assert(resultD.steps.some((s) => !s.ok && /白名单/.test(s.detail)), '未知工具被白名单拦截并记录');
+    assert(resultD.stepsUsed === 2, '后续正常收工（第 2 步）');
+
+    // 14g. 空输入校验
+    let errAg = null;
+    try { await agenticLoop(PROFILE, '  ', { llm: llmA }); } catch (e) { errAg = e; }
+    assert(errAg && /职位描述/.test(errAg.message), 'agentic：空 JD 报错');
+    let errAg2 = null;
+    try { await agenticLoop({ summary: '', skills: '', projects: [], internships: [] }, JD, { llm: llmA }); } catch (e) { errAg2 = e; }
+    assert(errAg2 && /可改写/.test(errAg2.message), 'agentic：空档案报错');
   }
 
   console.log('\nAgent 自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
