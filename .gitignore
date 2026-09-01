@@ -21,6 +21,7 @@ evals/llm-report.json
 npm-debug.log*
 test-fixture.pdf
 *.tmp
+shots/
 
 # 系统文件
 Thumbs.db

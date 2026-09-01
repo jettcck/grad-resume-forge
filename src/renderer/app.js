@@ -1658,7 +1658,7 @@ async function renderApps() {
 
   const board = el('div', { class: 'board' }, STAGES.map((stage) => {
     const cards = state.applications.filter((a) => (a.stage || 'wish') === stage.key);
-    return el('div', { class: 'column' }, [
+    return el('div', { class: 'column stage-' + stage.key }, [
       el('h4', {}, [stage.label, el('span', { class: 'count' }, [String(cards.length)])]),
       ...(cards.length ? cards.map(appCard) : [el('div', { class: 'empty', style: 'padding:20px;font-size:13px;' }, ['暂无'])])
     ]);
