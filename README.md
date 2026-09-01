@@ -1,5 +1,8 @@
 # 简历锻造炉 · GradResume Forge
 
+[![CI](https://github.com/jettcck/grad-resume-forge/actions/workflows/ci.yml/badge.svg)](https://github.com/jettcck/grad-resume-forge/actions/workflows/ci.yml)
+[![Release](https://github.com/jettcck/grad-resume-forge/actions/workflows/release.yml/badge.svg)](https://github.com/jettcck/grad-resume-forge/actions/workflows/release.yml)
+
 计算机应届生**一键写简历 / 投简历**桌面端 App —— 本地优先 · 去 AI 味引擎 · 规则 + LLM 混合 Agent。
 
 ## ✨ 核心特性
@@ -49,12 +52,18 @@ npm run eval:llm   # LLM 层评测（需要本机 Ollama）
 
 不配置也不影响其他功能，规则引擎始终可用。
 
-### 打包发布
+### 打包发布（全自动流水线）
+
+推送即测，打 tag 即发版：
 
 ```bash
-npm run dist      # 本地打包（release/ 下出 NSIS 安装包）
-npm run release   # 打包并发布到 GitHub Releases（需 GH_TOKEN）
+npm version patch        # 1.1.0 → 1.1.1（自动改版本号 + 提交 + 打 tag）
+git push --follow-tags   # 推送提交与 tag → CI 自动构建并发布到 Releases
 ```
+
+- **CI**：push / PR 自动跑全量测试与语法检查（`.github/workflows/ci.yml`）
+- **Release**：推送 `v*` tag 触发（`.github/workflows/release.yml`）——校验 tag 与 `package.json` 版本一致 → 跑一遍测试 → 构建 Windows 安装包 → 发布正式版 Releases（含 `latest.yml`，用户端自动更新依赖它）
+- 本地打包仅供自用：`npm run dist`（显式 `--publish never`，不会误发版）
 
 ## 📊 测试与评测
 

@@ -9,7 +9,7 @@
     "test": "node test-engine.js && node test-importer.js && node test-agent.js && node test-e2e.js && node test-updater.js && node evals/run-evals.js",
     "eval": "node evals/run-evals.js",
     "eval:llm": "node evals/run-llm-eval.js",
-    "dist": "electron-builder --win --x64",
+    "dist": "electron-builder --win --x64 --publish never",
     "release": "electron-builder --win --x64 --publish always"
   },
   "author": "",
@@ -33,7 +33,8 @@
       {
         "provider": "github",
         "owner": "jettcck",
-        "repo": "grad-resume-forge"
+        "repo": "grad-resume-forge",
+        "releaseType": "release"
       }
     ],
     "win": {

@@ -63,4 +63,21 @@ assert(preloadSrc.includes('onEvent') && preloadSrc.includes("ipcRenderer.on('up
 const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'renderer', 'app.js'), 'utf8');
 assert(appSrc.includes('showUpdateReady') && appSrc.includes('openAbout'), '渲染层含更新弹窗与关于弹窗');
 
+// 5) CI / 发布流水线配置存在且关键项齐全
+const ciYml = path.join(__dirname, '.github', 'workflows', 'ci.yml');
+const relYml = path.join(__dirname, '.github', 'workflows', 'release.yml');
+assert(fs.existsSync(ciYml), '.github/workflows/ci.yml 存在');
+assert(fs.existsSync(relYml), '.github/workflows/release.yml 存在');
+const ciSrc = fs.readFileSync(ciYml, 'utf8');
+const relSrc = fs.readFileSync(relYml, 'utf8');
+assert(ciSrc.includes('npm test') && ciSrc.includes('push'), 'CI 工作流在 push 时跑测试');
+assert(ciSrc.includes("branches: [main]"), 'CI 监听 main 分支');
+assert(relSrc.includes("tags:") && relSrc.includes("- 'v*'"), '发布工作流由 v* tag 触发');
+assert(relSrc.includes('contents: write'), '发布工作流声明 contents:write 权限');
+assert(relSrc.includes('secrets.GITHUB_TOKEN'), '发布工作流使用 GITHUB_TOKEN');
+assert(relSrc.includes('npm run release'), '发布工作流执行 npm run release');
+assert(relSrc.includes('Verify tag matches'), '发布前校验 tag 与版本一致性');
+assert(pub && pub.releaseType === 'release', 'publish 配置 releaseType=release（tag 直发正式版，latest.yml 可解析）');
+assert(pkg.scripts.dist.includes('--publish never'), '本地 dist 显式 --publish never（防误发版）');
+
 console.log('\n更新器烟测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
