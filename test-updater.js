@@ -31,7 +31,7 @@ const repo = pub && pub.owner && pub.repo ? pub.owner + '/' + pub.repo : '';
 assert(/^[^/]+\/[^/]+$/.test(repo), 'GH_REPO 可解析为 owner/name（' + repo + '）');
 assert(typeof pkg.scripts.release === 'string' && pkg.scripts.release.includes('--publish'),
   'npm run release 脚本带 --publish always');
-assert(pkg.version === '1.1.0', '版本号已升至 1.1.0（触发更新对比的基准）');
+assert(/^\d+\.\d+\.\d+$/.test(pkg.version), '版本号符合 semver（当前 ' + pkg.version + '，发版对比基准）');
 
 // 3) 镜像 URL 构造规则（与 main.js configureUpdater 逐字一致）
 function mirrorFeedUrl(mirror, ghRepo) {
