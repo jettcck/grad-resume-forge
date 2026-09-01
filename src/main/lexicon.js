@@ -52,6 +52,7 @@ const STRONG_VERBS = {
   frontend: ['开发', '封装', '优化', '重构', '实现', '还原'],
   algorithm: ['设计', '实现', '优化', '训练', '调优', '验证'],
   data: ['构建', '清洗', '分析', '建模', '可视化', '挖掘'],
+  llm: ['构建', '设计', '实现', '集成', '调优', '评测'],
   general: ['设计', '实现', '优化', '主导', '搭建', '完成']
 };
 
@@ -79,6 +80,16 @@ const ROLE_SKILLS = {
     'sql|mysql|postgres|postgresql|sqlite', 'python', 'spark', 'hadoop', 'hive', 'etl', '数据仓库|数仓',
     '数据可视化|可视化', 'pandas|numpy', 'flink', 'kafka', '数据分析',
     'bi|报表', '建模|数据建模'
+  ],
+  // 大模型 / Agent 应用方向：2024-2026 校招热门岗
+  llm: [
+    'python', 'llm|大模型|大语言模型', 'prompt|提示词|prompt engineering',
+    'agent|智能体|function calling|工具调用',
+    'rag|检索增强|知识库', 'langchain|llamaindex|dify|coze',
+    '微调|fine-tuning|lora|sft', 'transformer|bert|gpt',
+    '向量数据库|embedding|向量检索', 'api 集成|openai|ollama',
+    '评测|evals', '流式输出|streaming', '多模态|multimodal',
+    'huggingface', 'vllm|推理加速|量化'
   ],
   general: [
     '数据结构', '算法', 'git', 'linux', '操作系统', '计算机网络|网络',

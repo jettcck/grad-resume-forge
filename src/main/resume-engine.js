@@ -25,7 +25,10 @@ function splitLines(text) {
 // 领域识别规则（按优先级排列）。
 // 英文关键词统一加 \b 词边界，避免子串误判：html 误命中 ml、javascript 误命中 java、
 // mobile/rabbitmq 误命中 bi、require 误命中 ui 等。
+// llm 规则放在 algorithm 之前：「大模型/Agent/RAG」等词含「模型」等算法词根，
+// 应用方向优先于算法方向归类。
 const DOMAIN_RULES = [
+  ['llm', /(大模型|大语言模型|\bllm\b|agent|智能体|\brag\b|提示词|prompt|aigc|\bai 应用|微调|\blora\b|\bsft\b|多模态|multimodal|langchain|dify)/i],
   ['algorithm', /(算法|机器学习|深度学习|模型|pytorch|tensorflow|\bcv\b|\bnlp\b|\bml\b)/i],
   ['backend', /(后端|服务端|\bjava\b|\bgo\b|golang|spring|mysql|redis|微服务|\bapi\b|分布式)/i],
   ['frontend', /(前端|react|vue|css|html|页面|\bui\b|typescript|webpack)/i],

@@ -1074,7 +1074,7 @@ function buildJdCard() {
 
   const color = jd.score >= 60 ? 'var(--teal)' : jd.score >= 40 ? 'var(--gold)' : 'var(--danger)';
   const DOMAIN_LABELS = {
-    backend: '后端', frontend: '前端', algorithm: '算法', data: '数据', general: '通用'
+    backend: '后端', frontend: '前端', algorithm: '算法', data: '数据', llm: '大模型 / Agent', general: '通用'
   };
   const hitTags = jd.hit.length
     ? jd.hit.map((h) => el('span', { class: 'skill-hit' }, ['✓ ' + h.label]))

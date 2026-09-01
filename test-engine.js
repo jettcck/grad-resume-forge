@@ -48,6 +48,21 @@ assert(engine.detectDomain('算法工程师，pytorch 深度学习 nlp') === 'al
 assert(engine.detectDomain('数据开发，spark hadoop 数仓 etl') === 'data', '数据方向识别正确');
 assert(engine.detectDomain('后端开发，spring mysql 分布式') === 'backend', '后端方向识别正确');
 
+// 6b) 大模型 / Agent 方向：新热门岗位归入 llm，且优先于 algorithm
+assert(engine.detectDomain('大模型 Agent 工程师') === 'llm', '「大模型 Agent」归入 llm 方向');
+assert(engine.detectDomain('Agent 开发工程师') === 'llm', 'Agent 岗归入 llm 方向');
+assert(engine.detectDomain('RAG 工程师') === 'llm', 'RAG 岗归入 llm 方向');
+assert(engine.detectDomain('提示词工程师') === 'llm', '提示词岗归入 llm 方向');
+assert(engine.detectDomain('LLM 应用开发工程师') === 'llm', 'LLM 应用岗归入 llm 方向');
+assert(engine.detectDomain('算法工程师（机器学习）') === 'algorithm', '传统算法岗仍归 algorithm（不被 llm 抢走）');
+
+// 6c) llm 技能词库：Agent 项目经历能命中方向核心技能
+const mjLlm = engine.matchJob('用 python 实现 llm agent 的 function calling 工具调用，含 rag 检索、prompt 设计、流式输出、评测与 ollama 部署', 'llm', 'Agent 工程师');
+assert(mjLlm.hit.some((h) => h.label === 'agent'), 'agent/工具调用的技能命中');
+assert(mjLlm.hit.some((h) => h.label === 'rag'), 'rag 技能命中');
+assert(mjLlm.hit.some((h) => h.label === 'python'), 'python 技能命中');
+assert(mjLlm.hitCount >= 6, 'llm 方向命中数充足（实际 ' + mjLlm.hitCount + '/' + mjLlm.total + '）');
+
 // 7) 岗位匹配词边界：子串不应误命中技能
 const mj1 = engine.matchJob('熟悉 javascript、json 与 vue3', 'frontend', '前端开发');
 assert(mj1.hit.some((h) => h.label === 'javascript'), 'javascript 正确命中 JS 技能');
