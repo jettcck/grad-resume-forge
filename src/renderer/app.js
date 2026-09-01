@@ -603,26 +603,39 @@ function jobEntry(kind, it, i) {
   ]);
 }
 
+// 卡片标题工厂：图标 + 标题 + 提示（取代纯文字标题，全站统一）
+function cardTitle(iconName, title, hint) {
+  return el('div', { class: 'card-title' }, [
+    el('h3', {}, [window.Icons.icon(iconName), title]),
+    hint ? el('span', { class: 'hint' }, [hint]) : null
+  ]);
+}
+
 function renderProfile() {
   const p = state.profile;
   const root = document.getElementById('route-profile');
   root.innerHTML = '';
+  const ico = (n, s) => window.Icons.icon(n, s);
 
   const head = el('div', { class: 'page-head' }, [
     el('div', { class: 'page-kicker' }, ['STEP 01 / 信息录入']),
     el('h1', { class: 'page-title' }, ['讲清楚你真实做过什么']),
-    el('p', { class: 'page-desc' }, ['用大白话填写即可——不需要华丽辞藻。生成时引擎会自动删除套话、强化动词、提醒你补充量化数据，写出没有 AI 味、招聘官爱看的简历。'])
+    el('p', { class: 'page-desc' }, ['用大白话填写即可——生成时引擎会自动删除套话、强化动词、提醒你补量化。左侧填档案，右侧看完成度。'])
   ]);
 
   // 一键导入旧简历（PDF / TXT）：本地解析自动填表，导入后预览确认
-  const importBar = el('div', { class: 'toolbar' }, [
-    el('button', { class: 'btn btn-ghost', type: 'button', onclick: onImportResume }, ['⤓ 导入旧简历（PDF / TXT）']),
-    el('span', { style: 'font-size:12.5px;color:var(--ink-2);' }, ['已有旧简历？选文件自动填表，再微调即可'])
+  const importBar = el('div', { class: 'import-bar' }, [
+    ico('download', 17),
+    el('div', { class: 'ib-text' }, [
+      el('b', {}, ['已有旧简历？']),
+      el('span', {}, ['选 PDF / TXT 文件自动填表，识别结果先给你过目'])
+    ]),
+    el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: onImportResume }, ['导入旧简历'])
   ]);
 
-  // 基本信息
-  const basicsCard = el('div', { class: 'card' }, [
-    el('div', { class: 'card-title' }, [el('h3', {}, ['基本信息'])]),
+  // ---- 左列：档案主体 ----
+  const basicsCard = el('div', { class: 'card', id: 'card-basics' }, [
+    cardTitle('user', '基本信息'),
     el('div', { class: 'grid-3' }, [
       inputField('姓名', 'name', p.name, '张三'),
       inputField('手机号', 'phone', p.phone, '138****8888'),
@@ -635,53 +648,114 @@ function renderProfile() {
     ]),
     areaField('一句话自我介绍（选填，留空则自动生成）', 'summary', p.summary, '留空即可，引擎会根据你的经历自动拼一句朴实、无套话的简介')
   ]);
-  basicsCard.id = 'card-basics';
 
-  // 技能
-  const skillsCard = el('div', { class: 'card' }, [
-    el('div', { class: 'card-title' }, [el('h3', {}, ['专业技能']), el('span', { class: 'hint' }, ['用逗号 / 顿号分隔'])]),
-    areaField('技能清单', 'skills', p.skills, 'Java, Go, MySQL, Redis, 数据结构, 计算机网络, Git, Linux')
+  const skillsCard = el('div', { class: 'card', id: 'card-skills' }, [
+    cardTitle('wrench', '专业技能', '逗号 / 顿号分隔'),
+    areaField('技能清单', 'skills', p.skills, 'Java, Go, MySQL, Redis, 数据结构, 计算机网络, Git, Linux'),
+    (p.skills || '').trim() ? el('div', { class: 'skill-chip-row' },
+      p.skills.split(/[,，、;；\n]/).map((s) => s.trim()).filter(Boolean).slice(0, 24)
+        .map((s) => el('span', { class: 'r-skill' }, [s]))
+    ) : null
   ]);
-  skillsCard.id = 'card-skills';
 
   // 教育（保存时空条目已被过滤，这里兜底渲染一条空白引导填写）
   const eduItems = (p.education && p.education.length) ? p.education : [{ degree: '本科' }];
   const eduList = el('div', { id: 'edu-list' }, eduItems.map((ed, i) => eduEntry(ed, i)));
   const eduCard = el('div', { class: 'card' }, [
-    el('div', { class: 'card-title' }, [el('h3', {}, ['教育背景'])]),
+    cardTitle('cap', '教育背景'),
     eduList,
     el('button', { class: 'add-entry', type: 'button', onclick: () => {
       eduList.appendChild(eduEntry({ degree: '本科' }, eduList.children.length));
-    } }, ['+ 添加教育经历'])
+    } }, [ico('plus', 13), '+ 添加教育经历'])
   ]);
 
   // 实习
   const internList = el('div', { id: 'intern-list' }, (p.internships || []).map((it, i) => jobEntry('intern', it, i)));
   const internCard = el('div', { class: 'card' }, [
-    el('div', { class: 'card-title' }, [el('h3', {}, ['实习经历']), el('span', { class: 'hint' }, ['没有可留空'])]),
+    cardTitle('briefcase', '实习经历', '没有可留空'),
     internList,
     el('button', { class: 'add-entry', type: 'button', onclick: () => {
       internList.appendChild(jobEntry('intern', {}, internList.children.length));
-    } }, ['+ 添加实习经历'])
+    } }, [ico('plus', 13), '+ 添加实习经历'])
   ]);
 
   // 项目（空档案兜底渲染一条空白引导填写）
   const projItems = (p.projects && p.projects.length) ? p.projects : [{}];
   const projList = el('div', { id: 'proj-list' }, projItems.map((it, i) => jobEntry('proj', it, i)));
   const projCard = el('div', { class: 'card' }, [
-    el('div', { class: 'card-title' }, [el('h3', {}, ['项目经历']), el('span', { class: 'hint' }, ['应届最重要的部分'])]),
+    cardTitle('code', '项目经历', '应届最重要的部分'),
     projList,
     el('button', { class: 'add-entry', type: 'button', onclick: () => {
       projList.appendChild(jobEntry('proj', {}, projList.children.length));
-    } }, ['+ 添加项目经历'])
+    } }, [ico('plus', 13), '+ 添加项目经历'])
   ]);
 
-  const actions = el('div', { class: 'toolbar' }, [
-    el('button', { class: 'btn btn-primary', type: 'button', onclick: onSaveProfile }, ['保存信息']),
-    el('button', { class: 'btn btn-ghost', type: 'button', onclick: async () => { await onSaveProfile(true); navigate('resume'); } }, ['保存并生成简历 →'])
+  // ---- 右列：锻造侧栏（完成度仪表 + 档案统计 + 摘要卡）----
+  const stats = buildProfileStats(p);
+  const sideCol = el('div', { class: 'profile-side' }, [
+    el('div', { class: 'card side-card completeness' }, [
+      cardTitle('gauge', '档案完成度'),
+      el('div', { class: 'audit-score' }, [
+        el('span', { class: 'score-num', style: 'color:' + (stats.score >= 80 ? 'var(--teal)' : stats.score >= 50 ? 'var(--gold)' : 'var(--danger)') }, [String(stats.score)]),
+        el('span', { class: 'score-max' }, ['%'])
+      ]),
+      el('div', { class: 'meter' }, [el('i', { style: 'width:' + stats.score + '%;background:' + (stats.score >= 80 ? 'var(--teal)' : stats.score >= 50 ? 'var(--gold)' : 'var(--danger)') })]),
+      el('div', { class: 'check-list' }, stats.items.map((it) =>
+        el('div', { class: 'check-item' + (it.done ? ' done' : '') }, [
+          el('span', { class: 'ci-ico' }, [it.done ? '✓' : '○']),
+          el('span', { class: 'ci-label' }, [it.label])
+        ])
+      ))
+    ]),
+    el('div', { class: 'card side-card' }, [
+      cardTitle('doc', '档案速览'),
+      el('div', { class: 'stat-rows' }, [
+        ['教育', stats.countEdu + ' 段', 'cap'],
+        ['实习', stats.countIntern + ' 段', 'briefcase'],
+        ['项目', stats.countProj + ' 段', 'code'],
+        ['技能', stats.countSkill + ' 项', 'wrench']
+      ].map(([k, v, ic]) =>
+        el('div', { class: 'stat-row' }, [ico(ic, 15), el('span', { class: 'sk' }, [k]), el('b', {}, [v])])
+      ))
+    ])
   ]);
 
-  root.append(head, importBar, basicsCard, skillsCard, eduCard, internCard, projCard, actions);
+  // 悬浮保存条：双栏后底部按钮易被忽略，改为钉在底部的工具条
+  const saveBar = el('div', { class: 'save-bar' }, [
+    el('div', { class: 'sb-stat' }, ['档案完成度 ' + stats.score + '% · Ctrl+S 保存']),
+    el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: onSaveProfile }, ['保存信息']),
+    el('button', { class: 'btn btn-primary btn-sm', type: 'button', onclick: async () => { await onSaveProfile(true); navigate('resume'); } }, ['保存并生成简历 →'])
+  ]);
+
+  const twoCols = el('div', { class: 'profile-layout' }, [
+    el('div', { class: 'profile-main' }, [basicsCard, skillsCard, eduCard, internCard, projCard]),
+    sideCol
+  ]);
+
+  root.append(head, importBar, twoCols, saveBar);
+}
+
+// 档案完成度：8 项检查（用于录入页侧栏仪表 + 保存条）
+function buildProfileStats(p) {
+  const items = [
+    { label: '基本信息（姓名/手机/邮箱）', done: !!(p.name && p.phone && p.email) },
+    { label: '城市与目标岗位', done: !!(p.city && p.targetRole) },
+    { label: '一句话自我介绍', done: !!((p.summary || '').trim()) },
+    { label: '技能 ≥ 4 项', done: (p.skills || '').split(/[,，、;；\n]/).filter((s) => s.trim()).length >= 4 },
+    { label: '教育经历 ≥ 1 段', done: (p.education || []).some((e) => e.school) },
+    { label: '项目经历 ≥ 1 段', done: (p.projects || []).some((e) => e.name) },
+    { label: '项目描述有量化', done: (p.projects || []).some((e) => /\d/.test(e.description || '')) },
+    { label: 'GitHub / 主页', done: !!(p.github || '').trim() }
+  ];
+  const done = items.filter((x) => x.done).length;
+  return {
+    items,
+    score: Math.round((done / items.length) * 100),
+    countEdu: (p.education || []).filter((e) => e.school).length,
+    countIntern: (p.internships || []).filter((e) => e.name).length,
+    countProj: (p.projects || []).filter((e) => e.name).length,
+    countSkill: (p.skills || '').split(/[,，、;；\n]/).filter((s) => s.trim()).length
+  };
 }
 
 // ---------------- 一键导入旧简历 ----------------
@@ -909,7 +983,7 @@ async function renderResumePage() {
     : [el('div', { class: 'tip' }, ['未检测到套话 / AI 高频词，很干净！'])];
 
   const auditCard = el('div', { class: 'audit' }, [
-    el('div', { class: 'card-title mb-0' }, [el('h3', {}, ['去 AI 味体检'])]),
+    el('div', { class: 'card-title mb-0' }, [el('h3', {}, [window.Icons.icon('gauge'), '去 AI 味体检'])]),
     el('div', { class: 'audit-score', style: 'margin-top:12px;' }, [
       el('span', { class: 'score-num', style: 'color:' + color }, [String(audit.score)]),
       el('span', { class: 'score-max' }, ['/ 100'])
@@ -922,7 +996,7 @@ async function renderResumePage() {
 
   // ---- 优化建议 ----
   const tipsCard = el('div', { class: 'audit' }, [
-    el('div', { class: 'card-title mb-0' }, [el('h3', {}, ['优化建议'])]),
+    el('div', { class: 'card-title mb-0' }, [el('h3', {}, [window.Icons.icon('bulb'), '优化建议'])]),
     el('div', { class: 'tips-list', style: 'margin-top:12px;' },
       (result.tips.length ? result.tips : ['信息很完整，暂无补充建议。']).map((t) => el('div', { class: 'tip' }, [t]))
     )
@@ -940,7 +1014,7 @@ async function renderResumePage() {
 
   const matchCard = el('div', { class: 'audit' }, [
     el('div', { class: 'card-title mb-0' }, [
-      el('h3', {}, ['岗位匹配度']),
+      el('h3', {}, [window.Icons.icon('target2'), '岗位匹配度']),
       el('span', { class: 'hint' }, [match.targetRole || '目标岗位'])
     ]),
     el('div', { class: 'audit-score', style: 'margin-top:12px;' }, [
@@ -971,11 +1045,11 @@ async function renderResumePage() {
   ]);
 
   const toolbar = el('div', { class: 'toolbar' }, [
-    el('button', { class: 'btn btn-ghost', type: 'button', onclick: () => navigate('profile') }, ['← 返回编辑']),
+    el('button', { class: 'btn btn-ghost', type: 'button', onclick: () => navigate('profile') }, [window.Icons.icon('file', 15), '返回编辑']),
     el('div', { class: 'spacer' }),
-    el('button', { class: 'btn btn-ghost', type: 'button', onclick: openAddApplication }, ['+ 记录一次投递']),
-    el('button', { class: 'btn btn-ghost', type: 'button', onclick: copyResumeText }, ['复制纯文本']),
-    el('button', { class: 'btn btn-primary', type: 'button', onclick: exportPdf }, ['导出 PDF'])
+    el('button', { class: 'btn btn-ghost', type: 'button', onclick: openAddApplication }, [window.Icons.icon('send', 15), '记录一次投递']),
+    el('button', { class: 'btn btn-ghost', type: 'button', onclick: copyResumeText }, [window.Icons.icon('copy', 15), '复制纯文本']),
+    el('button', { class: 'btn btn-primary', type: 'button', onclick: exportPdf }, [window.Icons.icon('printer', 16), '导出 PDF'])
   ]);
 
   const layout = el('div', { class: 'resume-layout' }, [paperWrap, sidePanel]);
@@ -989,7 +1063,7 @@ function buildJdCard() {
     // 未粘贴过 JD：展示入口引导
     return el('div', { class: 'audit' }, [
       el('div', { class: 'card-title mb-0' }, [
-        el('h3', {}, ['JD 精准匹配']),
+        el('h3', {}, [window.Icons.icon('target'), 'JD 精准匹配']),
         el('span', { class: 'hint' }, ['粘贴职位描述'])
       ]),
       el('p', { style: 'font-size:12.5px;color:var(--ink-2);line-height:1.7;margin:10px 0 12px;' },
@@ -1011,7 +1085,7 @@ function buildJdCard() {
 
   return el('div', { class: 'audit' }, [
     el('div', { class: 'card-title mb-0' }, [
-      el('h3', {}, ['JD 精准匹配']),
+      el('h3', {}, [window.Icons.icon('target'), 'JD 精准匹配']),
       el('button', {
         class: 'btn btn-ghost btn-sm', type: 'button', style: 'padding:4px 10px;',
         title: state.jdText ? state.jdText.slice(0, 100) : '', onclick: openJdMatch
@@ -1076,7 +1150,7 @@ function buildAgentCard() {
     refreshAgentStatus();
     return el('div', { class: 'audit' }, [
       el('div', { class: 'card-title mb-0' }, [
-        el('h3', {}, ['Agent 深度优化']),
+        el('h3', {}, [window.Icons.icon('zap'), 'Agent 深度优化']),
         el('span', { class: 'hint' }, ['本地 / 云端'])
       ]),
       el('p', { style: 'font-size:12.5px;color:var(--ink-2);margin:10px 0;' }, ['正在检测模型服务…'])
@@ -1111,11 +1185,11 @@ function buildAgentCard() {
 
   return el('div', { class: 'audit' }, [
     el('div', { class: 'card-title mb-0' }, [
-      el('h3', {}, ['Agent 深度优化']),
+      el('h3', {}, [window.Icons.icon('zap'), 'Agent 深度优化']),
       el('button', {
         class: 'btn btn-ghost btn-sm', type: 'button', style: 'padding:4px 10px;',
         title: '本地 / 云端 · 模型 · 密钥', onclick: openAgentConfig
-      }, ['⚙ 配置'])
+      }, [window.Icons.icon('gear', 13), '配置'])
     ]),
     statusLine,
     el('p', { style: 'font-size:12.5px;color:var(--ink-2);line-height:1.7;margin:8px 0 12px;' }, [desc]),
@@ -1600,10 +1674,23 @@ async function renderApps() {
     el('p', { class: 'page-desc' }, ['像看板一样跟踪投递进度，随时更新状态。所有记录只保存在你本机。'])
   ]);
 
+  // 顶部统计条：投递管线一览（取代干巴巴的「共 N 条」）
+  const stageCount = (key) => state.applications.filter((a) => (a.stage || 'wish') === key).length;
+  const pipeline = el('div', { class: 'pipeline' }, STAGES.map((stage, i) => {
+    const n = stageCount(stage.key);
+    return [
+      i ? el('span', { class: 'pl-arrow' }, ['▸']) : null,
+      el('div', { class: 'pl-node s-' + stage.key }, [
+        el('b', {}, [String(n)]),
+        el('span', {}, [stage.label])
+      ])
+    ];
+  }).flat().filter(Boolean));
+
   const toolbar = el('div', { class: 'toolbar' }, [
-    el('button', { class: 'btn btn-primary', type: 'button', onclick: openAddApplication }, ['+ 新增投递']),
+    el('button', { class: 'btn btn-primary', type: 'button', onclick: openAddApplication }, [window.Icons.icon('plus', 15), '新增投递']),
     el('div', { class: 'spacer' }),
-    el('span', { style: 'color:var(--ink-2);font-size:13px;' }, ['共 ' + state.applications.length + ' 条记录'])
+    pipeline
   ]);
 
   // 主入口：按目标岗位关键词搜中小厂（民办本科 / 非大厂更友好，岗位集中在综合招聘平台）
@@ -1611,7 +1698,7 @@ async function renderApps() {
   const city = (state.profile && state.profile.city) || '';
   const platforms = (window.SuggestData && window.SuggestData.platforms) || [];
   const platformHead = el('div', { class: 'direct-head' }, [
-    el('h3', {}, ['按岗位搜中小厂']),
+    el('h3', {}, [window.Icons.icon('search', 15), '按岗位搜中小厂']),
     el('span', { class: 'direct-tip' }, [
       keyword
         ? '当前岗位：' + keyword + (city ? ' · ' + city : '') + ' · 点平台直达搜索结果'
@@ -1636,7 +1723,7 @@ async function renderApps() {
   const readyResume = !!state.lastResume;
   const companies = (window.SuggestData && window.SuggestData.companies) || [];
   const directHead = el('div', { class: 'direct-head' }, [
-    el('h3', {}, ['名企一键直投']),
+    el('h3', {}, [window.Icons.icon('building', 15), '名企一键直投']),
     el('span', { class: 'direct-tip' }, [
       readyResume ? '简历已就绪 · 冲一冲大厂也可' : '大厂多卡学校 / 学历，可作为补充选择'
     ])
@@ -1656,10 +1743,14 @@ async function renderApps() {
   }));
   const directPanel = el('div', { class: 'direct-panel' }, [directHead, directGrid]);
 
+  const STAGE_ICONS = { wish: 'target', applied: 'send', interview: 'rocket', offer: 'check' };
   const board = el('div', { class: 'board' }, STAGES.map((stage) => {
     const cards = state.applications.filter((a) => (a.stage || 'wish') === stage.key);
     return el('div', { class: 'column stage-' + stage.key }, [
-      el('h4', {}, [stage.label, el('span', { class: 'count' }, [String(cards.length)])]),
+      el('h4', {}, [
+        el('span', { class: 'h4-label' }, [window.Icons.icon(STAGE_ICONS[stage.key], 14), stage.label]),
+        el('span', { class: 'count' }, [String(cards.length)])
+      ]),
       ...(cards.length ? cards.map(appCard) : [el('div', { class: 'empty', style: 'padding:20px;font-size:13px;' }, ['暂无'])])
     ]);
   }));

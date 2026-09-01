@@ -166,6 +166,10 @@ async function main() {
         const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
         t('看板工序色(wish)', !!document.querySelector('.column.stage-wish'));
         t('看板工序色(offer)', !!document.querySelector('.column.stage-offer'));
+        t('管线统计条(4节点)', document.querySelectorAll('.pl-node').length >= 4);
+        t('管线箭头', !!document.querySelector('.pl-arrow'));
+        t('看板列头图标', !!document.querySelector('.column h4 svg'));
+        t('新增投递按钮图标', !!document.querySelector('#route-apps .toolbar .btn-primary svg'));
         const col = document.querySelector('.column.stage-applied');
         t('已投列金色顶边', col && gs(col).borderTopColor === 'rgb(240, 161, 60)');
         const chip = document.querySelector('.company-chip');
@@ -191,7 +195,6 @@ async function main() {
     const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
     const card = document.querySelector('.card');
     t('卡片硬朗直角(4px)', card && gs(card).borderRadius === '4px');
-    t('卡片角标括号(::after)', card && gs(card, '::after').borderTopWidth === '2px');
     const entry = document.querySelector('.entry');
     t('条目时间轴节点', entry && gs(entry, '::before').borderRadius === '50%');
     const btn = document.querySelector('.btn-primary');
@@ -200,10 +203,21 @@ async function main() {
     t('导航发热条', nav && gs(nav, '::before').width === '3px');
     t('控制台铭牌(CONSOLE)', !!document.querySelector('.side-label'));
     t('版本刻印', !!document.querySelector('.side-ver'));
-    const spine = document.querySelector('.poster-spine');
-    t('海报竖排铭牌', spine === null ? 'skip(未在认证页)' : 'skip');
+    // —— 本轮新增结构断言 ——
+    t('双栏布局(grid)', !!document.querySelector('.profile-layout') && gs(document.querySelector('.profile-layout')).display === 'grid');
+    t('侧栏存在', !!document.querySelector('.profile-side'));
+    t('完成度仪表卡', !!document.querySelector('.completeness .score-num'));
+    t('检查清单≥8项', document.querySelectorAll('.check-item').length >= 8);
+    t('速览统计行', document.querySelectorAll('.stat-row').length >= 4);
+    t('悬浮保存条', !!document.querySelector('.save-bar .btn-primary'));
+    t('导入条', !!document.querySelector('.import-bar'));
+    const icos = document.querySelectorAll('#route-profile .ico-wrap svg');
+    t('录入页图标≥10个', icos.length >= 10);
+    t('卡片标题图标', !!document.querySelector('#card-basics .card-title h3 svg'));
+    t('PDF安全:body无装饰', gs(document.body, '::after').backgroundImage === 'none');
     return out.join('\\n');
   })()`));
+  await shot(win, '02-profile-b');
 
   console.log('done. shots in', SHOTS);
   app.exit(0);
