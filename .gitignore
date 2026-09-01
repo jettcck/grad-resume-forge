@@ -1,0 +1,31 @@
+# 依赖
+node_modules/
+
+# 构建产物与安装包（CI / npm run dist 重新生成）
+release/
+dist/
+out/
+
+# 运行期用户数据（绝不入库：账号 hash、简历档案、投递记录、API 密钥）
+*.db.json
+db.json
+*.corrupt-*
+grad-resume-data/
+
+# 评测本地报告（cases.json 是基线要入库，报告是运行产物）
+evals/report.json
+evals/llm-report.json
+
+# 日志与临时文件
+*.log
+npm-debug.log*
+test-fixture.pdf
+*.tmp
+
+# 系统文件
+Thumbs.db
+.DS_Store
+
+# 编辑器
+.vscode/
+.idea/

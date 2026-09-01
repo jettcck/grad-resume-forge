@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;" />
+  <title>简历锻造炉 · GradResume Forge</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;0,9..144,900;1,9..144,500;1,9..144,600&family=Manrope:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ============ 认证页 ============ -->
+  <div id="auth-view" class="auth-view">
+    <div class="auth-bg"></div>
+    <div class="auth-embers" aria-hidden="true">
+      <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+    </div>
+    <div class="auth-stage">
+      <div class="auth-poster" aria-hidden="true">
+        <div class="poster-index">NO.001</div>
+        <div class="poster-word">FORGE</div>
+        <div class="poster-sub">锻 · 造 · 炉</div>
+        <div class="poster-spark"></div>
+        <ul class="poster-facts">
+          <li><b>去 AI 味</b><span>规则引擎 · 非大模型生成</span></li>
+          <li><b>本地优先</b><span>数据留在你本机 · 离线可用</span></li>
+          <li><b>scrypt</b><span>密码加盐哈希存储</span></li>
+        </ul>
+      </div>
+    <div class="auth-card">
+      <div class="auth-brand">
+        <div class="brand-mark">◆</div>
+        <div>
+          <h1 class="brand-title">简历锻造炉</h1>
+          <p class="brand-sub">GradResume Forge · 计算机应届生专用</p>
+        </div>
+      </div>
+
+      <p class="auth-tagline">把真实经历，锻造成<em>没有 AI 味</em>的最优简历。</p>
+
+      <div class="auth-tabs" id="auth-tabs">
+        <span class="auth-tab-slider" id="auth-tab-slider"></span>
+        <button class="auth-tab active" data-tab="login">登录</button>
+        <button class="auth-tab" data-tab="register">注册</button>
+      </div>
+
+      <form id="auth-form" class="auth-form" autocomplete="off" novalidate>
+        <label class="field" id="field-name" style="display:none;">
+          <span>昵称</span>
+          <div class="field-input">
+            <svg class="field-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></svg>
+            <input type="text" name="name" placeholder="怎么称呼你？（选填）" />
+          </div>
+        </label>
+        <label class="field">
+          <span>邮箱</span>
+          <div class="field-input">
+            <svg class="field-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>
+            <input type="email" name="email" placeholder="you@example.com" required />
+          </div>
+          <p class="field-msg" data-for="email"></p>
+        </label>
+        <label class="field">
+          <span>密码</span>
+          <div class="field-input">
+            <svg class="field-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+            <input type="password" name="password" placeholder="至少 6 位" required />
+            <button type="button" class="pw-toggle" id="pw-toggle" aria-label="显示密码" title="显示 / 隐藏密码">
+              <svg class="pw-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+          <p class="caps-hint" id="caps-hint">⚠ 大写锁定已开启</p>
+          <div class="pw-strength" id="pw-strength" aria-hidden="true">
+            <div class="pw-bars"><i></i><i></i><i></i></div>
+            <span class="pw-strength-txt" id="pw-strength-txt"></span>
+          </div>
+          <p class="field-msg" data-for="password"></p>
+        </label>
+        <label class="remember" id="remember-wrap">
+          <input type="checkbox" id="remember-me" checked />
+          <span>记住我，下次自动登录</span>
+        </label>
+        <p class="auth-error" id="auth-error"></p>
+        <button type="submit" class="btn btn-primary btn-block" id="auth-submit"><span class="btn-label">登 录</span></button>
+      </form>
+
+      <p class="auth-hint">数据全部保存在你本机，离线可用，密码经 scrypt 加密存储。</p>
+    </div>
+    </div>
+  </div>
+
+  <!-- ============ 主应用 ============ -->
+  <div id="app-view" class="app-view" style="display:none;">
+    <aside class="sidebar">
+      <div class="side-brand">
+        <span class="brand-mark small">◆</span>
+        <span>简历锻造炉</span>
+      </div>
+      <nav class="side-nav">
+        <button class="nav-item active" data-route="profile"><span class="nav-ico">01</span>信息录入</button>
+        <button class="nav-item" data-route="resume"><span class="nav-ico">02</span>简历预览</button>
+        <button class="nav-item" data-route="apps"><span class="nav-ico">03</span>投递管理</button>
+      </nav>
+      <div class="side-furnace" aria-hidden="true">
+        <span class="furnace-dot" id="furnace-dot"></span>
+        <span class="furnace-txt" id="furnace-txt">炉温就绪 · FORGE READY</span>
+      </div>
+      <div class="side-foot">
+        <div class="user-chip">
+          <div class="avatar" id="user-avatar">U</div>
+          <div class="user-meta">
+            <div class="user-name" id="user-name">用户</div>
+            <div class="user-mail" id="user-mail">—</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-ghost btn-sm" id="btn-about" title="版本与更新">关于</button>
+          <button class="btn btn-ghost btn-sm" id="btn-logout" style="flex:1;">退出登录</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <!-- 信息录入 -->
+      <section class="route" id="route-profile"></section>
+      <!-- 简历预览 -->
+      <section class="route" id="route-resume" style="display:none;"></section>
+      <!-- 投递管理 -->
+      <section class="route" id="route-apps" style="display:none;"></section>
+    </main>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <script src="ui.js"></script>
+  <script src="data.js"></script>
+  <script src="template.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

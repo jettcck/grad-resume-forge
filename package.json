@@ -1,0 +1,62 @@
+{
+  "name": "grad-resume-forge",
+  "version": "1.1.0",
+  "description": "计算机应届生一键写简历 / 投简历桌面端 App（本地优先 · 去 AI 味引擎）",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node test-engine.js && node test-importer.js && node test-agent.js && node test-e2e.js && node test-updater.js && node evals/run-evals.js",
+    "eval": "node evals/run-evals.js",
+    "eval:llm": "node evals/run-llm-eval.js",
+    "dist": "electron-builder --win --x64",
+    "release": "electron-builder --win --x64 --publish always"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.gradresume.forge",
+    "productName": "简历锻造炉",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "src/**/*",
+      "data/**/*",
+      "package.json"
+    ],
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "jettcck",
+        "repo": "grad-resume-forge"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "简历锻造炉"
+    }
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "pdfjs-dist": "^4.10.38"
+  }
+}
