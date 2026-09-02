@@ -7,35 +7,37 @@
    ============================================================ */
 
 :root {
-  /* 回火钢冷调底（更深、层次更分明） */
-  --bg-0: #0a0c10;
-  --bg-1: #10141c;
-  --bg-2: #161c27;
-  --bg-3: #1f2735;
-  --line: #263043;
-  --line-2: #35425c;
-  /* 墨色文本 */
-  --ink-0: #eef2fa;
-  --ink-1: #aebad0;
-  --ink-2: #67748e;
-  /* 熔金火光（暖） */
-  --gold: #f0a13c;
-  --gold-soft: #ffd08f;
-  --ember: #ff6b35;
-  --ember-deep: #d64518;
-  /* 已回火 / 已验证（冷） */
-  --teal: #43d6b5;
-  --danger: #ff5d52;
+  /* 活力石墨蓝底：整体提亮 1-2 档，色温偏冷中带暖 */
+  --bg-0: #101623;
+  --bg-1: #151d2e;
+  --bg-2: #1c2639;
+  --bg-3: #26334c;
+  --line: #2f3d58;
+  --line-2: #415270;
+  /* 墨色文本（更亮更白） */
+  --ink-0: #f4f7ff;
+  --ink-1: #c0cde6;
+  --ink-2: #7d8db0;
+  /* 熔金火光（暖，饱和度拉高） */
+  --gold: #ffb01e;
+  --gold-soft: #ffd88a;
+  --ember: #ff7a45;
+  --ember-deep: #ff5252;
+  /* 已回火 / 已验证（冷，更跳） */
+  --teal: #3ee6c8;
+  --danger: #ff6659;
+  /* 点缀紫（新增：评分条/进度/徽章用，增加活泼感） */
+  --violet: #8f7bff;
   /* 硬朗几何 */
   --radius: 4px;
   --radius-sm: 3px;
-  --shadow: 0 24px 60px -20px rgba(0, 0, 0, .85);
-  --shadow-gold: 0 10px 28px -10px rgba(240, 161, 60, .5);
+  --shadow: 0 24px 60px -20px rgba(0, 0, 0, .7);
+  --shadow-gold: 0 10px 28px -10px rgba(255, 176, 30, .55);
   --font-display: "Fraunces", Georgia, serif;
   --font-body: "Manrope", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", monospace;
   /* 工序警示带 */
-  --tick: repeating-linear-gradient(-45deg, rgba(240, 161, 60, .55) 0 5px, transparent 5px 10px);
+  --tick: repeating-linear-gradient(-45deg, rgba(255, 176, 30, .6) 0 5px, transparent 5px 10px);
   /* 颗粒噪点（SVG feTurbulence， scoped 使用） */
   --noise: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
 }
@@ -202,7 +204,7 @@ em { font-style: normal; color: var(--gold); }
   padding: 44px 40px;
   background:
     radial-gradient(120% 140% at 100% 0%, rgba(255,107,53,.22), transparent 55%),
-    linear-gradient(160deg, #171e2b 0%, #0d1119 100%);
+    linear-gradient(160deg, #171e2b 0%, #131b2b 100%);
   border-right: 1px solid var(--line-2);
   display: flex;
   flex-direction: column;
@@ -293,7 +295,7 @@ em { font-style: normal; color: var(--gold); }
 /* 右侧：登录卡 */
 .auth-card {
   position: relative;
-  background: linear-gradient(180deg, #131824, #0d1119);
+  background: linear-gradient(180deg, #131824, #131b2b);
   padding: 42px 40px 28px;
   display: flex;
   flex-direction: column;
@@ -351,7 +353,7 @@ em { font-style: normal; color: var(--gold); }
 .field input::placeholder, .field textarea::placeholder { color: #4d5a72; }
 .field input:focus, .field textarea:focus, .field select:focus {
   outline: none; border-color: var(--line-2); border-bottom-color: var(--gold);
-  background: #0d1220;
+  background: #162034;
   box-shadow: 0 2px 0 -1px rgba(240,161,60,.45), 0 6px 18px -10px rgba(255,107,53,.35);
 }
 .field textarea { resize: vertical; min-height: 84px; line-height: 1.6; }
@@ -475,7 +477,7 @@ em { font-style: normal; color: var(--gold); }
 }
 .sidebar {
   position: relative;
-  background: linear-gradient(180deg, #0f141d 0%, #0b0f16 100%);
+  background: linear-gradient(180deg, #131b2b 0%, #121a29 100%);
   border-right: 1px solid var(--line);
   display: flex; flex-direction: column;
   padding: 20px 14px;
@@ -620,7 +622,7 @@ em { font-style: normal; color: var(--gold); }
 /* ---------- 卡片：角标括号 + 顶部工序刻度 ---------- */
 .card {
   position: relative;
-  background: linear-gradient(180deg, var(--bg-1), #0d1119);
+  background: linear-gradient(180deg, var(--bg-1), #131b2b);
   border: 1px solid var(--line); border-radius: var(--radius);
   padding: 22px 24px; margin-bottom: 22px;
   transition: border-color .25s, box-shadow .25s;
@@ -820,7 +822,7 @@ em { font-style: normal; color: var(--gold); }
 /* 体检面板：仪表风 */
 .audit {
   position: relative;
-  background: linear-gradient(180deg, var(--bg-1), #0d1119);
+  background: linear-gradient(180deg, var(--bg-1), #131b2b);
   border: 1px solid var(--line); border-radius: var(--radius); padding: 20px;
   overflow: hidden;
 }
@@ -836,7 +838,7 @@ em { font-style: normal; color: var(--gold); }
 .meter {
   height: 8px; background: var(--bg-0); border-radius: 0; margin: 14px 0;
   overflow: hidden; box-shadow: inset 0 1px 2px rgba(0,0,0,.4);
-  background-image: repeating-linear-gradient(90deg, transparent 0 10px, rgba(10,12,16,.9) 10px 12px);
+  background-image: repeating-linear-gradient(90deg, transparent 0 10px, rgba(16,22,35,.9) 10px 12px);
   position: relative;
 }
 .meter > i { display: block; height: 100%; transition: width .6s cubic-bezier(.2,.8,.2,1); box-shadow: 0 0 10px rgba(255,140,60,.5); }
@@ -909,7 +911,7 @@ em { font-style: normal; color: var(--gold); }
 /* ---------- 投递看板：工序色列 ---------- */
 .board { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .column {
-  background: linear-gradient(180deg, var(--bg-1), #0d1119);
+  background: linear-gradient(180deg, var(--bg-1), #131b2b);
   border: 1px solid var(--line); border-top-width: 3px; border-radius: var(--radius);
   padding: 14px; min-height: 320px;
 }
@@ -942,7 +944,7 @@ em { font-style: normal; color: var(--gold); }
 
 /* ---------- 直投面板：工业铭牌 ---------- */
 .direct-panel {
-  background: linear-gradient(180deg, var(--bg-1), #0d1119);
+  background: linear-gradient(180deg, var(--bg-1), #131b2b);
   border: 1px solid var(--line); border-radius: var(--radius);
   padding: 18px 20px; margin-bottom: 18px;
   position: relative;
@@ -988,7 +990,7 @@ em { font-style: normal; color: var(--gold); }
 .platform-chip:hover .c-go { opacity: 1; transform: translateX(0); }
 .platform-chip.hot { background: linear-gradient(180deg, rgba(45,190,165,.16), rgba(45,190,165,.05)); }
 .platform-chip .hot-dot {
-  font-size: 10px; font-weight: 700; color: #0d1119; background: var(--teal);
+  font-size: 10px; font-weight: 700; color: #131b2b; background: var(--teal);
   border-radius: 2px; padding: 1px 5px; line-height: 1.4;
 }
 

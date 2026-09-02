@@ -171,7 +171,7 @@ async function main() {
         t('看板列头图标', !!document.querySelector('.column h4 svg'));
         t('新增投递按钮图标', !!document.querySelector('#route-apps .toolbar .btn-primary svg'));
         const col = document.querySelector('.column.stage-applied');
-        t('已投列金色顶边', col && gs(col).borderTopColor === 'rgb(240, 161, 60)');
+        t('已投列金色顶边', col && gs(col).borderTopColor === 'rgb(255, 176, 30)');
         const chip = document.querySelector('.company-chip');
         t('铭牌芯片切角', chip && gs(chip).clipPath.includes('polygon'));
         const head = document.querySelector('#route-apps .page-head');
@@ -215,6 +215,13 @@ async function main() {
     t('录入页图标≥10个', icos.length >= 10);
     t('卡片标题图标', !!document.querySelector('#card-basics .card-title h3 svg'));
     t('PDF安全:body无装饰', gs(document.body, '::after').backgroundImage === 'none');
+    // —— 提亮配色 + 声音系统 ——
+    const bg0 = getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim();
+    t('配色已提亮(--bg-0)', bg0 === '#101623');
+    t('新gold色板', getComputedStyle(document.documentElement).getPropertyValue('--gold').trim() === '#ffb01e');
+    t('声音系统已加载', !!(window.Sound && typeof window.Sound.play === 'function'));
+    t('静音开关按钮', !!document.getElementById('btn-sound'));
+    t('纸张仍白底(PDF不变)', gs(document.querySelector('.paper')).backgroundColor === 'rgb(255, 255, 255)');
     return out.join('\\n');
   })()`));
   await shot(win, '02-profile-b');

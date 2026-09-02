@@ -273,6 +273,7 @@ window.api.updater.onEvent((ev) => {
   } else if (kind === 'downloaded') {
     _updState.downloaded = (payload && payload.version) || '?';
     setFurnace('新版本已就绪 · v' + _updState.downloaded, true);
+    if (window.Sound) window.Sound.play('done'); // 更新就绪：琶音
     showUpdateReady(_updState.downloaded);
   } else if (kind === 'not-available') {
     setFurnace('炉温就绪 · FORGE READY', false);
@@ -394,6 +395,17 @@ async function openAbout() {
 
 document.getElementById('btn-about').addEventListener('click', openAbout);
 
+// 声音开关：图标随状态切换，偏好存 localStorage
+const _btnSound = document.getElementById('btn-sound');
+function renderSoundBtn() {
+  if (window.Sound) _btnSound.textContent = window.Sound.enabled ? '🔊' : '🔇';
+}
+_btnSound.addEventListener('click', () => {
+  if (window.Sound) window.Sound.toggle();
+  renderSoundBtn();
+});
+renderSoundBtn();
+
 // ---------------- 路由 ----------------
 function navigate(route) {
   document.querySelectorAll('.nav-item').forEach((n) => {
@@ -402,6 +414,7 @@ function navigate(route) {
   ['profile', 'resume', 'apps'].forEach((r) => {
     document.getElementById('route-' + r).style.display = r === route ? 'block' : 'none';
   });
+  if (window.Sound) window.Sound.play('click'); // 导航轻点音
   // 离开简历页时，摘掉纸张自适应缩放的 resize 监听，避免泄漏
   if (route !== 'resume' && _paperResizeHandler) {
     window.removeEventListener('resize', _paperResizeHandler);
@@ -1405,6 +1418,7 @@ async function openAgentRun() {
     unsubStream();
   }
 
+  if (window.Sound) window.Sound.play(result && result.ok ? 'done' : 'err'); // Agent 收工音
   renderAgentResult(overlay, box, result, error);
 }
 

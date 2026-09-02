@@ -34,6 +34,9 @@
     const t = document.getElementById('toast');
     t.textContent = message;
     t.className = 'toast show ' + (kind || '');
+    // 提示音：ok→成功双音，err→低频，其余中性（sound.js 晚于 ui.js 加载也无碍，
+    // 运行时才取 window.Sound）
+    if (window.Sound) window.Sound.play(kind === 'ok' ? 'ok' : kind === 'err' ? 'err' : 'notify');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => {
       t.className = 'toast ' + (kind || '');
