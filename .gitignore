@@ -30,3 +30,6 @@ Thumbs.db
 # ç¼–è¾‘å™¨
 .vscode/
 .idea/
+
+# ±¾µØ¹¹½¨¹¤¾ß£¨winCodeSign Ïû¶¾°üµÈ£¬½ö±¾»úÊ¹ÓÃ£©
+.local-bin/
