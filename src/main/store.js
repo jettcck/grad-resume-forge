@@ -9,8 +9,12 @@ const db = {
   profiles: {},
   applications: {},
   sessions: {},
-  settings: {}
+  settings: {},
+  agentSnapshots: {} // userId → 快照数组（最多 5 份，最新在前）
 };
+
+// 快照上限：防止无限膨胀（每份档案通常 < 10KB）
+const MAX_SNAPSHOTS = 5;
 
 function init(userDataPath) {
   dataDir = path.join(userDataPath, 'grad-resume-data');
@@ -46,6 +50,7 @@ function load() {
       db.applications = parsed.applications || {};
       db.sessions = parsed.sessions || {};
       db.settings = parsed.settings || {};
+      db.agentSnapshots = parsed.agentSnapshots || {};
     }
   } catch (err) {
     // 数据损坏时不崩溃，退回空库并备份原文件
@@ -169,6 +174,41 @@ function setSetting(key, value) {
   return value;
 }
 
+// ---------------- Agent 快照（改写应用前的后悔药） ----------------
+// Agent 应用改写前自动存一份档案快照；用户可从档案页一键恢复。
+// 只保留最近 MAX_SNAPSHOTS 份，防止无限膨胀。
+function saveAgentSnapshot(userId, label, profile) {
+  if (!db.agentSnapshots[userId]) db.agentSnapshots[userId] = [];
+  const list = db.agentSnapshots[userId];
+  list.unshift({
+    id: 'snap_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    label: String(label || 'Agent 改写前').slice(0, 60),
+    profile: JSON.parse(JSON.stringify(profile || {})), // 深拷贝，与后续修改隔离
+    createdAt: Date.now()
+  });
+  if (list.length > MAX_SNAPSHOTS) list.length = MAX_SNAPSHOTS;
+  persist();
+  return list[0];
+}
+
+function listAgentSnapshots(userId) {
+  return (db.agentSnapshots[userId] || []).map((s) => ({
+    id: s.id, label: s.label, createdAt: s.createdAt // 不带 profile，列表轻量
+  }));
+}
+
+function getAgentSnapshot(userId, snapshotId) {
+  const s = (db.agentSnapshots[userId] || []).find((x) => x.id === snapshotId);
+  return s ? JSON.parse(JSON.stringify(s.profile)) : null;
+}
+
+function deleteAgentSnapshot(userId, snapshotId) {
+  const list = db.agentSnapshots[userId] || [];
+  db.agentSnapshots[userId] = list.filter((x) => x.id !== snapshotId);
+  persist();
+  return { removed: snapshotId };
+}
+
 module.exports = {
   init,
   findUserByEmail,
@@ -183,5 +223,9 @@ module.exports = {
   getSessionUserId,
   clearSession,
   getSetting,
-  setSetting
+  setSetting,
+  saveAgentSnapshot,
+  listAgentSnapshots,
+  getAgentSnapshot,
+  deleteAgentSnapshot
 };

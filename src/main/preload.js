@@ -23,6 +23,13 @@ contextBridge.exposeInMainWorld('api', {
     save: (userId, application) => ipcRenderer.invoke('applications:save', userId, application),
     remove: (userId, appId) => ipcRenderer.invoke('applications:delete', userId, appId)
   },
+  snapshots: {
+    save: (userId, label, profile) => ipcRenderer.invoke('snapshots:save', userId, label, profile),
+    list: (userId) => ipcRenderer.invoke('snapshots:list', userId),
+    get: (userId, snapshotId) => ipcRenderer.invoke('snapshots:get', userId, snapshotId),
+    restore: (userId, snapshotId) => ipcRenderer.invoke('snapshots:restore', userId, snapshotId),
+    remove: (userId, snapshotId) => ipcRenderer.invoke('snapshots:delete', userId, snapshotId)
+  },
   clipboard: {
     writeText: (text) => ipcRenderer.invoke('clipboard:writeText', text)
   },

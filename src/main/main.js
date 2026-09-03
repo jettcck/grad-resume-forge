@@ -234,6 +234,52 @@ ipcMain.handle('applications:list', (_e, userId) => {
   }
 });
 
+// ---------------- Agent 快照（改写应用前的后悔药） ----------------
+ipcMain.handle('snapshots:save', (_e, userId, label, profile) => {
+  try {
+    if (!store.findUserById(userId)) return fail('用户不存在');
+    return ok(store.saveAgentSnapshot(userId, label, profile));
+  } catch (err) {
+    return fail(err.message);
+  }
+});
+
+ipcMain.handle('snapshots:list', (_e, userId) => {
+  try {
+    return ok(store.listAgentSnapshots(userId));
+  } catch (err) {
+    return fail(err.message);
+  }
+});
+
+ipcMain.handle('snapshots:get', (_e, userId, snapshotId) => {
+  try {
+    const profile = store.getAgentSnapshot(userId, snapshotId);
+    if (!profile) return fail('快照不存在或已删除');
+    return ok(profile);
+  } catch (err) {
+    return fail(err.message);
+  }
+});
+
+ipcMain.handle('snapshots:restore', (_e, userId, snapshotId) => {
+  try {
+    const profile = store.getAgentSnapshot(userId, snapshotId);
+    if (!profile) return fail('快照不存在或已删除');
+    return ok(store.saveProfile(userId, profile));
+  } catch (err) {
+    return fail(err.message);
+  }
+});
+
+ipcMain.handle('snapshots:delete', (_e, userId, snapshotId) => {
+  try {
+    return ok(store.deleteAgentSnapshot(userId, snapshotId));
+  } catch (err) {
+    return fail(err.message);
+  }
+});
+
 ipcMain.handle('applications:save', (_e, userId, app_) => {
   try {
     return ok(store.saveApplication(userId, app_));

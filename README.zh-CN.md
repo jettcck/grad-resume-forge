@@ -57,9 +57,26 @@ npm run eval:llm   # LLM 层评测（需要本机 Ollama）
 ### 打包发布
 
 ```bash
-npm run dist      # 本地打包（release/ 下出 NSIS 安装包）
-npm run release   # 打包并发布到 GitHub Releases（需 GH_TOKEN）
+npm run dist        # 本地打包（release/ 下出 NSIS 安装包，显式 --publish never）
+npm run dist:local  # 国内网络一键本地构建（详见下方）
+npm run release     # 打包并发布到 GitHub Releases（需 GH_TOKEN）
 ```
+
+正式发版走 CI：`npm version patch` → `git push --follow-tags` → 自动构建发布。
+推送 `v*` tag 时 CI 会校验 tag 与 package.json 版本一致性、先跑全量测试再构建。
+
+### 本地构建（国内网络环境）
+
+GitHub 直连超时 / 镜像符号链接解压失败时：
+
+```bash
+npm run dist:local
+```
+
+一键完成：npmmirror 下载 winCodeSign（排除 darwin 符号链接目录重新打包）→
+给 `app-builder-lib` 打运行时补丁（`scripts/apply-local-patches.js`，幂等）→
+起本地二进制源（`scripts/local-bin-source.js`）→ 构建。产物与 CI 同源。
+依赖重装后重跑本命令即可，无需手工操作。
 
 ## 📊 测试与评测
 

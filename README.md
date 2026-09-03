@@ -74,6 +74,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 - **CI** runs syntax checks + the full test suite on every push/PR
 - **Release** (tag `v*`) verifies tag↔version consistency, re-runs tests, then builds and publishes
 - Local packaging for personal use: `npm run dist` (explicitly `--publish never`)
+- Building behind restrictive networks (e.g. mainland China): `npm run dist:local` — one command that mirrors the winCodeSign binary, applies idempotent runtime patches to `app-builder-lib`, and serves binaries from a local HTTP source. Safe to re-run after `npm install`.
 
 ## 📊 Testing & Evals
 

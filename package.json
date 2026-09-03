@@ -10,6 +10,7 @@
     "eval": "node evals/run-evals.js",
     "eval:llm": "node evals/run-llm-eval.js",
     "dist": "electron-builder --win --x64 --publish never",
+    "dist:local": "powershell -ExecutionPolicy Bypass -File scripts/dist-local.ps1",
     "release": "electron-builder --win --x64 --publish always"
   },
   "author": "",

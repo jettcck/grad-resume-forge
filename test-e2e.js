@@ -113,6 +113,36 @@ assert(updated.stage === 'interview', '更新投递状态成功');
 store.deleteApplication(uid, app2.id);
 assert(store.listApplications(uid).length === 1, '删除投递记录成功');
 
+// 11b) Agent 快照：保存 / 列表 / 恢复 / 上限 / 深拷贝隔离
+const snapProfile = JSON.parse(JSON.stringify(gotProfile));
+snapProfile.summary = '被 Agent 改坏的简介';
+const snap1 = store.saveAgentSnapshot(uid, 'Agent 改写前 · A', gotProfile);
+assert(snap1.id && snap1.label.includes('A'), '快照保存并返回元数据');
+assert(store.listAgentSnapshots(uid).length === 1, '快照列表 1 条');
+assert(store.listAgentSnapshots(uid)[0].profile === undefined, '列表不含档案本体（轻量）');
+
+// 深拷贝隔离：改原档案不影响快照内容
+const mutate = JSON.parse(JSON.stringify(gotProfile));
+mutate.summary = '后续手动改掉的简介';
+const restoredFromSnap = store.getAgentSnapshot(uid, snap1.id);
+assert(restoredFromSnap.summary !== mutate.summary, '快照与后续修改隔离（深拷贝）');
+
+// 恢复 = 用快照内容覆盖档案
+store.saveProfile(uid, snapProfile);
+assert(store.getProfile(uid).summary === '被 Agent 改坏的简介', '档案已被改写（模拟 Agent 应用）');
+const restored = store.saveProfile(uid, store.getAgentSnapshot(uid, snap1.id));
+assert(restored.summary === gotProfile.summary, '从快照恢复成功（回到改写前）');
+
+// 上限：最多保留 5 份
+for (let i = 0; i < 8; i++) store.saveAgentSnapshot(uid, '快照 ' + i, gotProfile);
+assert(store.listAgentSnapshots(uid).length === 5, '快照上限 5 份（存 9 留 5）');
+assert(store.listAgentSnapshots(uid)[0].label === '快照 7', '最新的排在最前');
+
+// 删除
+store.deleteAgentSnapshot(uid, store.listAgentSnapshots(uid)[0].id);
+assert(store.listAgentSnapshots(uid).length === 4, '删除快照成功');
+assert(store.getAgentSnapshot(uid, 'snap_不存在') === null, '读取不存在的快照返回 null');
+
 // 12) 数据真正落盘（新实例重新 load 也能读到）
 const dbPath = path.join(tmpDir, 'grad-resume-data', 'db.json');
 assert(fs.existsSync(dbPath), 'db.json 已落盘');

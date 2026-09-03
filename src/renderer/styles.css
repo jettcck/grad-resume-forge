@@ -738,6 +738,19 @@ em { font-style: normal; color: var(--gold); }
 .stat-row .sk { color: var(--ink-2); font-size: 12px; }
 .stat-row b { margin-left: auto; font-family: var(--font-mono); color: var(--gold-soft); font-size: 12.5px; }
 
+/* 回炉快照 */
+.snap-list { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.snap-item {
+  padding: 9px 11px; background: rgba(22,28,39,.5);
+  border: 1px solid var(--line); border-left: 2px solid var(--violet);
+  border-radius: var(--radius-sm);
+}
+.snap-meta { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.snap-label { font-size: 12.5px; color: var(--ink-1); font-weight: 600; }
+.snap-time { font-size: 10.5px; color: var(--ink-2); font-family: var(--font-mono); white-space: nowrap; }
+.snap-ops { display: flex; gap: 6px; margin-top: 7px; }
+.snap-del:hover { color: var(--danger) !important; border-color: rgba(255,102,89,.5) !important; }
+
 /* 技能芯片预览行（录入页技能卡） */
 .skill-chip-row { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
 

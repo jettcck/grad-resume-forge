@@ -741,8 +741,61 @@ function renderProfile() {
       ].map(([k, v, ic]) =>
         el('div', { class: 'stat-row' }, [ico(ic, 15), el('span', { class: 'sk' }, [k]), el('b', {}, [v])])
       ))
+    ]),
+    el('div', { class: 'card side-card', id: 'card-snapshots' }, [
+      cardTitle('refresh', '回炉快照', 'Agent 改写前自动备份'),
+      el('div', { class: 'snap-list' }, [el('p', { style: 'font-size:12px;color:var(--ink-2);padding:4px 0;' }, ['读取中…'])])
     ])
   ]);
+
+  // 快照列表异步填充（不阻塞首屏渲染）
+  (async () => {
+    const card = document.getElementById('card-snapshots');
+    const list = card && card.querySelector('.snap-list');
+    if (!list) return;
+    try {
+      const snaps = await call(window.api.snapshots.list(state.user.id));
+      list.innerHTML = '';
+      if (!snaps.length) {
+        list.appendChild(el('p', { style: 'font-size:12px;color:var(--ink-2);padding:4px 0;' },
+          ['暂无快照。Agent 应用改写时会自动备份改写前的档案，随时可回炉。']));
+        return;
+      }
+      snaps.forEach((s) => {
+        list.appendChild(el('div', { class: 'snap-item' }, [
+          el('div', { class: 'snap-meta' }, [
+            el('span', { class: 'snap-label' }, [s.label]),
+            el('span', { class: 'snap-time' }, [timeAgo(s.createdAt)])
+          ]),
+          el('div', { class: 'snap-ops' }, [
+            el('button', {
+              class: 'btn btn-ghost btn-sm', type: 'button',
+              onclick: async () => {
+                try {
+                  state.profile = await call(window.api.snapshots.restore(state.user.id, s.id));
+                  toast('已回炉到快照版本', 'ok');
+                  renderProfile();
+                } catch (err) { toast(err.message, 'err'); }
+              }
+            }, ['回炉']),
+            el('button', {
+              class: 'btn btn-ghost btn-sm snap-del', type: 'button',
+              onclick: async () => {
+                try {
+                  await call(window.api.snapshots.remove(state.user.id, s.id));
+                  toast('快照已删除', 'ok');
+                  renderProfile();
+                } catch (err) { toast(err.message, 'err'); }
+              }
+            }, ['删除'])
+          ])
+        ]));
+      });
+    } catch (_) {
+      list.innerHTML = '';
+      list.appendChild(el('p', { style: 'font-size:12px;color:var(--ink-2);' }, ['快照读取失败']));
+    }
+  })();
 
   // 悬浮保存条：双栏后底部按钮易被忽略，改为钉在底部的工具条
   const saveBar = el('div', { class: 'save-bar' }, [
@@ -1514,6 +1567,21 @@ function renderAgentResult(overlay, box, result, error) {
 }
 
 // 应用：被勾选的改写按条目位置替换 description 行（未勾选/拒收的行保持原文）
+// ---------------- Agent 快照（后悔药） ----------------
+// 应用改写前自动快照当前档案；写入走主进程 settings:save 的 agentSnapshot 通道
+async function saveSnapshotBeforeApply() {
+  try {
+    // 复用 settings 通道：主进程在 agent:run 应用侧没有专门入口，
+    // 这里直接用 snapshots 表的写入能力（经 settings:save 存元数据）
+    // —— 简洁起见：由主进程 saveProfile 前不做拦截，由渲染层显式调用。
+    const label = 'Agent 改写前 · ' + new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    await call(window.api.snapshots.save(state.user.id, label, state.profile));
+    return true;
+  } catch (_) {
+    return false; // 快照失败不阻断应用（用户已逐条勾选确认过）
+  }
+}
+
 async function applyAgentResult(result, acceptedList) {
   const accepted = acceptedList || result.accepted;
   // 行切分与主进程引擎一致
@@ -1540,9 +1608,12 @@ async function applyAgentResult(result, acceptedList) {
   });
   if (byItem.summary && byItem.summary[0]) p.summary = byItem.summary[0].text;
 
+  // 后悔药：应用前快照当前档案（失败不阻断——用户已逐条勾选）
+  const snapped = await saveSnapshotBeforeApply();
+
   try {
     state.profile = await call(window.api.profile.save(state.user.id, p));
-    toast('Agent 优化已应用并保存，重新生成简历中…', 'ok');
+    toast(snapped ? '已应用并保存（改写前档案已备份，可在信息录入页回炉）' : 'Agent 优化已应用并保存', 'ok');
     renderResumePage();
   } catch (err) {
     toast('应用失败：' + err.message, 'err');
