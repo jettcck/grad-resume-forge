@@ -16,6 +16,7 @@ const store = require(path.join(ROOT, 'src/main/store'));
 const auth = require(path.join(ROOT, 'src/main/auth'));
 const engine = require(path.join(ROOT, 'src/main/resume-engine'));
 const { createLlmClient } = require(path.join(ROOT, 'src/main/llm-client'));
+const secure = require(path.join(ROOT, 'src/main/secure-store'));
 
 const DEMO_EMAIL = 'shot@demo.local';
 const DEMO_PASSWORD = 'demo123456';
@@ -92,6 +93,20 @@ async function main() {
   fs.mkdirSync(SHOTS, { recursive: true });
   store.init(app.getPath('userData'));
   registerIpc();
+
+  // ---- safeStorage 真实 DPAPI 往返断言（Electron 环境）----
+  {
+    const t = (c, m) => console.log((c ? '✅' : '❌') + ' [secure] ' + m);
+    if (secure.isAvailable()) {
+      const enc = secure.encryptString('sk-roundtrip-test');
+      t(enc.startsWith('enc:v1:'), '加密产出 enc:v1: 密文');
+      t(enc !== 'sk-roundtrip-test', '密文不含明文');
+      t(secure.decryptString(enc) === 'sk-roundtrip-test', 'DPAPI 加解密往返一致');
+      t(secure.decryptString('legacy-plain-key') === 'legacy-plain-key', '旧明文向前兼容');
+    } else {
+      t(false, 'safeStorage 在此环境不可用（DPAPI 缺失？）');
+    }
+  }
 
   // 预置演示账号 + 档案 + 投递记录（渲染器走正常登录流程进入）
   try { auth.register({ email: DEMO_EMAIL, password: DEMO_PASSWORD, name: '李明' }); } catch (_) {} // eslint-disable-line no-empty

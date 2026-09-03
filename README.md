@@ -78,15 +78,35 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 
 ## 📊 Testing & Evals
 
+**240+ automated assertions**, run on every push (CI gate).
+
 | Suite | Scope | Command |
 |---|---|---|
 | Engine | rewrite / audit / matching / word-boundary regressions | `node test-engine.js` |
 | Importer | Chinese resume parsing / PDF extraction | `node test-importer.js` |
 | Agent | validation gate / regen loop / streaming / cloud client (mocked end-to-end) | `node test-agent.js` |
-| E2E | register → login → profile → generate → applications | `node test-e2e.js` |
+| E2E | register → login → profile → generate → applications → snapshot restore | `node test-e2e.js` |
 | Updater | publish config / mirror rules / pipeline assertions | `node test-updater.js` |
 | Rule-layer evals | 19 golden cases as a regression gate | `npm run eval` |
-| LLM-layer evals | success rate / acceptance / score deltas on real model | `npm run eval:llm` |
+| LLM-layer evals | dual-mode comparison on a real model | `npm run eval:llm` |
+
+### Real-model evals (deepseek-chat, Sep 2026)
+
+Same JD, same profile, both modes, 3 cases each:
+
+| Metric | Pipeline | Agentic (function-calling) |
+|---|---|---|
+| Success rate | 100% | 100% |
+| Gate acceptance | 100% | 100% |
+| Avg rounds/steps | 1.0 | 3.0 |
+| Audit score gain | +6.0 | **+9.0** |
+| JD coverage gain | +20.0pp | **+36.7pp** |
+| Avg latency | 1.3s | 4.7s |
+
+> The agentic mode trades 3.6× latency for nearly 2× JD-coverage gain — the model
+> proactively calls `analyze_jd` to find gaps before rewriting. Product strategy:
+> pipeline by default, agentic for high-stakes applications. 100% gate acceptance
+> means the deterministic constraints never falsely reject. Full data: `evals/llm-report.json`.
 
 ## 📄 License
 

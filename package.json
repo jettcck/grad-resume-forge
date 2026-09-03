@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "test": "node test-engine.js && node test-importer.js && node test-agent.js && node test-e2e.js && node test-updater.js && node evals/run-evals.js",
+    "test": "node test-engine.js && node test-importer.js && node test-agent.js && node test-e2e.js && node test-updater.js && node test-secure-store.js && node evals/run-evals.js",
     "eval": "node evals/run-evals.js",
     "eval:llm": "node evals/run-llm-eval.js",
     "dist": "electron-builder --win --x64 --publish never",

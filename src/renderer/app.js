@@ -1340,7 +1340,12 @@ function openAgentConfig() {
       endpointInput = ep.input;
       const md = textInput('模型名称', isCloudStored ? stored.model : '', 'deepseek-chat');
       modelInput = md.input;
-      const key = textInput('API 密钥（只保存在本机，不会上传到别处）', isCloudStored ? (stored.apiKey || '') : '', 'sk-…', 'password');
+      // 已保存的密钥不回显（防肩窥/截屏泄漏）；留空保存 = 保留原密钥
+      const hasKey = isCloudStored && stored.apiKey;
+      const key = textInput(
+        hasKey ? 'API 密钥（已加密保存 · 留空保留原密钥）' : 'API 密钥（safeStorage 加密存储，只在本机）',
+        '', hasKey ? '已保存，重填可覆盖' : 'sk-…', 'password'
+      );
       keyInput = key.input;
 
       fieldsBox.append(
@@ -1369,7 +1374,12 @@ function openAgentConfig() {
       temperature
     };
     if (provider === 'cloud') {
-      value.apiKey = (keyInput.value || '').trim();
+      const typed = (keyInput.value || '').trim();
+      if (typed) {
+        value.apiKey = typed; // 新填的密钥
+      } else if (isCloudStored && stored.apiKey) {
+        value.apiKey = stored.apiKey; // 留空 = 保留已保存密钥（主进程侧是解密态明文）
+      }
       if (!value.endpoint || !value.model || !value.apiKey) {
         toast('云端模式需填写 API 地址、模型名称与 API 密钥', 'err');
         return;

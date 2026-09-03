@@ -175,7 +175,7 @@ const agent = require('./agent');
 // 探测模型服务；返回 { available, models, config }（云端含 error 说明）
 ipcMain.handle('agent:status', async () => {
   try {
-    const cfg = store.getSetting('agent') || {};
+    const cfg = decryptAgentConfig(store.getSetting('agent')) || {};
     const client = createLlmClient(cfg);
     const st = await client.status();
     return ok({ ...st, config: client.config, provider: client.provider });
@@ -189,7 +189,7 @@ ipcMain.handle('agent:status', async () => {
 ipcMain.handle('agent:run', async (_e, profile, jdText, opts) => {
   try {
     const o = opts || {};
-    const cfg = Object.assign({}, store.getSetting('agent') || {}, o);
+    const cfg = Object.assign({}, decryptAgentConfig(store.getSetting('agent')) || {}, o);
     const llm = createLlmClient(cfg);
     const send = (s) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
@@ -209,10 +209,33 @@ ipcMain.handle('agent:run', async (_e, profile, jdText, opts) => {
   }
 });
 
-// 全局设置读写（Agent 模型 / 端点 / 温度）
+// 全局设置读写（Agent 模型 / 端点 / 密钥）
+// apiKey 落盘前经 safeStorage 加密（Windows DPAPI），读取时解密；
+// safeStorage 不可用的环境降级明文并保持向前兼容。
+const secureStore = require('./secure-store');
+
+function encryptAgentConfig(cfg) {
+  if (!cfg || typeof cfg !== 'object') return cfg;
+  const out = Object.assign({}, cfg);
+  if (typeof out.apiKey === 'string' && out.apiKey && !secureStore.isEncrypted(out.apiKey)) {
+    out.apiKey = secureStore.encryptString(out.apiKey);
+  }
+  return out;
+}
+
+function decryptAgentConfig(cfg) {
+  if (!cfg || typeof cfg !== 'object') return cfg;
+  const out = Object.assign({}, cfg);
+  if (typeof out.apiKey === 'string' && secureStore.isEncrypted(out.apiKey)) {
+    out.apiKey = secureStore.decryptString(out.apiKey);
+  }
+  return out;
+}
+
 ipcMain.handle('settings:get', (_e, key) => {
   try {
-    return ok(store.getSetting(key));
+    const v = store.getSetting(key);
+    return ok(key === 'agent' ? decryptAgentConfig(v) : v);
   } catch (err) {
     return fail(err.message);
   }
@@ -220,7 +243,8 @@ ipcMain.handle('settings:get', (_e, key) => {
 
 ipcMain.handle('settings:save', (_e, key, value) => {
   try {
-    return ok(store.setSetting(key, value));
+    const v = key === 'agent' ? encryptAgentConfig(value) : value;
+    return ok(key === 'agent' ? decryptAgentConfig(store.setSetting(key, v)) : store.setSetting(key, v));
   } catch (err) {
     return fail(err.message);
   }
