@@ -351,18 +351,47 @@ function configureUpdater() {
     version: info && info.version
   }));
   autoUpdater.on('error', (err) => sendUpdate('error', {
-    message: err && err.message ? err.message : String(err)
+    message: friendlyUpdaterError(err && err.message ? err.message : String(err))
   }));
 }
 
-// 发布仓库（owner/name），package.json 的 build.publish 为权威来源
+// 发布仓库（owner/name）。解析顺序：
+// 1) 运行时 package.json 的 build.publish（开发环境有效）
+// 2) app-update.yml（electron-builder 打包时生成在 resources/ 下，安装版权威来源）
+// 3) 硬编码回退（防止两者都被剥离时镜像 URL 拼出空段）
+const GH_REPO_FALLBACK = 'jettcck/grad-resume-forge';
 const GH_REPO = (function () {
   try {
     const pkg = require(path.join(__dirname, '..', '..', 'package.json'));
     const p = pkg.build && pkg.build.publish && pkg.build.publish[0];
-    return p && p.owner ? p.owner + '/' + p.repo : '';
-  } catch (_) { return ''; } // eslint-disable-line no-empty
+    if (p && p.owner && p.repo) return p.owner + '/' + p.repo;
+  } catch (_) {} // eslint-disable-line no-empty
+  try {
+    // 安装版：resources/app-update.yml 由 electron-builder 生成，含完整 GitHub 配置
+    const yml = fs.readFileSync(path.join(__dirname, '..', '..', 'app-update.yml'), 'utf8');
+    const owner = (yml.match(/^owner:\s*(\S+)/m) || [])[1];
+    const repo = (yml.match(/^repo:\s*(\S+)/m) || [])[1];
+    if (owner && repo) return owner + '/' + repo;
+  } catch (_) {} // eslint-disable-line no-empty
+  return GH_REPO_FALLBACK;
 })();
+
+// 净化更新器错误：electron-updater 会把整页 Cloudflare HTML/响应头塞进 message，
+// 用户只需要一句人话 + 首行细节
+function friendlyUpdaterError(raw) {
+  const msg = String(raw || '');
+  const firstLine = msg.split('\n')[0].slice(0, 140);
+  if (/error code: 1000|cloudflare|403/i.test(msg)) {
+    return '镜像服务拒绝了请求（可能是限流或镜像不支持 latest/download 路径）。可换一个镜像前缀，或清空镜像直连 GitHub';
+  }
+  if (/ETIMEDOUT|ECONNREFUSED|ENOTFOUND|timed out/i.test(msg)) {
+    return '连接更新服务超时。国内网络建议填写镜像前缀（如 https://gh-proxy.com），或稍后重试';
+  }
+  if (/sha512 checksum mismatch/i.test(msg)) {
+    return '更新包校验失败（下载不完整或镜像缓存损坏），请重新检查更新';
+  }
+  return firstLine || '更新检查失败';
+}
 
 ipcMain.handle('updater:check', async () => {
   try {
