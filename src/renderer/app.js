@@ -251,6 +251,17 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 
 tryResumeSession();
 
+// 侧栏版本刻印：从主进程读真实版本号（app.getVersion()），永不错版
+(async () => {
+  try {
+    const st = await window.api.updater.status();
+    const el = document.getElementById('side-ver');
+    if (el && st && st.version) {
+      el.textContent = 'FORGE v' + st.version + ' · LOCAL-FIRST · NO CLOUD REQUIRED';
+    }
+  } catch (_) {} // eslint-disable-line no-empty
+})();
+
 // ---------------- 关于 / 自动更新 ----------------
 let _updState = { status: null, downloaded: null }; // 更新运行时状态（供横幅）
 
