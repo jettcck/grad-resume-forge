@@ -1,6 +1,6 @@
 {
   "name": "grad-resume-forge",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "应届生一键写简历 / 投简历桌面端 App（全专业通用）（本地优先 · 去 AI 味引擎）",
   "main": "dist/main/main.js",
   "scripts": {
