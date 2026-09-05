@@ -5,7 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const importer = require('./src/main/resume-importer');
+const importer = require('./dist/main/resume-importer');
 
 let pass = 0, failCnt = 0;
 function assert(cond, msg) {

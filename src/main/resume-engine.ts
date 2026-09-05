@@ -1,21 +1,28 @@
 'use strict';
 
-const { __lex } = require('./lexicon');
-const {
-  AI_CLICHES,
-  AI_EN_WORDS,
-  EMPTY_ADJECTIVES,
-  WEAK_TO_STRONG,
-  STRONG_VERBS,
-  ROLE_SKILLS
-} = __lex;
+// ============================================================
+//  简历规则引擎（TypeScript 版）
+//  纯确定性：改写 / 体检 / 匹配 —— 全部可测试、零网络
+// ============================================================
+
+import {
+  AI_CLICHES, AI_EN_WORDS, EMPTY_ADJECTIVES,
+  WEAK_TO_STRONG, STRONG_VERBS, ROLE_SKILLS
+} from './lexicon';
+import type {
+  Profile, Resume, GenerateResult, AuditResult, AuditIssue,
+  MatchJobResult, MatchJdResult, Domain, EducationEntry,
+  GeneratedItem, ExperienceEntry, SkillHit
+} from './types';
 
 // ---------- 工具函数 ----------
-function clean(str) {
+function clean(str: unknown): string {
   return String(str == null ? '' : str).trim();
 }
 
-function splitLines(text) {
+// 兼容两种形态：单段文本（表单）或多行数组（导入器产物）
+function splitLines(text: string | string[] | undefined | null): string[] {
+  if (Array.isArray(text)) return text.map((s) => String(s).trim()).filter(Boolean);
   return clean(text)
     .split(/\r?\n|；|;|。(?!\d)/)
     .map((s) => s.trim())
@@ -27,7 +34,7 @@ function splitLines(text) {
 // mobile/rabbitmq 误命中 bi、require 误命中 ui 等。
 // llm 规则放在 algorithm 之前：「大模型/Agent/RAG」等词含「模型」等算法词根，
 // 应用方向优先于算法方向归类。
-const DOMAIN_RULES = [
+const DOMAIN_RULES: ReadonlyArray<readonly [Domain, RegExp]> = [
   ['llm', /(大模型|大语言模型|\bllm\b|agent|智能体|\brag\b|提示词|prompt|aigc|\bai 应用|微调|\blora\b|\bsft\b|多模态|multimodal|langchain|dify)/i],
   ['algorithm', /(算法|机器学习|深度学习|模型|pytorch|tensorflow|\bcv\b|\bnlp\b|\bml\b)/i],
   ['backend', /(后端|服务端|\bjava\b|\bgo\b|golang|spring|mysql|redis|微服务|\bapi\b|分布式)/i],
@@ -35,17 +42,17 @@ const DOMAIN_RULES = [
   ['data', /(数据(?!结构)|数仓|\betl\b|spark|hadoop|\bbi\b|可视化|大数据)/i]
 ];
 
-function detectDomain(text) {
+export function detectDomain(text: string): Domain {
   const t = String(text || '');
   for (let i = 0; i < DOMAIN_RULES.length; i++) {
-    if (DOMAIN_RULES[i][1].test(t)) return DOMAIN_RULES[i][0];
+    if (DOMAIN_RULES[i]![1].test(t)) return DOMAIN_RULES[i]![0];
   }
   return 'general';
 }
 
-function pickVerb(domain, seed) {
+function pickVerb(domain: Domain, seed: number): string {
   const list = STRONG_VERBS[domain] || STRONG_VERBS.general;
-  return list[seed % list.length];
+  return list[seed % list.length]!;
 }
 
 // 删套话后常残留没有信息量的碎片分句（如「通过业务」「实现」），
@@ -56,7 +63,11 @@ const HOLLOW_FRAGMENTS = new Set([
   '业务实现', '工作实现', '相关业务', '各项工作', '各项业务'
 ]);
 
-function isHollowFragment(frag) {
+export function hasMetric(text: string): boolean {
+  return /(\d+%|\d+\s*(万|千|百|亿|人|天|周|个月|倍|ms|qps|次|条|k\b|w\b)|提升|降低|减少|增长)/i.test(text);
+}
+
+function isHollowFragment(frag: string): boolean {
   const f = frag.replace(/[的了地得]/g, '').trim();
   if (!f) return true;
   if (hasMetric(frag)) return false;              // 含量化数据的一律保留
@@ -66,17 +77,17 @@ function isHollowFragment(frag) {
   // 介词包裹式空壳：如「通过业务实现」「借助工作完成」——剥掉介词头与谓语尾后所剩无几
   for (const p of DANGLING_STARTERS) {
     if (f.startsWith(p)) {
-      let rest = f.slice(p.length).replace(/(实现|完成|进行|开展|推进|落地)$/, '');
+      const rest = f.slice(p.length).replace(/(实现|完成|进行|开展|推进|落地)$/, '');
       if (rest.length <= 3) return true;
     }
   }
   return false;
 }
 
-function cleanupFragments(text) {
-  let t = String(text || '').replace(/[，,、]{2,}/g, '，');
+function cleanupFragments(text: string): string {
+  const t = String(text || '').replace(/[，,、]{2,}/g, '，');
   const parts = t.split(/([，,])/);              // 保留分隔符便于重组
-  const kept = [];
+  const kept: string[] = [];
   for (let i = 0; i < parts.length; i += 2) {
     const seg = (parts[i] || '').trim();
     if (seg === '') continue;
@@ -87,63 +98,51 @@ function cleanupFragments(text) {
 }
 
 // ---------- 单条经历改写：去套话 + 强动词 + 保留量化 ----------
-function rewriteBullet(raw, domain, index) {
+export function rewriteBullet(raw: string, domain: Domain, index: number): string {
   let s = clean(raw);
   if (!s) return '';
 
-  // 去掉列表符号
   s = s.replace(/^[-*·•\d.、\s]+/, '');
 
-  // 删除空洞形容词
-  EMPTY_ADJECTIVES.forEach((w) => {
+  for (const w of EMPTY_ADJECTIVES) {
     s = s.split(w).join('');
-  });
+  }
 
-  // 删除中文套话
-  AI_CLICHES.forEach((w) => {
+  for (const w of AI_CLICHES) {
     s = s.split(w).join('');
-  });
+  }
 
-  // 清理删词后残留的断裂语句：按逗号切分，丢弃只剩虚词/空壳的碎片分句
   s = cleanupFragments(s);
 
-  // 弱动词 → 强动词
-  Object.keys(WEAK_TO_STRONG).forEach((weak) => {
+  for (const weak of Object.keys(WEAK_TO_STRONG)) {
     if (s.startsWith(weak)) {
-      s = WEAK_TO_STRONG[weak] + s.slice(weak.length);
+      s = WEAK_TO_STRONG[weak]! + s.slice(weak.length);
     }
-  });
+  }
 
   s = s.replace(/\s{2,}/g, ' ').trim();
   if (!s) return '';
 
-  // 若不是动词开头，补一个领域强动词
   const startsWithVerb = /^[主设实优重搭封开还构清分建训调解承完运推排交独带领写攻测]/.test(s);
   if (!startsWithVerb) {
     s = pickVerb(domain, index) + s;
   }
 
-  // 结尾统一不加句号（条目式简历更干净）
   s = s.replace(/[。.,，、\s]+$/, '');
   return s;
-}
-
-// ---------- 量化提示：无数字的条目给出补充提醒 ----------
-function hasMetric(text) {
-  return /(\d+%|\d+\s*(万|千|百|亿|人|天|周|个月|倍|ms|qps|次|条|k\b|w\b)|提升|降低|减少|增长)/i.test(text);
 }
 
 // ============================================================
 //  简历生成器：把 profile 组装成结构化简历数据 + 优化建议
 // ============================================================
-function generate(profile, options) {
-  const p = profile || {};
-  const targetRole = clean(options.targetRole || p.targetRole || '');
+export function generate(profile: Profile, options: { targetRole?: string } | Record<string, never> | undefined): GenerateResult {
+  const p = profile || ({} as Profile);
+  const targetRole = clean(options?.targetRole || p.targetRole || '');
   const domain = detectDomain(
     targetRole + ' ' + (p.skills || '') + ' ' + (p.summary || '')
   );
 
-  const tips = [];
+  const tips: string[] = [];
 
   // 基本信息
   const basics = {
@@ -158,7 +157,7 @@ function generate(profile, options) {
   if (!basics.github) tips.push('计算机岗建议放上 GitHub / 个人主页，代码即最好的背书。');
 
   // 教育
-  const education = (p.education || []).map((e) => ({
+  const education: EducationEntry[] = (p.education || []).map((e) => ({
     school: clean(e.school),
     major: clean(e.major),
     degree: clean(e.degree || '本科'),
@@ -177,21 +176,24 @@ function generate(profile, options) {
   if (uniqueSkills.length < 4) tips.push('技能不足 4 项，补充语言 / 框架 / 工具让画像更完整。');
 
   // 项目 / 实习：逐条改写去 AI 味
-  function processSection(items) {
+  function processSection(items: ExperienceEntry[] | undefined): GeneratedItem[] {
     return (items || []).map((it, idx) => {
-      const bulletsRaw = Array.isArray(it.bullets)
-        ? it.bullets
-        : splitLines(it.description || it.bullets || '');
+      // 兼容旧数据/测试里直接传 bullets 数组的形态
+      const rawBullets = (it as { bullets?: unknown }).bullets;
+      const bulletsRaw: string[] = Array.isArray(rawBullets)
+        ? (rawBullets as string[])
+        : splitLines(it.description || '');
+      const itemDomain = detectDomain(it.tech || it.name || '');
       const bullets = bulletsRaw
-        .map((b, i) => rewriteBullet(b, detectDomain(it.tech || it.name || '') , idx + i))
+        .map((b, i) => rewriteBullet(b, itemDomain, idx + i))
         .filter(Boolean);
       bullets.forEach((b) => {
         if (!hasMetric(b)) {
-          tips.push('「' + clean(it.name || it.company) + '」有条目缺少量化数据，尝试补上百分比 / 数量 / 时长。');
+          tips.push('「' + clean(it.name || '') + '」有条目缺少量化数据，尝试补上百分比 / 数量 / 时长。');
         }
       });
       return {
-        name: clean(it.name || it.company),
+        name: clean(it.name || ''),
         role: clean(it.role),
         period: clean(it.period),
         tech: clean(it.tech),
@@ -215,7 +217,7 @@ function generate(profile, options) {
       (projects.length + internships.length) + ' 段可展示的项目 / 实习经历。';
   }
 
-  const resume = {
+  const resume: Resume = {
     basics,
     summary,
     education,
@@ -232,7 +234,7 @@ function generate(profile, options) {
     .join('\n');
   const audit = auditAiFlavor(auditText);
 
-  // 岗位匹配度：用简历全文（技能 + 经历 + 摘要）对目标方向核心技能做命中分析
+  // 岗位匹配度
   const matchText = [
     summary,
     uniqueSkills.join(' '),
@@ -250,38 +252,34 @@ function generate(profile, options) {
 
 // ============================================================
 //  岗位匹配度分析器：本地词库匹配（非大模型）
-//  依据目标方向的核心技能词库，扫描简历全文，算命中率并列出缺口
 // ============================================================
 
-// 技能别名匹配器：
-// 纯 ASCII 别名按「词边界」匹配（边界只看字母，允许 vue3 / java8 这类带版本号的写法），
-// 避免子串误判——javascript 误命中 java、html 误命中 ml、algorithm 误命中 go、json 误命中 js。
-// 含中文或空格的别名退回 includes 子串匹配（中文本身无子串歧义）。
-const _matcherCache = new Map();
-function aliasMatcher(alias) {
+// 技能别名匹配器（带缓存）
+const _matcherCache = new Map<string, (content: string) => boolean>();
+export function aliasMatcher(alias: string): (content: string) => boolean {
   let m = _matcherCache.get(alias);
   if (m) return m;
   if (/^[a-z0-9.+#!?_-]+$/i.test(alias)) {
     const escaped = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const re = new RegExp('(?<![a-z])' + escaped + '(?![a-z])', 'i');
-    m = (content) => re.test(content);
+    m = (content: string) => re.test(content);
   } else {
     const needle = alias.toLowerCase();
-    m = (content) => content.includes(needle);
+    m = (content: string) => content.includes(needle);
   }
   _matcherCache.set(alias, m);
   return m;
 }
 
-function matchJob(text, domain, targetRole) {
+export function matchJob(text: string, domain: Domain, targetRole: string): MatchJobResult {
   const content = clean(text).toLowerCase();
   const skillList = ROLE_SKILLS[domain] || ROLE_SKILLS.general;
 
-  const hit = [];
-  const missing = [];
+  const hit: SkillHit[] = [];
+  const missing: SkillHit[] = [];
   skillList.forEach((entry) => {
     const aliases = entry.split('|');
-    const label = aliases[0];
+    const label = aliases[0]!;
     const matched = aliases.some((a) => aliasMatcher(a)(content));
     if (matched) hit.push({ label });
     else missing.push({ label });
@@ -307,18 +305,15 @@ function matchJob(text, domain, targetRole) {
 }
 
 // ============================================================
-//  JD 精准匹配：粘贴职位描述，按 JD 中实际出现的技能词逐项比对简历
-//  （本地词库匹配，非大模型；与 matchJob 的区别：matchJob 按「方向词表」
-//   泛匹配，matchJd 按「这一份 JD」实际提到的技能精准匹配）
+//  JD 精准匹配：按这份 JD 实际提到的技能逐项比对简历
 // ============================================================
 
-// 汇总简历全部可匹配文本：摘要 + 技能 + 各段经历的名称/技术栈/条目
-function buildResumeText(resume) {
+function buildResumeText(resume: Partial<Resume> | undefined): string {
   const r = resume || {};
-  const parts = [];
+  const parts: string[] = [];
   if (r.summary) parts.push(r.summary);
   if (Array.isArray(r.skills)) parts.push(r.skills.join(' '));
-  const exps = [].concat(r.projects || [], r.internships || []);
+  const exps: GeneratedItem[] = [...(r.projects || []), ...(r.internships || [])];
   exps.forEach((it) => {
     parts.push([it.name, it.role, it.tech].filter(Boolean).join(' '));
     if (Array.isArray(it.bullets)) parts.push(it.bullets.join(' '));
@@ -326,14 +321,13 @@ function buildResumeText(resume) {
   return parts.filter(Boolean).join('\n');
 }
 
-// 扫描一段文本命中了词库中的哪些技能（跨全部方向去重），返回 [{label, domain}]
-function scanSkillHits(contentLower) {
-  const seen = new Set();
-  const found = [];
-  Object.keys(ROLE_SKILLS).forEach((dom) => {
+function scanSkillHits(contentLower: string): Array<SkillHit & { domain: Domain }> {
+  const seen = new Set<string>();
+  const found: Array<SkillHit & { domain: Domain }> = [];
+  (Object.keys(ROLE_SKILLS) as Domain[]).forEach((dom) => {
     ROLE_SKILLS[dom].forEach((entry) => {
       const aliases = entry.split('|');
-      const label = aliases[0];
+      const label = aliases[0]!;
       if (seen.has(label)) return;
       if (aliases.some((a) => aliasMatcher(a)(contentLower))) {
         seen.add(label);
@@ -344,7 +338,7 @@ function scanSkillHits(contentLower) {
   return found;
 }
 
-function matchJd(resume, jdText) {
+export function matchJd(resume: Partial<Resume>, jdText: string): MatchJdResult {
   const jd = clean(jdText);
   if (!jd) throw new Error('请先粘贴职位描述（JD）');
 
@@ -352,28 +346,26 @@ function matchJd(resume, jdText) {
   const resumeLower = buildResumeText(resume).toLowerCase();
   const domain = detectDomain(jd);
 
-  // JD 中实际出现的词库技能 vs 简历中出现的词库技能
   const jdSkills = scanSkillHits(jdLower);
   const resumeSkills = scanSkillHits(resumeLower);
   const resumeLabels = new Set(resumeSkills.map((s) => s.label));
 
   const hit = jdSkills.filter((s) => resumeLabels.has(s.label));
   const missing = jdSkills.filter((s) => !resumeLabels.has(s.label));
-  // 简历独有：JD 没提但你写了 —— 面试可展开的加分项
   const jdLabels = new Set(jdSkills.map((s) => s.label));
   const extra = resumeSkills.filter((s) => !jdLabels.has(s.label));
 
   const total = jdSkills.length;
   const score = total ? Math.round((hit.length / total) * 100) : 0;
 
-  let level;
+  let level: string;
   if (!total) level = '未识别出技能关键词，请检查 JD 是否粘贴完整';
   else if (score >= 80) level = '高度匹配，放心投递';
   else if (score >= 60) level = '基本匹配，建议补齐缺失关键词';
   else if (score >= 40) level = '匹配偏低，按缺失项补强再投';
   else level = '匹配度低，谨慎投递或先补短板';
 
-  const tips = [];
+  const tips: string[] = [];
   if (!total) {
     tips.push('职位描述通常含「任职要求 / 技能要求」清单，请完整粘贴后再试。');
   } else {
@@ -403,52 +395,40 @@ function matchJd(resume, jdText) {
 }
 
 // ============================================================
-//  去 AI 味体检评分器：给一段文本打分并列出问题点
-//  分数越高越「像真人写的」（满分 100）
+//  去 AI 味体检评分器
 // ============================================================
-function auditAiFlavor(text) {
+export function auditAiFlavor(text: string): AuditResult {
   const content = clean(text);
-  const issues = [];
+  const issues: AuditIssue[] = [];
   let penalty = 0;
 
-  function scan(list, label, per) {
-    list.forEach((w) => {
-      let idx = content.indexOf(w);
-      while (idx !== -1) {
-        issues.push({ type: label, word: w });
-        penalty += per;
-        idx = content.indexOf(w, idx + w.length);
-      }
-    });
-  }
-
   // 中文套话（重扣）
-  AI_CLICHES.forEach((w) => {
+  for (const w of AI_CLICHES) {
     const count = content.split(w).length - 1;
     if (count > 0) {
       issues.push({ type: '中文套话', word: w, count });
       penalty += count * 6;
     }
-  });
+  }
 
   // 空洞形容词（中扣）
-  EMPTY_ADJECTIVES.forEach((w) => {
+  for (const w of EMPTY_ADJECTIVES) {
     const count = content.split(w).length - 1;
     if (count > 0) {
       issues.push({ type: '空洞形容词', word: w, count });
       penalty += count * 3;
     }
-  });
+  }
 
   // 英文 AI 高频词（中扣，忽略大小写）
   const lower = content.toLowerCase();
-  AI_EN_WORDS.forEach((w) => {
+  for (const w of AI_EN_WORDS) {
     const count = lower.split(w).length - 1;
     if (count > 0) {
       issues.push({ type: '英文AI高频词', word: w, count });
       penalty += count * 4;
     }
-  });
+  }
 
   // 结构性检查：整体缺少量化数据
   const lines = splitLines(content);
@@ -459,13 +439,13 @@ function auditAiFlavor(text) {
     penalty += 12;
   }
 
-  // 冗长句：单句超过 45 字，阅读体验差、也偏 AI
-  lines.forEach((l) => {
+  // 冗长句：单句超过 45 字
+  for (const l of lines) {
     if (l.length > 45) {
       issues.push({ type: '句子过长', word: l.slice(0, 16) + '…' });
       penalty += 3;
     }
-  });
+  }
 
   const score = Math.max(0, Math.min(100, 100 - penalty));
   let level = '优秀（几乎无 AI 味）';
@@ -481,14 +461,4 @@ function auditAiFlavor(text) {
   };
 }
 
-module.exports.detectDomain = detectDomain;
-module.exports.rewriteBullet = rewriteBullet;
-module.exports.hasMetric = hasMetric;
-module.exports.splitLines = splitLines;
-module.exports.clean = clean;
-module.exports.generate = generate;
-module.exports.auditAiFlavor = auditAiFlavor;
-module.exports.matchJob = matchJob;
-module.exports.matchJd = matchJd;
-module.exports.aliasMatcher = aliasMatcher;
-module.exports.buildResumeText = buildResumeText;
+export { clean as _clean, splitLines as _splitLines };

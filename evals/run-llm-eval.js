@@ -12,8 +12,8 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { createLlmClient } = require('../src/main/llm-client');
-const agent = require('../src/main/agent');
+const { createLlmClient } = require('../dist/main/llm-client');
+const agent = require('../dist/main/agent');
 
 // 读取应用保存的 Agent 配置（云端优先），没有则回退本地 Ollama
 function loadLlmConfig() {

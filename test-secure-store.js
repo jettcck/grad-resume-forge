@@ -15,7 +15,7 @@ function assert(cond, msg) {
 // secure-store require('electron') 在纯 Node 下会怎样？
 // electron 模块在 node 直跑时导出路径字符串（非 API 对象），safeStorage 为 undefined
 // —— secure-store 对此的防御：isAvailable 返回 false，encrypt 原样返回。
-const secure = require('./src/main/secure-store');
+const secure = require('./dist/main/secure-store');
 assert(typeof secure.isAvailable === 'function', '模块可加载（纯 Node 下 safeStorage 不可用）');
 assert(secure.isAvailable() === false, '纯 Node 环境 isAvailable()=false（降级路径）');
 assert(secure.encryptString('sk-test-123') === 'sk-test-123', '降级：加密原样返回明文');

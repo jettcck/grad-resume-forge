@@ -1,13 +1,13 @@
-'use strict';
-
 // ============================================================
-//  去 AI 味引擎（核心）
+//  去 AI 味引擎词库（类型化）
 //  思路：不用大模型生成套话，而是用「词库 + 改写规则 + 体检评分」
 //  把用户真实经历，改写成动词开头、量化、简洁、无套话的强条目。
 // ============================================================
 
+import type { Domain } from './types';
+
 // 1) AI 味 / 套话黑名单（中文空话、互联网黑话、翻译腔）
-const AI_CLICHES = [
+export const AI_CLICHES: readonly string[] = [
   '赋能', '抓手', '闭环', '打法', '组合拳', '颗粒度', '方法论', '底层逻辑',
   '顶层设计', '生态', '沉淀', '对齐', '拉通', '复盘', '心智', '护城河',
   '降本增效', '提质增效', '全链路', '强相关', '深度耦合', '高度契合',
@@ -18,7 +18,7 @@ const AI_CLICHES = [
 ];
 
 // 2) 英文 AI 高频词（简历里出现即扣分，属于典型「GPT 腔」）
-const AI_EN_WORDS = [
+export const AI_EN_WORDS: readonly string[] = [
   'leverage', 'utilize', 'spearheaded', 'orchestrated', 'seamlessly',
   'robust', 'cutting-edge', 'state-of-the-art', 'synergy', 'holistic',
   'delve', 'furthermore', 'moreover', 'in today\'s fast-paced',
@@ -26,7 +26,7 @@ const AI_EN_WORDS = [
 ];
 
 // 3) 空洞形容词 / 副词 → 建议删除或用事实替代
-const EMPTY_ADJECTIVES = [
+export const EMPTY_ADJECTIVES: readonly string[] = [
   '优秀的', '出色的', '卓越的', '强大的', '高效的', '完善的', '丰富的',
   '深刻的', '广泛的', '全面的', '良好的', '扎实的',
   '优秀地', '出色地', '卓越地', '高效地', '完美地', '成功地', '顺利地',
@@ -34,7 +34,7 @@ const EMPTY_ADJECTIVES = [
 ];
 
 // 4) 弱动词 → 强动词映射（让条目更有行动力）
-const WEAK_TO_STRONG = {
+export const WEAK_TO_STRONG: Readonly<Record<string, string>> = {
   '负责': '主导',
   '参与': '承担',
   '做了': '完成',
@@ -47,7 +47,7 @@ const WEAK_TO_STRONG = {
 };
 
 // 5) 计算机方向的强动词库（用于生成条目开头）
-const STRONG_VERBS = {
+export const STRONG_VERBS: Readonly<Record<Domain, readonly string[]>> = {
   backend: ['设计', '实现', '优化', '重构', '搭建', '封装', '排查'],
   frontend: ['开发', '封装', '优化', '重构', '实现', '还原'],
   algorithm: ['设计', '实现', '优化', '训练', '调优', '验证'],
@@ -58,8 +58,7 @@ const STRONG_VERBS = {
 
 // 6) 岗位核心技能词库（按方向组织，用于「岗位匹配度」分析）
 //    每一项是一个技能，多个别名用 | 分隔（命中任一即算掌握），展示时取第一个。
-//    全部小写便于大小写不敏感匹配；中文项保持原样。
-const ROLE_SKILLS = {
+export const ROLE_SKILLS: Readonly<Record<Domain, readonly string[]>> = {
   backend: [
     'java', 'go|golang', 'spring|spring boot|springboot', 'mysql', 'redis',
     'kafka|rabbitmq|消息队列', '微服务', '分布式', 'docker|k8s|kubernetes',
@@ -97,11 +96,4 @@ const ROLE_SKILLS = {
   ]
 };
 
-module.exports.__lex = {
-  AI_CLICHES,
-  AI_EN_WORDS,
-  EMPTY_ADJECTIVES,
-  WEAK_TO_STRONG,
-  STRONG_VERBS,
-  ROLE_SKILLS
-};
+export const __lex = { AI_CLICHES, AI_EN_WORDS, EMPTY_ADJECTIVES, WEAK_TO_STRONG, STRONG_VERBS, ROLE_SKILLS };

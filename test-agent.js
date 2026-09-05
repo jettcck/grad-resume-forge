@@ -3,9 +3,9 @@
 // Agent 运行时自测：注入 mock LLM，覆盖「改写 → 校验门 → 重生成 → 复测」全链路
 // 不需要真实 Ollama；llm-client 的探测行为单独验证（本机无服务时应返回 false）
 const http = require('http');
-const { createOllamaClient } = require('./src/main/llm-client');
-const agent = require('./src/main/agent');
-const engine = require('./src/main/resume-engine');
+const { createOllamaClient } = require('./dist/main/llm-client');
+const agent = require('./dist/main/agent');
+const engine = require('./dist/main/resume-engine');
 
 // 看门狗：任何悬挂（伪服务器未关 / fetch 未归）60 秒后强制退出，防止 CI 假死
 setTimeout(() => {
@@ -217,7 +217,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
 
   // ---------- 13) 云端客户端（OpenAI 兼容）：分发/状态/非流式/流式/降级/错误 ----------
   {
-    const { createLlmClient } = require('./src/main/llm-client');
+    const { createLlmClient } = require('./dist/main/llm-client');
     let sawAuth = null;
     const bodies = [];
     let failFirstRf = false;
@@ -358,7 +358,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
 
   // ---------- 14) Agentic Loop：LLM 自主选工具全链路（mock function-calling） ----------
   {
-    const { agenticLoop, buildAgentTools, toolsToProtocol } = require('./src/main/agent');
+    const { agenticLoop, buildAgentTools, toolsToProtocol } = require('./dist/main/agent');
 
     // 14a. 工具集构建与协议转换
     const ctxX = { profile: PROFILE, jd: JD, items: agent.buildTaskItems(PROFILE), accepted: new Map(), rejected: [] };

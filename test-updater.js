@@ -44,8 +44,8 @@ assert(mirrorFeedUrl('https://ghproxy.cn', 'u/r').startsWith('https://ghproxy.cn
 assert(!mirrorFeedUrl('https://ghproxy.cn', 'u/r').includes('//github.com/u/r/releases/latest/download/https'),
   '拼接顺序正确（前缀在前）');
 
-// 4) main.js 关键源码片段存在（防止后续重构悄悄破坏 updater 逻辑）
-const mainSrc = fs.readFileSync(path.join(__dirname, 'src', 'main', 'main.js'), 'utf8');
+// 4) main.ts 关键源码片段存在（防止后续重构悄悄破坏 updater 逻辑）
+const mainSrc = fs.readFileSync(path.join(__dirname, 'src', 'main', 'main.ts'), 'utf8');
 [
   ['autoInstallOnAppQuit', '退出时自动安装'],
   ['isUpdaterActive', '开发模式安全拒绝'],
@@ -53,12 +53,12 @@ const mainSrc = fs.readFileSync(path.join(__dirname, 'src', 'main', 'main.js'), 
   ['GH_REPO', '发布仓库解析'],
   ['updater:event', '事件推送到渲染层']
 ].forEach(([needle, label]) => {
-  assert(mainSrc.includes(needle), 'main.js 含 ' + label + '（' + needle + '）');
+  assert(mainSrc.includes(needle), 'main.ts 含 ' + label + '（' + needle + '）');
 });
 
 // preload / app.js 桥接存在
-const preloadSrc = fs.readFileSync(path.join(__dirname, 'src', 'main', 'preload.js'), 'utf8');
-assert(preloadSrc.includes('onEvent') && preloadSrc.includes("ipcRenderer.on('updater:event'"),
+const preloadSrc = fs.readFileSync(path.join(__dirname, 'src', 'main', 'preload.ts'), 'utf8');
+assert(preloadSrc.includes('onEvent') && preloadSrc.includes("'updater:event'"),
   'preload 暴露 updater.onEvent 并订阅 updater:event');
 const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'renderer', 'app.js'), 'utf8');
 assert(appSrc.includes('showUpdateReady') && appSrc.includes('openAbout'), '渲染层含更新弹窗与关于弹窗');

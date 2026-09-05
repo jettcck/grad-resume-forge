@@ -7,9 +7,9 @@ const os = require('os');
 const path = require('path');
 const fs = require('fs');
 
-const store = require('./src/main/store');
-const auth = require('./src/main/auth');
-const engine = require('./src/main/resume-engine');
+const store = require('./dist/main/store');
+const auth = require('./dist/main/auth');
+const engine = require('./dist/main/resume-engine');
 
 let pass = 0;
 let failCnt = 0;

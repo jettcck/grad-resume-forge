@@ -33,3 +33,6 @@ Thumbs.db
 
 # 本地构建工具（winCodeSign 消毒包等，仅本机使用）
 .local-bin/
+
+# TypeScript 编译产物（npm run build / 各脚本自动生成）
+dist/

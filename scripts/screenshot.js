@@ -12,11 +12,11 @@ const fs = require('fs');
 const ROOT = path.join(__dirname, '..');
 const SHOTS = path.join(ROOT, 'shots');
 
-const store = require(path.join(ROOT, 'src/main/store'));
-const auth = require(path.join(ROOT, 'src/main/auth'));
-const engine = require(path.join(ROOT, 'src/main/resume-engine'));
-const { createLlmClient } = require(path.join(ROOT, 'src/main/llm-client'));
-const secure = require(path.join(ROOT, 'src/main/secure-store'));
+const store = require(path.join(ROOT, 'dist/main/store'));
+const auth = require(path.join(ROOT, 'dist/main/auth'));
+const engine = require(path.join(ROOT, 'dist/main/resume-engine'));
+const { createLlmClient } = require(path.join(ROOT, 'dist/main/llm-client'));
+const secure = require(path.join(ROOT, 'dist/main/secure-store'));
 
 const DEMO_EMAIL = 'shot@demo.local';
 const DEMO_PASSWORD = 'demo123456';

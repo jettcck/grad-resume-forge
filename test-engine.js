@@ -1,5 +1,5 @@
 // 核心引擎自测（不依赖 Electron）
-const engine = require('./src/main/resume-engine');
+const engine = require('./dist/main/resume-engine');
 
 function assert(cond, msg) {
   if (!cond) { console.error('❌ FAIL:', msg); process.exitCode = 1; }

@@ -13,7 +13,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const engine = require('../src/main/resume-engine');
+const engine = require('../dist/main/resume-engine');
 
 const cases = require('./cases.json');
 
