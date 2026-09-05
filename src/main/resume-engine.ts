@@ -30,16 +30,30 @@ function splitLines(text: string | string[] | undefined | null): string[] {
 }
 
 // 领域识别规则（按优先级排列）。
-// 英文关键词统一加 \b 词边界，避免子串误判：html 误命中 ml、javascript 误命中 java、
-// mobile/rabbitmq 误命中 bi、require 误命中 ui 等。
-// llm 规则放在 algorithm 之前：「大模型/Agent/RAG」等词含「模型」等算法词根，
-// 应用方向优先于算法方向归类。
+// 设计原则：
+//  1) 英文关键词统一 \b 词边界，避免子串误判（html⊃ml、javascript⊃java 等）
+//  2) 技术（CS）规则在前：金融科技/银行研发等交叉岗位优先给技术词表
+//  3) 「数据」类贪婪词收紧为岗位词（数据分析/数据开发/大数据），
+//     避免把「负责运营数据整理」的市场岗误判成数据方向
+//  4) 全专业方向（金融/市场/设计/工科/土木/教育/医药/人力）在后，
+//     词表按 Domain 取用；general 兜底为跨行业可迁移能力
 const DOMAIN_RULES: ReadonlyArray<readonly [Domain, RegExp]> = [
   ['llm', /(大模型|大语言模型|\bllm\b|agent|智能体|\brag\b|提示词|prompt|aigc|\bai 应用|微调|\blora\b|\bsft\b|多模态|multimodal|langchain|dify)/i],
   ['algorithm', /(算法|机器学习|深度学习|模型|pytorch|tensorflow|\bcv\b|\bnlp\b|\bml\b)/i],
   ['backend', /(后端|服务端|\bjava\b|\bgo\b|golang|spring|mysql|redis|微服务|\bapi\b|分布式)/i],
+  // design 在 frontend 之前：「UI 设计师」靠「设计师」命中 design，
+  // 而「UI 开发」无设计词、落到 frontend 的 \bui\b —— 两个方向各得其所
+  ['design', /(平面设计|视觉设计|交互设计|设计师|美工|插画|原画|动效|网页设计|广告设计|创意|\bux\b)/i],
   ['frontend', /(前端|react|vue|css|html|页面|\bui\b|typescript|webpack)/i],
-  ['data', /(数据(?!结构)|数仓|\betl\b|spark|hadoop|\bbi\b|可视化|大数据)/i]
+  ['data', /(大数据|数据仓库|数仓|数据开发|数据工程|数据分析|数据挖掘|数据可视化|\betl\b|spark|hadoop|\bbi\b|可视化)/i],
+  ['civil', /(土木|造价|施工|测绘|监理|道路|桥梁|给排水|暖通|岩土|设计院|工程管理)/i],
+  ['finance', /(金融|银行|证券|基金|保险|会计|审计|财务|税务|投资|风控|\bcpa\b)/i],
+  ['marketing', /(市场营销|营销|新媒体|运营|品牌|公关|文案|电商|销售|市场专员)/i],
+  ['education', /(教师|老师|教研|培训师|课程顾问|助教|辅导员|幼教|学前教育|学科教师)/i],
+  ['medical', /(医生|护士|护理|药师|临床|医药|药剂|医院|医学检验)/i],
+  ['business', /(人力资源|\bhr\b|招聘|行政|人事|文秘|客服|前台)/i],
+  // 「自动化」收紧为「自动化工程师/专业」：避免「自动化测试工程师」误中工科
+  ['eng', /(机械|电气|模具|数控|工艺|制造|汽车|机电|设备工程师|自动化工程师|自动化专业)/i]
 ];
 
 export function detectDomain(text: string): Domain {
@@ -123,7 +137,9 @@ export function rewriteBullet(raw: string, domain: Domain, index: number): strin
   s = s.replace(/\s{2,}/g, ' ').trim();
   if (!s) return '';
 
-  const startsWithVerb = /^[主设实优重搭封开还构清分建训调解承完运推排交独带领写攻测]/.test(s);
+  // 动词开头识别（覆盖全部方向的强动词首字：技术 + 金融/市场/设计/工科/
+  // 土木/教育/医药/人力——非动词开头的条目才会被补领域动词）
+  const startsWithVerb = /^[主设实优重搭封开还构清分建训调解承完运推排交独带领写攻测编策产打输制加施复讲组辅批规执核随整跟维绘]/.test(s);
   if (!startsWithVerb) {
     s = pickVerb(domain, index) + s;
   }
@@ -154,7 +170,13 @@ export function generate(profile: Profile, options: { targetRole?: string } | Re
     targetRole: targetRole || '软件研发工程师'
   };
   if (!basics.phone || !basics.email) tips.push('补全手机号与邮箱，HR 才能第一时间联系你。');
-  if (!basics.github) tips.push('计算机岗建议放上 GitHub / 个人主页，代码即最好的背书。');
+  // 技术岗推 GitHub（代码背书）；其他方向推作品集/项目展示——各给各的理由
+  const isTechDomain = ['backend', 'frontend', 'algorithm', 'data', 'llm'].includes(domain);
+  if (!basics.github) {
+    tips.push(isTechDomain
+      ? '计算机岗建议放上 GitHub / 个人主页，代码即最好的背书。'
+      : '放上作品集 / 项目展示 / 证书链接，让成果可以被直接查看。');
+  }
 
   // 教育
   const education: EducationEntry[] = (p.education || []).map((e) => ({
@@ -211,7 +233,7 @@ export function generate(profile: Profile, options: { targetRole?: string } | Re
   // 一句话摘要（本地拼接，不套 AI 模板腔）
   let summary = clean(p.summary);
   if (!summary) {
-    const eduName = education[0] ? education[0].school + education[0].major : '计算机相关专业';
+    const eduName = education[0] ? education[0].school + education[0].major : '目标行业';
     const topSkills = uniqueSkills.slice(0, 3).join(' / ') || '扎实的编程基础';
     summary = eduName + '应届生，方向为' + basics.targetRole + '，掌握 ' + topSkills + '，有 ' +
       (projects.length + internships.length) + ' 段可展示的项目 / 实习经历。';

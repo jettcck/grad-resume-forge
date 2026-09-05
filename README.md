@@ -5,7 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-gold.svg)](./LICENSE)
 [![中文说明](https://img.shields.io/badge/README-中文-red.svg)](./README.zh-CN.md)
 
-A local-first desktop app that helps CS new grads **write resumes, de-AI-flavor them, and track job applications** — powered by a hybrid **deterministic rules engine + LLM agent** architecture.
+A local-first desktop app that helps new grads of every major **write resumes, de-AI-flavor them, and track job applications** — powered by a hybrid **deterministic rules engine + LLM agent** architecture.
 
 > 💡 **Why "de-AI-flavor"?** Recruiters increasingly reject resumes that smell like ChatGPT. This app rewrites your real experience into strong, quantified, human-sounding bullets — and every LLM output must pass a **deterministic validation gate** before it can touch your profile.
 
@@ -92,21 +92,21 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 
 ### Real-model evals (deepseek-chat, Sep 2026)
 
-Same JD, same profile, both modes, 3 cases each:
+Same JD, same profile, both modes, 4 cases (backend / frontend / algorithm / **finance** — tech and non-tech majors alike):
 
 | Metric | Pipeline | Agentic (function-calling) |
 |---|---|---|
 | Success rate | 100% | 100% |
 | Gate acceptance | 100% | 100% |
 | Avg rounds/steps | 1.0 | 3.0 |
-| Audit score gain | +6.0 | **+9.0** |
-| JD coverage gain | +20.0pp | **+36.7pp** |
-| Avg latency | 1.3s | 4.7s |
+| Audit score gain | +7.5 | **+15.0** |
+| JD coverage gain | **+25.8pp** | +13.0pp |
+| Avg latency | 1.1s | 3.9s |
 
-> The agentic mode trades 3.6× latency for nearly 2× JD-coverage gain — the model
-> proactively calls `analyze_jd` to find gaps before rewriting. Product strategy:
-> pipeline by default, agentic for high-stakes applications. 100% gate acceptance
-> means the deterministic constraints never falsely reject. Full data: `evals/llm-report.json`.
+> On the finance case (non-CS major), the agentic mode lifted the audit score 61→88 and
+> JD coverage 88%→100% — clichés like “认真负责…各项任务” are cleaned by the same
+> deterministic gate. 100% gate acceptance across all majors means the constraints
+> never falsely reject. Full data: `evals/llm-report.json`.
 
 ## 📄 License
 

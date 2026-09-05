@@ -605,7 +605,7 @@ function eduEntry(ed, i) {
       inputField('GPA / 排名', 'gpa', ed.gpa, '3.8/4.0 或 前 5%')
     ]),
     periodField('起止时间', 'period', ed.period),
-    inputField('主修课程', 'courses', ed.courses, '数据结构、操作系统、计算机网络、机器学习')
+    inputField('主修课程', 'courses', ed.courses, '与目标岗位相关的 3-5 门，如：数据结构、财务管理、教育学原理…')
   ]);
 }
 
@@ -617,13 +617,13 @@ function jobEntry(kind, it, i) {
       el('button', { class: 'entry-remove', type: 'button', onclick: (e) => { e.target.closest('.entry').remove(); } }, ['移除'])
     ]),
     el('div', { class: 'grid-2' }, [
-      inputField(kind === 'intern' ? '公司 / 组织' : '项目名称', 'name', it.name, kind === 'intern' ? '如：字节跳动' : '如：分布式短链服务'),
-      inputField('角色', 'role', it.role, kind === 'intern' ? '后端开发实习生' : '核心开发 / 负责人')
+      inputField(kind === 'intern' ? '公司 / 组织 / 学校' : '项目 / 活动名称', 'name', it.name, kind === 'intern' ? '如：字节跳动 / 会计师事务所 / 某某中学' : '如：校园二手交易平台 / 财务共享中心 / 支教志愿服务'),
+      inputField('角色', 'role', it.role, kind === 'intern' ? '如：研发实习生 / 审计助理 / 实习教师' : '核心成员 / 负责人')
     ]),
     periodField('起止时间', 'period', it.period),
-    inputField('技术栈', 'tech', it.tech, 'Java / Spring / Redis / MySQL'),
+    inputField('工具 / 技术 / 方法', 'tech', it.tech, '技术岗：Java / MySQL；其他：Excel、SPSS、CAD、教案设计…'),
     areaField('经历描述（每行一条，用大白话写你真实做了什么，引擎会自动去 AI 味并强化）', 'description', it.description,
-      '例：优化订单查询接口，把 P99 从 800ms 降到 120ms\n例：独立完成用户模块，支撑日活 3 万')
+      '例（技术）：优化订单查询接口，把 P99 从 800ms 降到 120ms\n例（通用）：策划迎新晚会，覆盖 2000 人，满意度 96%')
   ]);
 }
 
@@ -667,7 +667,7 @@ function renderProfile() {
     ]),
     el('div', { class: 'grid-3' }, [
       autocompleteField('城市', 'city', p.city, '输入关键词选择，如：深圳', 'city'),
-      inputField('GitHub / 主页', 'github', p.github, 'github.com/yourname'),
+      inputField('GitHub / 作品集', 'github', p.github, 'github.com/yourname 或作品集 / 证书链接'),
       autocompleteField('目标岗位', 'targetRole', p.targetRole, '输入关键词选择，如：后端', 'targetRole')
     ]),
     areaField('一句话自我介绍（选填，留空则自动生成）', 'summary', p.summary, '留空即可，引擎会根据你的经历自动拼一句朴实、无套话的简介')
@@ -675,7 +675,7 @@ function renderProfile() {
 
   const skillsCard = el('div', { class: 'card', id: 'card-skills' }, [
     cardTitle('wrench', '专业技能', '逗号 / 顿号分隔'),
-    areaField('技能清单', 'skills', p.skills, 'Java, Go, MySQL, Redis, 数据结构, 计算机网络, Git, Linux'),
+    areaField('技能清单', 'skills', p.skills, '技能 / 工具 / 证书都可以：Python, Excel, SQL, 文案策划, 教师资格证…'),
     (p.skills || '').trim() ? el('div', { class: 'skill-chip-row' },
       p.skills.split(/[,，、;；\n]/).map((s) => s.trim()).filter(Boolean).slice(0, 24)
         .map((s) => el('span', { class: 'r-skill' }, [s]))
@@ -822,7 +822,7 @@ function buildProfileStats(p) {
     { label: '教育经历 ≥ 1 段', done: (p.education || []).some((e) => e.school) },
     { label: '项目经历 ≥ 1 段', done: (p.projects || []).some((e) => e.name) },
     { label: '项目描述有量化', done: (p.projects || []).some((e) => /\d/.test(e.description || '')) },
-    { label: 'GitHub / 主页', done: !!(p.github || '').trim() }
+    { label: 'GitHub / 作品集 / 证书链接', done: !!(p.github || '').trim() }
   ];
   const done = items.filter((x) => x.done).length;
   return {
@@ -1151,7 +1151,10 @@ function buildJdCard() {
 
   const color = jd.score >= 60 ? 'var(--teal)' : jd.score >= 40 ? 'var(--gold)' : 'var(--danger)';
   const DOMAIN_LABELS = {
-    backend: '后端', frontend: '前端', algorithm: '算法', data: '数据', llm: '大模型 / Agent', general: '通用'
+    backend: '后端', frontend: '前端', algorithm: '算法', data: '数据', llm: '大模型 / Agent',
+    finance: '金融财务', marketing: '市场运营', design: '创意设计', eng: '机械电气',
+    civil: '土木建筑', education: '教育培训', medical: '医药卫生', business: '人力行政',
+    general: '通用'
   };
   const hitTags = jd.hit.length
     ? jd.hit.map((h) => el('span', { class: 'skill-hit' }, ['✓ ' + h.label]))

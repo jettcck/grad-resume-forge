@@ -63,6 +63,45 @@ assert(mjLlm.hit.some((h) => h.label === 'rag'), 'rag 技能命中');
 assert(mjLlm.hit.some((h) => h.label === 'python'), 'python 技能命中');
 assert(mjLlm.hitCount >= 6, 'llm 方向命中数充足（实际 ' + mjLlm.hitCount + '/' + mjLlm.total + '）');
 
+// 6d) 全专业方向识别：8 个非技术方向各归其位
+assert(engine.detectDomain('银行客户经理，熟悉信贷与风控') === 'finance', '银行客户经理 → 金融');
+assert(engine.detectDomain('新媒体运营，负责公众号文案与活动策划') === 'marketing', '新媒体运营 → 市场运营');
+assert(engine.detectDomain('平面设计师，精通 Photoshop 与插画') === 'design', '平面设计师 → 创意设计');
+assert(engine.detectDomain('机械工程师，熟悉 SolidWorks 与数控工艺') === 'eng', '机械工程师 → 工科制造');
+assert(engine.detectDomain('造价工程师，广联达算量与施工组织') === 'civil', '造价工程师 → 土木建筑');
+assert(engine.detectDomain('初中数学教师，持有教师资格证') === 'education', '数学教师 → 教育培训');
+assert(engine.detectDomain('临床护士，规范护理操作') === 'medical', '临床护士 → 医药卫生');
+assert(engine.detectDomain('招聘专员，负责校招与员工关系') === 'business', '招聘专员 → 人力行政');
+
+// 6e) 交叉岗位与防误判
+assert(engine.detectDomain('银行 Java 后端开发工程师') === 'backend', '金融科技岗优先给技术词表（CS 规则在前）');
+assert(engine.detectDomain('金融数据分析师，SQL 与建模') === 'data', '金融数据分析 → 数据方向（贪婪词收紧后仍正确）');
+assert(engine.detectDomain('UI 设计师，Figma 与交互原型') === 'design', 'UI 设计师 → 设计（不被 frontend 的 ui 抢走）');
+assert(engine.detectDomain('UI 开发工程师，组件库搭建') === 'frontend', 'UI 开发 → 前端（无设计词，落回 ui）');
+assert(engine.detectDomain('自动化测试工程师，Selenium') === 'general', '自动化测试不误判工科（自动化收紧）');
+assert(engine.detectDomain('负责运营数据整理的新媒体小编') === 'marketing', '运营数据整理 → 市场（不被裸「数据」抢走）');
+
+// 6f) 非技术词库命中
+const mjFin = engine.matchJob('熟练 excel 编制财务报表，持有 cpa，参与年度审计', 'finance', '财务专员');
+assert(mjFin.hit.some((h) => h.label === 'excel'), '财务词库：excel 命中');
+assert(mjFin.hit.some((h) => h.label === '财务报表'), '财务词库：财务报表命中');
+assert(mjFin.hit.some((h) => h.label === 'cpa'), '财务词库：cpa 命中');
+assert(mjFin.hitCount >= 3, '财务方向命中数充足（' + mjFin.hitCount + '/' + mjFin.total + '）');
+const mjMkt = engine.matchJob('负责公众号运营与活动策划，产出爆款文案，投放 roi 提升', 'marketing', '新媒体运营');
+assert(mjMkt.hit.some((h) => h.label === '新媒体'), '市场词库：新媒体命中');
+assert(mjMkt.hit.some((h) => h.label === '文案'), '市场词库：文案命中');
+const mjEng = engine.matchJob('用 solidworks 完成零件建模与机械制图，熟悉数控加工', 'eng', '机械工程师');
+assert(mjEng.hit.some((h) => h.label === 'solidworks'), '工科词库：solidworks 命中');
+assert(mjEng.hit.some((h) => h.label === '机械设计'), '工科词库：机械制图命中机械设计组');
+const mjEdu = engine.matchJob('持有教师资格证，独立完成教案与课件设计', 'education', '数学教师');
+assert(mjEdu.hit.some((h) => h.label === '教师资格证'), '教育词库：教资命中');
+assert(mjEdu.hit.some((h) => h.label === '教案'), '教育词库：教案命中');
+// 通用词表去计算机化：管培生 JD 不再要求「数据结构」
+const mjGen = engine.matchJob('office 三件套熟练，英语六级，有学生干部经历', 'general', '管培生');
+assert(mjGen.hit.some((h) => h.label === 'office'), '通用词库：office 命中');
+assert(mjGen.hit.some((h) => h.label === '英语'), '通用词库：英语命中');
+assert(!mjGen.missing.some((m) => m.label === '数据结构'), '通用词库不再要求数据结构');
+
 // 7) 岗位匹配词边界：子串不应误命中技能
 const mj1 = engine.matchJob('熟悉 javascript、json 与 vue3', 'frontend', '前端开发');
 assert(mj1.hit.some((h) => h.label === 'javascript'), 'javascript 正确命中 JS 技能');

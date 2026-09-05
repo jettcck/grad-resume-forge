@@ -236,7 +236,7 @@ function parseEducation(lines: string[], ref: RefData): EducationEntry[] {
 
 // ---------- 经历解析（实习 / 项目） ----------
 const BULLET_RE = /^[\-–—*•·▪◦>»>+]\s*|^\d+[.、)）]\s*/;
-const TITLE_HINT_RE = /(公司|集团|科技|信息技术|网络|实验室|工作室|银行|有限|中心|平台|实习|工程师|开发|负责人|项目|系统|服务|工作室)/;
+const TITLE_HINT_RE = /(公司|集团|科技|信息技术|网络|实验室|工作室|银行|有限|中心|平台|实习|工程师|开发|负责人|项目|系统|服务|工作室|事务所|设计院|医院|学校|证券|基金|诊所|药房)/;
 
 function looksLikeTitle(line: string): boolean {
   if (BULLET_RE.test(line)) return false;

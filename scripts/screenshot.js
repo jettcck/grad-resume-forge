@@ -117,7 +117,7 @@ async function main() {
   const win = new BrowserWindow({
     width: 1440, height: 900, show: false,
     webPreferences: {
-      preload: path.join(ROOT, 'src/main/preload.js'),
+      preload: path.join(ROOT, 'dist/main/preload.js'),
       contextIsolation: true, nodeIntegration: false, sandbox: false
     }
   });

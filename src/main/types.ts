@@ -70,7 +70,19 @@ export interface Resume {
   domain: Domain;
 }
 
-export type Domain = 'backend' | 'frontend' | 'algorithm' | 'data' | 'llm' | 'general';
+export type Domain =
+  // 技术方向
+  | 'backend' | 'frontend' | 'algorithm' | 'data' | 'llm'
+  // 全专业方向
+  | 'finance'    // 金融财务（银行/证券/会计/审计）
+  | 'marketing'  // 市场运营（新媒体/品牌/销售/电商）
+  | 'design'     // 创意设计（平面/UI/插画/视频）
+  | 'eng'        // 工科制造（机械/电气/自动化/汽车）
+  | 'civil'      // 土木建筑（造价/施工/监理/测绘）
+  | 'education'  // 教育培训（教师/教研/课程）
+  | 'medical'    // 医药卫生（医师/护理/药学）
+  | 'business'   // 人力行政（HR/行政/招聘/客服）
+  | 'general';
 
 export interface AuditIssue {
   type: string;

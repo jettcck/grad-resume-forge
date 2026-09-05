@@ -74,6 +74,19 @@ const CASES = [
       internships: []
     },
     jd: '算法工程师\n要求：熟悉 Python、PyTorch\n有深度学习与 NLP 项目经验优先'
+  },
+  {
+    name: '财务简历 + 财务 JD（全专业）',
+    profile: {
+      summary: '本人具备扎实的专业基础',
+      skills: 'Excel, 用友, CPA',
+      projects: [{
+        name: '财务共享中心项目', tech: 'Excel / 用友',
+        description: '本人负责月度对账工作，通过认真负责的态度完成各项任务\n参与财务报表编制，支撑 12 家子公司'
+      }],
+      internships: []
+    },
+    jd: '财务专员\n要求：熟练使用 Excel，了解财务报表编制与审计流程\n持有 CPA 或熟悉用友者优先'
   }
 ];
 
