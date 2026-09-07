@@ -108,10 +108,14 @@ async function main() {
     }
   }
 
-  // 预置演示账号 + 档案 + 投递记录（渲染器走正常登录流程进入）
+  // 预置演示账号（先存空档案 → 截「新手引导」，再一键载入示例走完整流程）
   try { auth.register({ email: DEMO_EMAIL, password: DEMO_PASSWORD, name: '李明' }); } catch (_) {} // eslint-disable-line no-empty
   const user = store.findUserByEmail(DEMO_EMAIL);
-  store.saveProfile(user.id, DEMO_PROFILE);
+  // 空档案（显式清空所有字段——saveProfile 是合并语义，只给空数组盖不掉旧值）
+  store.saveProfile(user.id, {
+    name: '', phone: '', email: '', city: '', github: '', targetRole: '',
+    summary: '', skills: '', education: [], internships: [], projects: []
+  });
   DEMO_APPS.forEach((a) => store.saveApplication(user.id, a));
 
   const win = new BrowserWindow({
@@ -149,7 +153,37 @@ async function main() {
     return true;
   })()`);
   await sleep(1800);
+
+  // —— 新手引导（空档案）断言 + 截图 ——
+  await shot(win, '02-onboarding');
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    t('新手引导卡出现', !!document.querySelector('.onboarding .ob-actions'));
+    t('双示例按钮（技术+财务）', document.querySelectorAll('.ob-actions .btn').length === 2);
+    t('环形仪表渲染', !!document.querySelector('.completeness .ring-svg .ring-fill'));
+    t('路由过渡动画', getComputedStyle(document.getElementById('route-profile')).animationName === 'route-in');
+    return out.join('\\n');
+  })()`));
+
+  // 一键载入示例（走 loadDemoProfile 全链路：保存 + 重渲染 + 声音）
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.ob-actions .btn-primary').click();
+    return true;
+  })()`);
+  await sleep(1400);
   await shot(win, '02-profile');
+
+  // 环形仪表数值断言（示例档案完成度应 > 60%）
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const num = document.querySelector('.completeness .ring-num');
+    t('示例载入后仪表数值 > 60', num && parseInt(num.textContent) > 60);
+    t('引导卡消失（档案已非空）', !document.querySelector('.onboarding'));
+    t('技能芯片错峰渲染', document.querySelectorAll('.skill-chip-row .r-skill').length >= 8);
+    return out.join('\\n');
+  })()`));
 
   for (const [route, name] of [['resume', '03-resume'], ['apps', '04-apps']]) {
     await win.webContents.executeJavaScript(`(() => {

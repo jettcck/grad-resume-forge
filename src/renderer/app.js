@@ -654,8 +654,26 @@ function renderProfile() {
       el('b', {}, ['已有旧简历？']),
       el('span', {}, ['选 PDF / TXT 文件自动填表，识别结果先给你过目'])
     ]),
+    isProfileEmpty(p) ? null : el('span', { class: 'ib-demo-hint' }, ['或']),
+    isProfileEmpty(p) ? null : el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: () => loadDemoProfile('cs') }, ['示例']),
     el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: onImportResume }, ['导入旧简历'])
   ]);
+
+  // 新手引导：档案为空时给一条 30 秒体验完整流程的捷径（技术 + 财务双示例）
+  let onboarding = null;
+  if (isProfileEmpty(p)) {
+    onboarding = el('div', { class: 'card onboarding' }, [
+      el('div', { class: 'ob-badge' }, ['FIRST RUN']),
+      el('h3', { class: 'ob-title' }, ['第一次用？30 秒看完整个锻造流程']),
+      el('p', { class: 'ob-desc' }, ['不用逐个填表——选一份示例档案直接进炉：看体检评分、贴 JD 匹配、跑 Agent 改写，玩完再换成你自己的经历。']),
+      el('div', { class: 'ob-actions' }, [
+        el('button', { class: 'btn btn-primary btn-sm', type: 'button', onclick: () => loadDemoProfile('cs') },
+          [ico('code', 14), '示例：后端工程师（计算机）']),
+        el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: () => loadDemoProfile('finance') },
+          [ico('briefcase', 14), '示例：财务专员（会计学）'])
+      ])
+    ]);
+  }
 
   // ---- 左列：档案主体 ----
   const basicsCard = el('div', { class: 'card', id: 'card-basics' }, [
@@ -678,7 +696,7 @@ function renderProfile() {
     areaField('技能清单', 'skills', p.skills, '技能 / 工具 / 证书都可以：Python, Excel, SQL, 文案策划, 教师资格证…'),
     (p.skills || '').trim() ? el('div', { class: 'skill-chip-row' },
       p.skills.split(/[,，、;；\n]/).map((s) => s.trim()).filter(Boolean).slice(0, 24)
-        .map((s) => el('span', { class: 'r-skill' }, [s]))
+        .map((s, i) => el('span', { class: 'r-skill', style: '--i:' + i }, [s]))
     ) : null
   ]);
 
@@ -714,16 +732,13 @@ function renderProfile() {
     } }, [ico('plus', 13), '+ 添加项目经历'])
   ]);
 
-  // ---- 右列：锻造侧栏（完成度仪表 + 档案统计 + 摘要卡）----
+  // ---- 右列：锻造侧栏（环形完成度仪表 + 档案统计 + 快照）----
   const stats = buildProfileStats(p);
+  const scoreColor = stats.score >= 80 ? 'var(--teal)' : stats.score >= 50 ? 'var(--gold)' : 'var(--danger)';
   const sideCol = el('div', { class: 'profile-side' }, [
     el('div', { class: 'card side-card completeness' }, [
       cardTitle('gauge', '档案完成度'),
-      el('div', { class: 'audit-score' }, [
-        el('span', { class: 'score-num', style: 'color:' + (stats.score >= 80 ? 'var(--teal)' : stats.score >= 50 ? 'var(--gold)' : 'var(--danger)') }, [String(stats.score)]),
-        el('span', { class: 'score-max' }, ['%'])
-      ]),
-      el('div', { class: 'meter' }, [el('i', { style: 'width:' + stats.score + '%;background:' + (stats.score >= 80 ? 'var(--teal)' : stats.score >= 50 ? 'var(--gold)' : 'var(--danger)') })]),
+      ringGauge(stats.score, scoreColor),
       el('div', { class: 'check-list' }, stats.items.map((it) =>
         el('div', { class: 'check-item' + (it.done ? ' done' : '') }, [
           el('span', { class: 'ci-ico' }, [it.done ? '✓' : '○']),
@@ -809,7 +824,7 @@ function renderProfile() {
     sideCol
   ]);
 
-  root.append(head, importBar, twoCols, saveBar);
+  root.append(head, onboarding, importBar, twoCols, saveBar);
 }
 
 // 档案完成度：8 项检查（用于录入页侧栏仪表 + 保存条）
@@ -833,6 +848,80 @@ function buildProfileStats(p) {
     countProj: (p.projects || []).filter((e) => e.name).length,
     countSkill: (p.skills || '').split(/[,，、;；\n]/).filter((s) => s.trim()).length
   };
+}
+
+// ---------------- 环形仪表（SVG，带描边动画与数字滚动） ----------------
+function ringGauge(percent, colorVar) {
+  const R = 34, C = 2 * Math.PI * R; // 周长
+  const wrap = el('div', { class: 'ring-gauge' });
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('viewBox', '0 0 84 84');
+  svg.setAttribute('class', 'ring-svg');
+  svg.innerHTML =
+    '<circle class="ring-track" cx="42" cy="42" r="' + R + '"/>' +
+    '<circle class="ring-fill" cx="42" cy="42" r="' + R + '" style="stroke:' + colorVar + '"/>';
+  const fill = svg.querySelector('.ring-fill');
+  fill.style.strokeDasharray = String(C);
+  fill.style.strokeDashoffset = String(C);
+  // 下一帧再设置目标值，触发 CSS 过渡（从 0 滚到 percent）
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      fill.style.strokeDashoffset = String(C * (1 - percent / 100));
+    });
+  });
+  const num = el('span', { class: 'score-num ring-num', style: 'color:' + colorVar }, ['0']);
+  // 数字滚动
+  const t0 = performance.now(), dur = 700;
+  (function tick(t) {
+    const k = Math.min(1, (t - t0) / dur);
+    num.textContent = String(Math.round(percent * (1 - Math.pow(1 - k, 3)))); // easeOutCubic
+    if (k < 1) requestAnimationFrame(tick);
+  })(t0);
+  wrap.append(svg, num, el('span', { class: 'ring-unit' }, ['%']));
+  return wrap;
+}
+
+// ---------------- 示例档案（一键体验：技术 + 财务，展示全专业） ----------------
+const DEMO_PROFILES = {
+  cs: {
+    name: '李明', phone: '13812345678', email: 'liming@example.com', city: '杭州',
+    github: 'github.com/liming', targetRole: '后端开发工程师', summary: '',
+    skills: 'Java, Go, MySQL, Redis, Kafka, 数据结构, 计算机网络, Git, Linux, Docker',
+    education: [{ school: '浙江大学', major: '计算机科学与技术', degree: '本科', period: '2021.09 - 2025.06', gpa: '3.8/4.0', courses: '数据结构、操作系统、计算机网络、数据库原理' }],
+    internships: [{ name: '字节跳动', role: '后端开发实习生', period: '2024.06 - 至今', tech: 'Go / MySQL / Redis', description: '负责订单系统查询优化，P99 从 800ms 降到 120ms\n参与用户模块开发，支撑日活 3 万' }],
+    projects: [
+      { name: '分布式短链服务', role: '核心开发', period: '2024.01 - 2024.05', tech: 'Go / Redis / Kafka', description: '设计短链算法，QPS 提升 5 倍\n使用多级缓存优化查询，P99 降到 80ms' },
+      { name: '高并发秒杀系统', role: '独立开发', period: '2023.09 - 2023.12', tech: 'Java / Spring Cloud', description: '实现库存预扣与异步下单，支撑 5000 QPS\n用压测定位瓶颈，吞吐提升 3 倍' }
+    ]
+  },
+  finance: {
+    name: '王雨晴', phone: '13987654321', email: 'wangyuqing@example.com', city: '上海',
+    github: '作品集：财务分析报告 3 份（面试可出示）', targetRole: '财务专员', summary: '',
+    skills: 'Excel（数据透视 / 函数）, 用友 U8, CPA（已过 3 科）, 财务报表分析, 审计底稿, 英语六级',
+    education: [{ school: '西南财经大学', major: '会计学', degree: '本科', period: '2021.09 - 2025.06', gpa: '3.6/4.0', courses: '中级财务会计、审计学、财务管理、税法' }],
+    internships: [{ name: '天健会计师事务所', role: '审计实习生', period: '2024.06 - 2024.09', tech: 'Excel / 底稿系统', description: '参与 2 家制造业公司年审，独立完成货币资金与往来科目底稿\n盘点现金与存货，盘点差异率 0.1%' }],
+    projects: [
+      { name: '财务共享中心流程优化', role: '小组负责人', period: '2023.09 - 2024.01', tech: '用友 U8 / Excel', description: '梳理 12 家子公司报销流程，制作对账模板，月结周期缩短 2 天\n输出费用分析报告 4 份，被课程评为优秀案例' },
+      { name: '上市公司报表分析（课程设计）', role: '独立完成', period: '2023.03 - 2023.06', tech: 'Excel / Wind', description: '拆解贵州茅台 5 年三大报表，搭建 DCF 估值模型\n小组答辩成绩 95 / 100' }
+    ]
+  }
+};
+
+// 档案是否基本为空（决定是否展示新手引导）
+function isProfileEmpty(p) {
+  return !p.name && !(p.projects || []).some((e) => e.name) && !(p.education || []).some((e) => e.school);
+}
+
+// 载入示例：替换当前档案并保存（新用户 30 秒体验完整流程）
+async function loadDemoProfile(kind) {
+  const demo = DEMO_PROFILES[kind] || DEMO_PROFILES.cs;
+  try {
+    state.profile = await call(window.api.profile.save(state.user.id, JSON.parse(JSON.stringify(demo))));
+    toast('示例档案已载入，去「简历预览」看看效果 →', 'ok');
+    renderProfile();
+  } catch (err) {
+    toast('载入失败：' + err.message, 'err');
+  }
 }
 
 // ---------------- 一键导入旧简历 ----------------
@@ -983,12 +1072,22 @@ function collectProfile() {
 
 async function onSaveProfile(silent) {
   const profile = collectProfile();
+  // 保存按钮 loading 态：防连点 + 给「正在保存」反馈
+  const saveBtn = document.querySelector('.save-bar .btn-primary');
+  const ghostBtn = document.querySelector('.save-bar .btn-ghost');
+  const busy = (on) => {
+    [saveBtn, ghostBtn].forEach((b) => { if (b) b.disabled = on; });
+    if (saveBtn) saveBtn.classList.toggle('loading', on);
+  };
+  busy(true);
   try {
     state.profile = await call(window.api.profile.save(state.user.id, profile));
     if (!silent) toast('信息已保存到本地', 'ok');
   } catch (err) {
     toast(err.message, 'err');
     throw err;
+  } finally {
+    busy(false);
   }
 }
 
@@ -1013,11 +1112,30 @@ async function renderResumePage() {
     el('p', { class: 'page-desc' }, ['右侧「去 AI 味体检」实时评分：分数越高越像真人手写。切换模板、按建议打磨，然后一键导出 PDF。'])
   ]);
 
+  // 骨架屏：生成是异步的，先撑住版面（模拟报纸版式的灰色块）
+  const skeleton = el('div', { class: 'paper-wrap' }, [
+    el('div', { class: 'paper paper-skeleton' }, [
+      el('div', { class: 'sk-line sk-name' }),
+      el('div', { class: 'sk-line w60' }),
+      el('div', { class: 'sk-gap' }),
+      el('div', { class: 'sk-block' }),
+      el('div', { class: 'sk-line w40' }),
+      el('div', { class: 'sk-line' }),
+      el('div', { class: 'sk-line w80' }),
+      el('div', { class: 'sk-gap' }),
+      el('div', { class: 'sk-line w40' }),
+      el('div', { class: 'sk-line' }),
+      el('div', { class: 'sk-line w70' })
+    ])
+  ]);
+  root.append(head, skeleton);
+
   // 生成失败时给出错误卡片 + 重试入口，而不是留下半空白的页面
   let result;
   try {
     result = await call(window.api.resume.generate(state.profile, {}));
   } catch (err) {
+    root.innerHTML = '';
     root.append(head, el('div', { class: 'card' }, [
       el('div', { style: 'padding:34px 24px;text-align:center;' }, [
         el('p', { style: 'color:var(--danger);font-size:14px;margin-bottom:16px;' }, ['简历生成失败：' + err.message]),
@@ -1026,6 +1144,7 @@ async function renderResumePage() {
     ]));
     return;
   }
+  root.innerHTML = '';
   state.lastResume = result;
 
   // 模板选择器

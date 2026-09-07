@@ -692,6 +692,85 @@ em { font-style: normal; color: var(--gold); }
 .btn .ico-wrap { opacity: .9; }
 .column h4 .ico-wrap { margin-right: 1px; }
 
+/* ---------- 路由切换过渡（display 切换时动画重放） ---------- */
+.route { animation: route-in .3s cubic-bezier(.2,.8,.2,1); }
+@keyframes route-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- 环形完成度仪表 ---------- */
+.ring-gauge { position: relative; width: 96px; height: 96px; margin: 6px auto 2px; }
+.ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.ring-track { fill: none; stroke: var(--bg-3); stroke-width: 7; }
+.ring-fill {
+  fill: none; stroke-width: 7; stroke-linecap: round;
+  transition: stroke-dashoffset .8s cubic-bezier(.2,.8,.2,1);
+  filter: drop-shadow(0 0 6px rgba(255,176,30,.35));
+}
+.ring-num {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  font-family: var(--font-display); font-size: 26px; font-weight: 700;
+  font-variant-numeric: tabular-nums; letter-spacing: -1px;
+}
+.ring-unit {
+  position: absolute; right: 8px; bottom: 10px;
+  font-family: var(--font-mono); font-size: 10px; color: var(--ink-2);
+}
+
+/* ---------- 新手引导卡（首进空档案时） ---------- */
+.onboarding {
+  border: 1px solid rgba(255,176,30,.4);
+  background:
+    radial-gradient(120% 140% at 0% 0%, rgba(255,176,30,.10), transparent 55%),
+    linear-gradient(180deg, var(--bg-1), #131b2b);
+  padding: 26px 28px;
+}
+.onboarding::before { width: 68px; opacity: 1; }
+.ob-badge {
+  display: inline-block; font-family: var(--font-mono); font-size: 10px;
+  letter-spacing: 2.5px; color: var(--gold); border: 1px solid rgba(255,176,30,.45);
+  padding: 3px 8px; margin-bottom: 12px;
+}
+.ob-title { font-family: var(--font-display); font-size: 21px; font-weight: 700; margin-bottom: 8px; }
+.ob-desc { font-size: 13.5px; color: var(--ink-1); line-height: 1.7; max-width: 560px; margin-bottom: 16px; }
+.ob-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+.ib-demo-hint { font-size: 12px; color: var(--ink-2); align-self: center; }
+
+/* ---------- 简历生成骨架屏 ---------- */
+.paper-skeleton { display: flex; flex-direction: column; gap: 12px; padding: 60px 70px; }
+.paper-skeleton .sk-line {
+  height: 12px; border-radius: 2px;
+  background: linear-gradient(90deg, #e8e8e8 25%, #f5f5f5 50%, #e8e8e8 75%);
+  background-size: 200% 100%;
+  animation: sk-shimmer 1.3s linear infinite;
+}
+.paper-skeleton .sk-name { height: 30px; width: 40%; margin-bottom: 6px; }
+.paper-skeleton .sk-block { height: 90px; border-radius: 3px; margin: 4px 0;
+  background: linear-gradient(90deg, #ececec 25%, #f6f6f6 50%, #ececec 75%);
+  background-size: 200% 100%; animation: sk-shimmer 1.3s linear infinite; }
+.paper-skeleton .sk-gap { height: 18px; }
+.paper-skeleton .w40 { width: 40%; } .paper-skeleton .w60 { width: 60%; }
+.paper-skeleton .w70 { width: 70%; } .paper-skeleton .w80 { width: 80%; }
+@keyframes sk-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+
+/* ---------- 纸张入场（生成完成后） ---------- */
+.paper-wrap .paper:not(.paper-skeleton) { animation: paper-in .45s cubic-bezier(.2,.8,.2,1); }
+@keyframes paper-in {
+  from { opacity: 0; transform: scale(.96) translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---------- 保存按钮 loading ---------- */
+.btn-primary.loading { pointer-events: none; opacity: .85; position: relative; }
+.btn-primary.loading > * { visibility: hidden; }
+.btn-primary.loading::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 14px; height: 14px; margin: -7px 0 0 -7px;
+  border: 2px solid rgba(42,20,3,.3); border-top-color: #2a1403;
+  border-radius: 50%; animation: btn-spin .6s linear infinite;
+}
+
 /* ---------- 信息录入页：双栏工作流 ---------- */
 .import-bar {
   display: flex; align-items: center; gap: 14px;
