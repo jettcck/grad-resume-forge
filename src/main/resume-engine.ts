@@ -230,12 +230,18 @@ export function generate(profile: Profile, options: { targetRole?: string } | Re
     tips.push('至少写 1 段项目或实习，这是应届简历最核心的部分。');
   }
 
-  // 一句话摘要（本地拼接，不套 AI 模板腔）
+  // 一句话摘要（本地拼接，不套 AI 模板腔）。
+  // 注意：自动拼的简介不参与体检（自产内容不自检——否则「学校+专业」
+  // 粘连成长行会被误标「句子过长」，兜底词还会自flag「空洞形容词」）
   let summary = clean(p.summary);
+  let summaryIsAuto = false;
   if (!summary) {
-    const eduName = education[0] ? education[0].school + education[0].major : '目标行业';
-    const topSkills = uniqueSkills.slice(0, 3).join(' / ') || '扎实的编程基础';
-    summary = eduName + '应届生，方向为' + basics.targetRole + '，掌握 ' + topSkills + '，有 ' +
+    summaryIsAuto = true;
+    const edu = education[0];
+    const eduName = edu ? edu.school + ' · ' + edu.major : '目标行业';
+    const topSkills = uniqueSkills.slice(0, 3).join(' / ');
+    const skillPart = topSkills ? '，掌握 ' + topSkills : '';
+    summary = eduName + '应届生，方向为' + basics.targetRole + skillPart + '，有 ' +
       (projects.length + internships.length) + ' 段可展示的项目 / 实习经历。';
   }
 
@@ -249,8 +255,8 @@ export function generate(profile: Profile, options: { targetRole?: string } | Re
     domain
   };
 
-  // 生成后自检
-  const auditText = [summary]
+  // 生成后自检：只体检用户亲手写的内容（简介 + 经历条目）
+  const auditText = (summaryIsAuto ? [] : [summary])
     .concat(projects.flatMap((x) => x.bullets))
     .concat(internships.flatMap((x) => x.bullets))
     .join('\n');
@@ -461,12 +467,22 @@ export function auditAiFlavor(text: string): AuditResult {
     penalty += 12;
   }
 
-  // 冗长句：单句超过 45 字
+  // 冗长句：单句超过 45 字。聚合计数（多条并为一项 ×N），
+  // 预览取「首…尾」双端截断并标总长——让用户明白问题是长度而非开头那几个字
+  let longCount = 0;
+  let longSample = '';
   for (const l of lines) {
     if (l.length > 45) {
-      issues.push({ type: '句子过长', word: l.slice(0, 16) + '…' });
-      penalty += 3;
+      longCount++;
+      if (!longSample) longSample = l;
     }
+  }
+  if (longCount) {
+    const preview = longSample.length > 24
+      ? longSample.slice(0, 10) + ' … ' + longSample.slice(-8)
+      : longSample;
+    issues.push({ type: '句子过长', word: preview + '（单条 ' + longSample.length + ' 字，>45）', count: longCount });
+    penalty += longCount * 3;
   }
 
   const score = Math.max(0, Math.min(100, 100 - penalty));

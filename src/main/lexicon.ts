@@ -43,7 +43,8 @@ export const WEAK_TO_STRONG: Readonly<Record<string, string>> = {
   '用到了': '运用',
   '使用': '运用',
   '完成了一些': '交付',
-  '处理': '解决'
+  '处理': '解决',
+  '用': '运用'
 };
 
 // 5) 各方向强动词库（用于生成条目开头）

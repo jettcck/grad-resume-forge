@@ -155,4 +155,36 @@ let shortErr = null;
 try { engine.matchJd(resumeObj, '   '); } catch (e) { shortErr = e; }
 assert(shortErr && /职位描述/.test(shortErr.message), '空 JD 报错');
 
+// 10) 自产内容不自检（用户报告：自动简介把学校名标成「句子过长」）
+const baseForAuto = {
+  name: '张三', phone: '13800000000', email: 'z@x.com',
+  targetRole: '后端开发工程师', skills: 'Java, MySQL, Redis, Git',
+  education: [{ school: '成都理工大学工程技术学院', major: '计算机科学与技术', degree: '本科', period: '2021-2025' }],
+  projects: [{ name: '订单系统', tech: 'Java', description: '负责订单系统优化，P99 从 800ms 降到 120ms' }],
+  internships: []
+};
+const genAuto = engine.generate(baseForAuto, {});
+console.log('  自动简介:', genAuto.resume.summary);
+assert(genAuto.resume.summary.includes('成都理工大学工程技术学院 · 计算机科学与技术'), '自动简介：学校与专业用「 · 」分隔（不再粘连）');
+assert(!genAuto.audit.issues.some((i) => i.type === '句子过长' && i.word.includes('成都理工')), '自动简介不进体检（学校名不再被标句子过长）');
+assert(!genAuto.resume.summary.includes('扎实的'), '自动简介兜底不再含「扎实的」（防空洞形容词自 flag）');
+
+// 用户手写简介仍参与体检（自检只豁免自动拼的）
+const genUser = engine.generate(Object.assign({}, baseForAuto, { summary: '本人具备扎实的编程基础' }), {});
+assert(genUser.audit.issues.some((i) => i.type === '空洞形容词' && i.word === '扎实的'), '用户手写简介仍被体检（扎实的 被标出）');
+
+// 10b) 句子过长聚合计数 + 双端预览
+const aggr = engine.auditAiFlavor('字'.repeat(50) + '\n' + '句'.repeat(52) + '\n' + '行'.repeat(48));
+const longIssues = aggr.issues.filter((i) => i.type === '句子过长');
+assert(longIssues.length === 1, '多条长句聚合为 1 项（不刷屏）');
+assert(longIssues[0].count === 3, '聚合计数 ×3');
+assert(longIssues[0].word.includes('…'), '预览为双端截断（含 …）');
+assert(/50 字/.test(longIssues[0].word), '预览标注单条字数');
+
+// 10c) 裸「用」开头强化（消灭「调优用 Python」怪拼接）
+const rwYong = engine.rewriteBullet('用 Python 开发 PDM 数据同步脚本，处理 50 万行数据', 'data', 0);
+console.log('  改写结果:', rwYong);
+assert(rwYong.startsWith('运用 Python'), '「用 X 开发」强化为「运用 X 开发」');
+assert(engine.rewriteBullet('用到了 Spark 清洗 10 万行日志', 'data', 0).startsWith('运用'), '「用到了」仍优先匹配（长前缀优先）');
+
 console.log('\n引擎自测完成，最终 exitCode =', process.exitCode || 0);
