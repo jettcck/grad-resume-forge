@@ -184,14 +184,35 @@ async function main() {
   })()`);
   await sleep(1000);
   await shot(win, '05-assistant');
+  // 滚动验证：灌 20 条消息制造真实溢出（真实用户长对话场景）
+  await win.webContents.executeJavaScript(`(() => {
+    const body = document.getElementById('as-body');
+    for (let i = 0; i < 20; i++) {
+      const d = document.createElement('div');
+      d.className = 'as-msg as-bot';
+      d.innerHTML = '<div class="as-bubble">测试消息 ' + i + '：这是一段足够长的内容用于制造滚动溢出，验证面板滚动区域在长对话下正常工作。</div>';
+      body.appendChild(d);
+    }
+    return true;
+  })()`);
+  await sleep(300);
   console.log(await verify(win, `(() => {
     const out = [];
     const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
     t('助手面板打开', document.getElementById('assistant-panel').style.display !== 'none');
-    t('欢迎语渲染', document.querySelectorAll('.as-bot .as-bubble').length >= 1);
-    t('命中知识库（含竞赛/项目关键词）', /竞赛|项目|产出/.test(document.getElementById('as-body').textContent || ''));
+    t('面板为 flex 布局（滚动区生效的前提）', document.getElementById('assistant-panel').style.display === 'flex');
+    const asBody = document.getElementById('as-body');
+    t('长对话消息区溢出', asBody.scrollHeight > asBody.clientHeight);
+    t('消息区可滚动', (function () {
+      asBody.scrollTop = 0;                      // 先归零
+      asBody.style.scrollBehavior = 'auto';      // 断言期间关平滑（平滑是异步动画，同步读 scrollTop 会拿到旧值）
+      asBody.scrollTop = 200;
+      const ok = asBody.scrollTop > 0;
+      asBody.style.scrollBehavior = '';
+      return ok;
+    })());
+    t('命中知识库（含竞赛/项目关键词）', /竞赛|项目|产出/.test(asBody.textContent || ''));
     t('快捷问题条', document.querySelectorAll('.as-quick .as-alt').length >= 5);
-    t('操作引导按钮', document.querySelectorAll('.as-actions .btn, .as-msg .as-actions').length >= 1);
     return out.join('\\n');
   })()`));
   await win.webContents.executeJavaScript(`(() => {

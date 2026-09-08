@@ -2139,11 +2139,50 @@ function appCard(a) {
   // 上下文方向：用当前档案的目标岗位帮知识库加权
   const domainHint = () => (state.profile && state.profile.targetRole) || '';
 
+  // ---- 滚动：平滑 + 贴底检测（用户上翻历史时不强行拽回底部） ----
+  function isNearBottom() {
+    return body.scrollHeight - body.scrollTop - body.clientHeight < 60;
+  }
+  function scrollToBottom(force) {
+    if (!force && !isNearBottom()) return; // 用户正在看历史，不打扰
+    body.scrollTo({ top: body.scrollHeight, behavior: 'smooth' });
+  }
+  // 用户手动滚动时记录（新消息来了只在原本就贴底时跟随）
+  body.addEventListener('scroll', () => { /* isNearBottom() 动态计算，无需状态 */ }, { passive: true });
+
+  // ---- 打字机：答案逐字浮现（约 14 字/拍，单条 ≤ 2.4s） ----
+  function typeInto(bubbleEl, text, done) {
+    const chars = Array.from(text); // 按码点切（中文安全）
+    let i = 0;
+    const step = Math.max(1, Math.ceil(chars.length / 34)); // 长文加速
+    (function tick() {
+      if (i >= chars.length) { done && done(); return; }
+      bubbleEl.textContent = chars.slice(0, i + step).join('');
+      i += step;
+      scrollToBottom(false); // 打字期间跟随（除非用户上翻）
+      setTimeout(tick, 65);
+    })();
+  }
+
   function bubble(text, who, opts) {
     const o = opts || {};
-    const node = el('div', { class: 'as-msg as-' + who }, [
-      el('div', { class: 'as-bubble' + (o.matched === false ? ' as-fallback' : '') }, [text])
-    ]);
+    const bubbleEl = el('div', { class: 'as-bubble' + (o.matched === false ? ' as-fallback' : '') }, [o.typewriter ? '' : text]);
+    const node = el('div', { class: 'as-msg as-' + who }, [bubbleEl]);
+    body.appendChild(node);
+    if (o.typewriter) {
+      typeInto(bubbleEl, text, () => {
+        // 打字完成后再挂操作按钮与候选（避免边打字边跳动）
+        appendExtras(node, o);
+        scrollToBottom(true);
+      });
+    } else {
+      appendExtras(node, o);
+      scrollToBottom(true);
+    }
+    return node;
+  }
+
+  function appendExtras(node, o) {
     if (o.action) {
       node.appendChild(el('div', { class: 'as-actions' }, [
         el('button', {
@@ -2162,22 +2201,28 @@ function appCard(a) {
         )
       ));
     }
+  }
+
+  // typing 指示器：三点呼吸（替代单调的「…」）
+  function showTyping() {
+    const node = el('div', { class: 'as-msg as-bot' }, [
+      el('div', { class: 'as-bubble as-typing' }, [
+        el('i', {}, ['·']), el('i', {}, ['·']), el('i', {}, ['·'])
+      ])
+    ]);
     body.appendChild(node);
-    body.scrollTop = body.scrollHeight;
+    scrollToBottom(true);
+    return node;
   }
 
   async function ask(q) {
     bubble(q, 'user');
-    const typing = el('div', { class: 'as-msg as-bot' }, [
-      el('div', { class: 'as-bubble as-typing' }, ['…'])
-    ]);
-    body.appendChild(typing);
-    body.scrollTop = body.scrollHeight;
+    const typing = showTyping();
     try {
       const r = await call(window.api.assistant.ask(q, domainHint()));
       typing.remove();
       if (window.Sound) window.Sound.play(r.matched ? 'ok' : 'notify');
-      bubble(r.answer, 'bot', { matched: r.matched, action: r.action, alts: r.alternatives });
+      bubble(r.answer, 'bot', { matched: r.matched, action: r.action, alts: r.alternatives, typewriter: true });
     } catch (err) {
       typing.remove();
       if (window.Sound) window.Sound.play('err');
@@ -2194,9 +2239,9 @@ function appCard(a) {
   });
 
   fab.addEventListener('click', async () => {
-    const open = panel.style.display !== 'none';
-    panel.style.display = open ? 'none' : 'block';
-    if (!open) {
+    const hidden = panel.style.display === 'none' || !panel.style.display;
+    if (hidden) {
+      panel.style.display = 'flex'; // 必须是 flex：CSS 的列布局依赖它，block 会废掉 as-body 的滚动
       if (window.Sound) window.Sound.play('click');
       if (!body.children.length) {
         bubble('你好，我是求职小助手。简历怎么写、经历怎么凑、求职流程不懂的都可以问；答不上来的我会直接给你指到对应功能。', 'bot');
@@ -2212,7 +2257,9 @@ function appCard(a) {
           });
         } catch (_) {} // eslint-disable-line no-empty
       }
-      input.focus();
+      setTimeout(() => input.focus(), 60);
+    } else {
+      panel.style.display = 'none';
     }
   });
   closeBtn.addEventListener('click', () => { panel.style.display = 'none'; });
