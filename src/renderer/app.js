@@ -1359,25 +1359,30 @@ function buildAgentCard() {
 
   const cfg = _agentStatus.config || {};
   const isCloud = cfg.provider === 'cloud';
+  const isEmbedded = cfg.provider === 'embedded';
 
   let statusLine;
   if (_agentStatus.available) {
     const extra = isCloud
       ? '（云端）'
-      : (_agentStatus.models && _agentStatus.models.length ? '（已装 ' + _agentStatus.models.length + ' 个模型）' : '');
+      : isEmbedded
+        ? '（应用内 · 离线可用）'
+        : (_agentStatus.models && _agentStatus.models.length ? '（已装 ' + _agentStatus.models.length + ' 个模型）' : '');
     statusLine = el('span', { class: 'agent-dot on', title: (_agentStatus.models || []).join('\n') || '模型服务已连接' },
       ['● ' + (cfg.model || '本地模型') + extra]);
   } else {
-    const hint = isCloud
-      ? (_agentStatus.error || '请到 ⚙ 配置填写 API 密钥')
-      : '安装 Ollama 后运行：ollama pull ' + (cfg.model || 'qwen2.5:7b');
+    const hint = isEmbedded
+      ? (_agentStatus.error || '模型未下载：⚙ 配置 → 应用内模型 → 下载')
+      : isCloud
+        ? (_agentStatus.error || '请到 ⚙ 配置填写 API 密钥')
+        : '安装 Ollama 后运行：ollama pull ' + (cfg.model || 'qwen2.5:7b');
     statusLine = el('span', { class: 'agent-dot off', title: hint },
-      ['○ ' + (isCloud ? '云端模型未就绪（仍可用规则引擎）' : '未检测到 Ollama（仍可用规则引擎）')]);
+      ['○ ' + (isEmbedded ? '应用内模型未就绪（仍可用规则引擎）' : isCloud ? '云端模型未就绪（仍可用规则引擎）' : '未检测到 Ollama（仍可用规则引擎）')]);
   }
 
   const runLabel = _agentStatus.available
     ? '⚡ 对着这份 JD 跑一轮'
-    : (isCloud ? '运行（需先配置云端密钥）' : '运行（需先启动 Ollama）');
+    : (isEmbedded ? '运行（需先在配置里下载模型）' : isCloud ? '运行（需先配置云端密钥）' : '运行（需先启动 Ollama）');
 
   const modeBtns = {
     pipeline: el('button', { class: 'seg-btn' + (_agentMode === 'pipeline' ? ' active' : ''), type: 'button', title: '固定流程：分析 JD → 改写 → 校验 → 复测，快且稳' }, ['流水线']),
@@ -1419,7 +1424,8 @@ const CLOUD_PRESETS = [
 function openAgentConfig() {
   const stored = (_agentStatus && _agentStatus.config) || {};
   const isCloudStored = stored.provider === 'cloud';
-  let provider = isCloudStored ? 'cloud' : 'ollama';
+  const isEmbStored = stored.provider === 'embedded';
+  let provider = isCloudStored ? 'cloud' : (isEmbStored ? 'embedded' : 'ollama');
 
   const overlay = el('div', { class: 'modal-overlay' });
   function close() {
@@ -1434,16 +1440,56 @@ function openAgentConfig() {
   }
 
   const segBtns = {
+    embedded: el('button', { class: 'seg-btn', type: 'button', title: '推荐：模型下载进应用缓存，之后离线可用，零安装零密钥' }, ['应用内模型（推荐）']),
     ollama: el('button', { class: 'seg-btn', type: 'button' }, ['本地 Ollama']),
     cloud: el('button', { class: 'seg-btn', type: 'button' }, ['云端 API'])
   };
   const fieldsBox = el('div', { class: 'modal-body' }, []);
-  let endpointInput, modelInput, keyInput, tempInput, presetSelect;
+  let endpointInput, modelInput, keyInput, tempInput, presetSelect, embStatusLine, embDlBtn;
 
   function renderFields() {
-    segBtns.ollama.classList.toggle('active', provider === 'ollama');
-    segBtns.cloud.classList.toggle('active', provider === 'cloud');
+    ['embedded', 'ollama', 'cloud'].forEach((k) => segBtns[k].classList.toggle('active', provider === k));
     fieldsBox.innerHTML = '';
+
+    if (provider === 'embedded') {
+      embStatusLine = el('p', { class: 'emb-status' }, ['检测中…']);
+      embDlBtn = el('button', { class: 'btn btn-primary btn-sm', type: 'button' }, ['下载模型到本机（约 500MB）']);
+      embDlBtn.addEventListener('click', async () => {
+        embDlBtn.disabled = true;
+        embStatusLine.textContent = '开始下载…（走网络，仅首次；之后离线可用）';
+        try {
+          await window.EmbeddedLlm.ensureEngine((p) => {
+            embStatusLine.textContent = (p.phase === 'download' ? '下载中 ' : '加载中 ') + p.percent + '%';
+          });
+          embStatusLine.textContent = '✅ 模型已就绪（qwen2.5-0.5b，应用内运行）';
+          if (window.Sound) window.Sound.play('done');
+          window.api.embedded.reportStatus({ webgpu: true, ready: true });
+        } catch (err) {
+          embStatusLine.textContent = '❌ ' + err.message + '（重试或改用其他方式）';
+          embDlBtn.disabled = false;
+          if (window.Sound) window.Sound.play('err');
+        }
+      });
+      fieldsBox.append(
+        el('p', { style: 'font-size:12.5px;color:var(--ink-1);line-height:1.7;' },
+          ['模型（Qwen2.5-0.5B）下载到应用缓存后在本机运行——不装 Ollama、不填 API 密钥、断网可用。需要较新的显卡（WebGPU）。']),
+        embStatusLine, embDlBtn
+      );
+      // 异步检测 WebGPU
+      (async () => {
+        try {
+          const has = await window.EmbeddedLlm.webgpuAvailable();
+          const ready = window.EmbeddedLlm.isEngineReady();
+          if (ready) embStatusLine.textContent = '✅ 模型已就绪（qwen2.5-0.5b，应用内运行）';
+          else if (has) embStatusLine.textContent = '设备支持 WebGPU，模型未下载（可选）';
+          else {
+            embStatusLine.textContent = '⚠️ 此设备不支持 WebGPU，无法使用应用内模型。请选 Ollama 或云端 API';
+            embDlBtn.disabled = true;
+          }
+        } catch (_) { embStatusLine.textContent = '检测失败，可重试'; } // eslint-disable-line no-empty
+      })();
+      return;
+    }
 
     const temp = textInput('温度（0-1，越小越稳）', String(stored.temperature != null ? stored.temperature : 0.3), '0.3');
     tempInput = temp.input;
@@ -1483,32 +1529,41 @@ function openAgentConfig() {
     }
   }
 
+  segBtns.embedded.addEventListener('click', () => { provider = 'embedded'; renderFields(); });
   segBtns.ollama.addEventListener('click', () => { provider = 'ollama'; renderFields(); });
   segBtns.cloud.addEventListener('click', () => { provider = 'cloud'; renderFields(); });
   renderFields();
 
   async function save() {
-    const temperature = Math.max(0, Math.min(1, parseFloat(tempInput.value) || 0.3));
-    const value = {
-      provider,
-      endpoint: (endpointInput.value || '').trim(),
-      model: (modelInput.value || '').trim(),
-      temperature
-    };
-    if (provider === 'cloud') {
-      const typed = (keyInput.value || '').trim();
-      if (typed) {
-        value.apiKey = typed; // 新填的密钥
-      } else if (isCloudStored && stored.apiKey) {
-        value.apiKey = stored.apiKey; // 留空 = 保留已保存密钥（主进程侧是解密态明文）
-      }
-      if (!value.endpoint || !value.model || !value.apiKey) {
-        toast('云端模式需填写 API 地址、模型名称与 API 密钥', 'err');
-        return;
+    const value = { provider };
+    if (provider === 'embedded') {
+      value.endpoint = 'app://embedded';
+      value.model = 'qwen2.5-0.5b';
+      value.temperature = 0.3;
+      if (!window.EmbeddedLlm || !window.EmbeddedLlm.isEngineReady()) {
+        // 允许保存（下次点运行前会再提示），但给个提醒
+        toast('已保存。提示：模型还没下载，运行前请先在配置里点「下载模型到本机」', 'notify');
       }
     } else {
-      value.endpoint = value.endpoint || 'http://127.0.0.1:11434';
-      value.model = value.model || 'qwen2.5:7b';
+      const temperature = Math.max(0, Math.min(1, parseFloat(tempInput.value) || 0.3));
+      value.temperature = temperature;
+      value.endpoint = (endpointInput.value || '').trim();
+      value.model = (modelInput.value || '').trim();
+      if (provider === 'cloud') {
+        const typed = (keyInput.value || '').trim();
+        if (typed) {
+          value.apiKey = typed; // 新填的密钥
+        } else if (isCloudStored && stored.apiKey) {
+          value.apiKey = stored.apiKey; // 留空 = 保留已保存密钥（主进程侧是解密态明文）
+        }
+        if (!value.endpoint || !value.model || !value.apiKey) {
+          toast('云端模式需填写 API 地址、模型名称与 API 密钥', 'err');
+          return;
+        }
+      } else {
+        value.endpoint = value.endpoint || 'http://127.0.0.1:11434';
+        value.model = value.model || 'qwen2.5:7b';
+      }
     }
     try {
       await call(window.api.settings.save('agent', value));
@@ -1524,7 +1579,7 @@ function openAgentConfig() {
   const box = el('div', { class: 'modal-box modal-box-wide' }, [
     el('h3', { class: 'modal-title' }, ['Agent 模型配置']),
     el('p', { style: 'font-size:12px;color:var(--ink-2);margin-bottom:12px;line-height:1.7;' },
-      ['本地 Ollama 全程不出本机；云端走 OpenAI 兼容接口（DeepSeek / Kimi / 通义 / OpenAI），密钥自备、只存本机。无论哪种模型，改写都先过本地确定性校验门。']),
+      ['三种模型来源：应用内模型（推荐，下载一次后离线用、零配置）、本地 Ollama（全程不出本机）、云端 API（DeepSeek / Kimi / 通义 / OpenAI，密钥自备只存本机）。无论哪种，改写都先过本地确定性校验门。']),
     el('div', { class: 'seg' }, [segBtns.ollama, segBtns.cloud]),
     fieldsBox,
     el('div', { class: 'modal-actions' }, [
@@ -1540,11 +1595,13 @@ function openAgentConfig() {
 
 async function openAgentRun() {
   if (!_agentStatus || !_agentStatus.available) {
-    const isCloud = _agentStatus && _agentStatus.config && _agentStatus.config.provider === 'cloud';
-    if (isCloud) {
+    const prov = _agentStatus && _agentStatus.config && _agentStatus.config.provider;
+    if (prov === 'embedded') {
+      toast('应用内模型未就绪：' + (_agentStatus.error || '到 ⚙ 配置 → 应用内模型 → 下载模型到本机'), 'err');
+    } else if (prov === 'cloud') {
       toast('云端模型未就绪：' + (_agentStatus.error || '请到 ⚙ 配置填写 API 地址与密钥'), 'err');
     } else {
-      toast('未检测到 Ollama。安装后执行 ollama pull ' + ((_agentStatus && _agentStatus.config && _agentStatus.config.model) || 'qwen2.5:7b') + '，或到 ⚙ 配置切换云端 API', 'err');
+      toast('未检测到 Ollama。安装后执行 ollama pull ' + ((_agentStatus && _agentStatus.config && _agentStatus.config.model) || 'qwen2.5:7b') + '，或到 ⚙ 配置切换应用内模型（免安装）', 'err');
     }
     return;
   }
@@ -2038,3 +2095,125 @@ function appCard(a) {
     el('div', { class: 'row' }, actions)
   ]);
 }
+
+// ============================================================
+//  内嵌模型桥（渲染进程侧）：状态上报 + 响应主进程代理推理
+// ============================================================
+(async () => {
+  if (!window.EmbeddedLlm) return; // embedded-llm.js 加载失败不影响其他功能
+  // 启动即上报 WebGPU 能力；模型就绪状态变化时再报
+  const report = async () => {
+    try {
+      const webgpu = await window.EmbeddedLlm.webgpuAvailable();
+      window.api.embedded.reportStatus({ webgpu, ready: window.EmbeddedLlm.isEngineReady() });
+    } catch (_) {} // eslint-disable-line no-empty
+  };
+  await report();
+
+  // 响应主进程的推理请求（Agent embedded 通道）
+  window.api.embedded.onRequest(async (req) => {
+    try {
+      await window.EmbeddedLlm.ensureEngine(); // 若未加载则现加载（用户已在配置里点过下载）
+      const content = await window.EmbeddedLlm.embeddedChat(req.messages);
+      window.api.embedded.respond(req.id, { content });
+      report();
+    } catch (err) {
+      window.api.embedded.respond(req.id, { error: err.message });
+    }
+  });
+})();
+
+// ============================================================
+//  全局小助手（悬浮球 + 问答面板）
+// ============================================================
+(function initAssistant() {
+  const fab = document.getElementById('assistant-fab');
+  const panel = document.getElementById('assistant-panel');
+  const body = document.getElementById('as-body');
+  const quick = document.getElementById('as-quick');
+  const form = document.getElementById('as-form');
+  const input = document.getElementById('as-input');
+  const closeBtn = document.getElementById('assistant-close');
+  if (!fab || !panel || !body || !form) return;
+
+  // 上下文方向：用当前档案的目标岗位帮知识库加权
+  const domainHint = () => (state.profile && state.profile.targetRole) || '';
+
+  function bubble(text, who, opts) {
+    const o = opts || {};
+    const node = el('div', { class: 'as-msg as-' + who }, [
+      el('div', { class: 'as-bubble' + (o.matched === false ? ' as-fallback' : '') }, [text])
+    ]);
+    if (o.action) {
+      node.appendChild(el('div', { class: 'as-actions' }, [
+        el('button', {
+          class: 'btn btn-primary btn-sm', type: 'button',
+          onclick: () => {
+            panel.style.display = 'none';
+            navigate(o.action.route);
+          }
+        }, [o.action.label])
+      ]));
+    }
+    if (o.alts && o.alts.length) {
+      node.appendChild(el('div', { class: 'as-alts' },
+        o.alts.filter(Boolean).slice(0, 3).map((q) =>
+          el('button', { class: 'as-alt', type: 'button', onclick: () => { input.value = q; form.dispatchEvent(new Event('submit')); } }, [q])
+        )
+      ));
+    }
+    body.appendChild(node);
+    body.scrollTop = body.scrollHeight;
+  }
+
+  async function ask(q) {
+    bubble(q, 'user');
+    const typing = el('div', { class: 'as-msg as-bot' }, [
+      el('div', { class: 'as-bubble as-typing' }, ['…'])
+    ]);
+    body.appendChild(typing);
+    body.scrollTop = body.scrollHeight;
+    try {
+      const r = await call(window.api.assistant.ask(q, domainHint()));
+      typing.remove();
+      if (window.Sound) window.Sound.play(r.matched ? 'ok' : 'notify');
+      bubble(r.answer, 'bot', { matched: r.matched, action: r.action, alts: r.alternatives });
+    } catch (err) {
+      typing.remove();
+      if (window.Sound) window.Sound.play('err');
+      bubble('出错了：' + err.message, 'bot', { matched: false });
+    }
+  }
+
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const q = (input.value || '').trim();
+    if (!q) return;
+    input.value = '';
+    ask(q);
+  });
+
+  fab.addEventListener('click', async () => {
+    const open = panel.style.display !== 'none';
+    panel.style.display = open ? 'none' : 'block';
+    if (!open) {
+      if (window.Sound) window.Sound.play('click');
+      if (!body.children.length) {
+        bubble('你好，我是求职小助手。简历怎么写、经历怎么凑、求职流程不懂的都可以问；答不上来的我会直接给你指到对应功能。', 'bot');
+        // 热门问题快捷条
+        try {
+          const hot = await call(window.api.assistant.hot());
+          quick.innerHTML = '';
+          hot.slice(0, 6).forEach((q) => {
+            quick.appendChild(el('button', {
+              class: 'as-alt', type: 'button',
+              onclick: () => { input.value = q; form.dispatchEvent(new Event('submit')); }
+            }, [q]));
+          });
+        } catch (_) {} // eslint-disable-line no-empty
+      }
+      input.focus();
+    }
+  });
+  closeBtn.addEventListener('click', () => { panel.style.display = 'none'; });
+})();

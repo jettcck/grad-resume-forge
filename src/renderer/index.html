@@ -138,9 +138,26 @@
 
   <div id="toast" class="toast"></div>
 
+  <!-- 全局小助手（悬浮球 + 面板） -->
+  <button id="assistant-fab" class="assistant-fab" title="求职小助手：问简历、问求职、不会填就问我">?</button>
+  <div id="assistant-panel" class="assistant-panel" style="display:none;">
+    <div class="as-head">
+      <div class="as-title">求职小助手</div>
+      <div class="as-sub">本地知识库 · 即问即答 · 不联网</div>
+      <button class="as-close" id="assistant-close" title="收起">×</button>
+    </div>
+    <div class="as-body" id="as-body"></div>
+    <div class="as-quick" id="as-quick"></div>
+    <form class="as-input" id="as-form">
+      <input type="text" id="as-input" placeholder="问点什么…如：没有实习经历怎么办" autocomplete="off" />
+      <button type="submit" class="btn btn-primary btn-sm">问</button>
+    </form>
+  </div>
+
   <script src="ui.js"></script>
   <script src="icons.js"></script>
   <script src="sound.js"></script>
+  <script src="embedded-llm.js"></script>
   <script src="data.js"></script>
   <script src="template.js"></script>
   <script src="app.js"></script>

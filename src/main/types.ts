@@ -225,14 +225,14 @@ export interface ProtocolTool {
 }
 
 export type LlmClient = {
-  readonly provider: 'ollama' | 'cloud';
+  readonly provider: 'ollama' | 'cloud' | 'embedded';
   readonly config: LlmConfig;
   status(): Promise<LlmStatus>;
   chat(messages: ChatMessage[], opts?: ChatOptions): Promise<string | ToolCallReply>;
 };
 
 export interface LlmConfig {
-  provider?: 'cloud';
+  provider?: 'cloud' | 'embedded';
   endpoint: string;
   model: string;
   apiKey?: string;

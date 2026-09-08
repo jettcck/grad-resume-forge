@@ -69,5 +69,23 @@ contextBridge.exposeInMainWorld('api', {
   },
   shell: {
     openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url)
+  },
+  assistant: {
+    ask: (query: string, domainHint?: string) => ipcRenderer.invoke('assistant:ask', query, domainHint),
+    hot: () => ipcRenderer.invoke('assistant:hot')
+  },
+  embedded: {
+    // 渲染进程 → 主进程：报告 WebGPU/模型就绪状态（主进程据此决定 agent:status）
+    reportStatus: (st: { webgpu: boolean; ready: boolean }) =>
+      ipcRenderer.send('embedded:status', st),
+    // 主进程 → 渲染进程：代理推理请求（Agent embedded 通道）
+    onRequest: (cb: (req: { id: string; messages: Array<{ role: string; content: string }> }) => void) => {
+      const handler = (_e: unknown, req: { id: string; messages: Array<{ role: string; content: string }> }) => cb(req);
+      ipcRenderer.on('embedded:req', handler as never);
+      return () => ipcRenderer.removeListener('embedded:req', handler as never);
+    },
+    // 渲染进程 → 主进程：回传推理结果
+    respond: (id: string, result: { content?: string; error?: string }) =>
+      ipcRenderer.send('embedded:res', { id, ...result })
   }
 });

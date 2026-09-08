@@ -293,14 +293,66 @@ ipcMain.handle('shell:openExternal', async (_e, url: string) => {
   }
 });
 
-// ---------------- Agent：本地 Ollama / 云端 OpenAI 兼容（可切换） ----------------
+// ---------------- Agent：本地 Ollama / 云端 OpenAI 兼容 / 应用内嵌模型 ----------------
 import * as agent from './agent';
+import { askAssistant, hotQuestions } from './assistant';
+
+// ---- 内嵌模型桥：模型在渲染进程跑（WebGPU），主进程通过窗口代理调用 ----
+// 协议：主进程发 'embedded:req' {id, messages} → 渲染进程推理 → 'embedded:res' {id, content|error}
+const embeddedPending = new Map<string, { resolve: (v: string) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+
+ipcMain.on('embedded:res', (_e, payload: { id: string; content?: string; error?: string }) => {
+  const p = embeddedPending.get(payload && payload.id);
+  if (!p) return;
+  embeddedPending.delete(payload.id);
+  clearTimeout(p.timer);
+  if (payload.error) p.reject(new Error(String(payload.error)));
+  else p.resolve(String(payload.content || ''));
+});
+
+// 渲染进程报告内嵌模型状态（WebGPU 检测结果 / 模型就绪与否），主进程缓存
+let embeddedStatus: { webgpu: boolean; ready: boolean } = { webgpu: false, ready: false };
+ipcMain.on('embedded:status', (_e, st: { webgpu?: boolean; ready?: boolean }) => {
+  embeddedStatus = {
+    webgpu: !!(st && st.webgpu),
+    ready: !!(st && st.ready)
+  };
+});
+
+function embeddedLlmClient(): import('./types').LlmClient {
+  const REQ_TIMEOUT = 180000; // 内嵌模型推理慢（0.5B 在核显上单轮可达分钟级）
+  return {
+    provider: 'embedded',
+    config: { provider: 'embedded', endpoint: 'app://embedded', model: 'qwen2.5-0.5b', temperature: 0.3, timeout: REQ_TIMEOUT },
+    async status() {
+      return {
+        available: embeddedStatus.ready,
+        models: embeddedStatus.ready ? ['qwen2.5-0.5b（应用内）'] : [],
+        error: embeddedStatus.webgpu ? undefined : '此设备不支持 WebGPU，无法使用应用内模型'
+      };
+    },
+    async chat(messages: import('./types').ChatMessage[], _opts?: import('./types').ChatOptions): Promise<string | import('./types').ToolCallReply> {
+      if (!mainWindow || mainWindow.isDestroyed()) throw new Error('窗口不可用');
+      if (!embeddedStatus.ready) throw new Error('应用内模型未就绪（先在配置里下载）');
+      const id = 'emb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      return await new Promise<string>((resolve, reject) => {
+        const timer = setTimeout(() => {
+          embeddedPending.delete(id);
+          reject(new Error('内嵌模型响应超时'));
+        }, REQ_TIMEOUT);
+        embeddedPending.set(id, { resolve, reject, timer });
+        mainWindow!.webContents.send('embedded:req', { id, messages });
+      });
+    }
+  };
+}
 
 // 探测模型服务；返回 { available, models, config }（云端含 error 说明）
 ipcMain.handle('agent:status', async () => {
   try {
-    const cfg = decryptAgentConfig(store.getSetting<LlmConfig>('agent')) || {};
-    const client = createLlmClient(cfg);
+    const cfg: LlmConfig = (decryptAgentConfig(store.getSetting<LlmConfig>('agent')) as LlmConfig) || { provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'qwen2.5:7b' };
+    // embedded：读渲染进程上报的状态（渲染层启动时会主动上报一次）
+    const client = cfg.provider === 'embedded' ? embeddedLlmClient() : createLlmClient(cfg);
     const st = await client.status();
     return ok({ ...st, config: client.config, provider: client.provider });
   } catch (err) {
@@ -313,7 +365,7 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
   try {
     const o = opts || {};
     const cfg = Object.assign({}, decryptAgentConfig(store.getSetting<LlmConfig>('agent')) || {}, o);
-    const llm = createLlmClient(cfg);
+    const llm = cfg.provider === 'embedded' ? embeddedLlmClient() : createLlmClient(cfg);
     const send = (s: unknown) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('agent:progress', s);
@@ -327,6 +379,23 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
     const runner = o.mode === 'agentic' ? agent.agenticLoop : agent.runAgent;
     const result = await runner(profile, jdText, { llm, onStep: send, onChunk: sendStream });
     return ok(result);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// ---------------- 小助手（知识库问答，纯本地零模型） ----------------
+ipcMain.handle('assistant:ask', (_e, query: string, domainHint?: string) => {
+  try {
+    return ok(askAssistant(query, domainHint));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('assistant:hot', () => {
+  try {
+    return ok(hotQuestions());
   } catch (err) {
     return fail((err as Error).message);
   }

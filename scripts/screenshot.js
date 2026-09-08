@@ -17,6 +17,7 @@ const auth = require(path.join(ROOT, 'dist/main/auth'));
 const engine = require(path.join(ROOT, 'dist/main/resume-engine'));
 const { createLlmClient } = require(path.join(ROOT, 'dist/main/llm-client'));
 const secure = require(path.join(ROOT, 'dist/main/secure-store'));
+const { askAssistant: askAssistantReal, hotQuestions: hotQuestionsReal } = require(path.join(ROOT, 'dist/main/assistant'));
 
 const DEMO_EMAIL = 'shot@demo.local';
 const DEMO_PASSWORD = 'demo123456';
@@ -78,6 +79,8 @@ function registerIpc() {
   });
   h('settings:get', () => null);
   h('settings:save', (_k, v) => v);
+  h('assistant:ask', (query, dom) => askAssistantReal(query, dom));
+  h('assistant:hot', () => hotQuestionsReal());
   h('updater:status', () => ({ version: '1.1.0', isPackaged: false, updaterActive: false, repo: 'jettcck/grad-resume-forge', mirror: '' }));
   h('clipboard:writeText', () => ({ done: true }));
   h('shell:openExternal', (u) => ({ opened: u }));
@@ -163,8 +166,38 @@ async function main() {
     t('双示例按钮（技术+财务）', document.querySelectorAll('.ob-actions .btn').length === 2);
     t('环形仪表渲染', !!document.querySelector('.completeness .ring-svg .ring-fill'));
     t('路由过渡动画', getComputedStyle(document.getElementById('route-profile')).animationName === 'route-in');
+    t('小助手悬浮球', !!document.getElementById('assistant-fab'));
     return out.join('\\n');
   })()`));
+
+  // —— 小助手面板：点开 → 提问 → 断言命中与操作按钮 ——
+  await win.webContents.executeJavaScript(`(() => {
+    document.getElementById('assistant-fab').click();
+    return true;
+  })()`);
+  await sleep(700);
+  await win.webContents.executeJavaScript(`(() => {
+    const i = document.getElementById('as-input');
+    i.value = '没有实习经历怎么办';
+    document.getElementById('as-form').dispatchEvent(new Event('submit'));
+    return true;
+  })()`);
+  await sleep(1000);
+  await shot(win, '05-assistant');
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    t('助手面板打开', document.getElementById('assistant-panel').style.display !== 'none');
+    t('欢迎语渲染', document.querySelectorAll('.as-bot .as-bubble').length >= 1);
+    t('命中知识库（含竞赛/项目关键词）', /竞赛|项目|产出/.test(document.getElementById('as-body').textContent || ''));
+    t('快捷问题条', document.querySelectorAll('.as-quick .as-alt').length >= 5);
+    t('操作引导按钮', document.querySelectorAll('.as-actions .btn, .as-msg .as-actions').length >= 1);
+    return out.join('\\n');
+  })()`));
+  await win.webContents.executeJavaScript(`(() => {
+    document.getElementById('assistant-close').click();
+    return true;
+  })()`);
 
   // 一键载入示例（走 loadDemoProfile 全链路：保存 + 重渲染 + 声音）
   await win.webContents.executeJavaScript(`(() => {

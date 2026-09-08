@@ -771,6 +771,84 @@ em { font-style: normal; color: var(--gold); }
   border-radius: 50%; animation: btn-spin .6s linear infinite;
 }
 
+/* ============================================================
+   全局小助手（悬浮球 + 问答面板）
+   ============================================================ */
+.assistant-fab {
+  position: fixed; right: 26px; bottom: 26px; z-index: 150;
+  width: 52px; height: 52px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold-soft) 0%, var(--gold) 45%, var(--ember) 100%);
+  color: #2a1403; font-size: 22px; font-weight: 900;
+  font-family: var(--font-display);
+  box-shadow: 0 10px 28px -8px rgba(255,140,60,.65), inset 0 1px 0 rgba(255,255,255,.45);
+  border: 1px solid rgba(255,255,255,.25);
+  cursor: pointer;
+  transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .18s;
+}
+.assistant-fab:hover { transform: translateY(-3px) scale(1.06); box-shadow: 0 14px 34px -8px rgba(255,140,60,.8); }
+.assistant-fab:active { transform: scale(.96); }
+
+.assistant-panel {
+  position: fixed; right: 26px; bottom: 90px; z-index: 151;
+  width: 380px; max-width: calc(100vw - 40px);
+  height: 520px; max-height: calc(100vh - 130px);
+  display: flex; flex-direction: column;
+  background: linear-gradient(180deg, #171e2b, #121a29);
+  border: 1px solid var(--line-2); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  animation: panel-in .25s cubic-bezier(.2,.8,.2,1);
+}
+@keyframes panel-in { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: none; } }
+.assistant-panel::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  background: linear-gradient(90deg, var(--ember-deep), var(--ember) 30%, var(--gold) 65%, transparent);
+}
+.as-head { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; border-bottom: 1px solid var(--line); }
+.as-title { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+.as-sub { font-size: 10.5px; color: var(--ink-2); font-family: var(--font-mono); letter-spacing: .5px; flex: 1; }
+.as-close {
+  width: 26px; height: 26px; border-radius: 6px; color: var(--ink-2);
+  font-size: 16px; transition: .15s;
+}
+.as-close:hover { color: var(--danger); background: rgba(255,102,89,.1); }
+
+.as-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.as-msg { display: flex; flex-direction: column; animation: msg-in .22s cubic-bezier(.2,.8,.2,1); }
+@keyframes msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.as-user { align-items: flex-end; }
+.as-bot { align-items: flex-start; }
+.as-bubble {
+  max-width: 86%; padding: 10px 13px; font-size: 13px; line-height: 1.7;
+  border-radius: 10px;
+}
+.as-user .as-bubble { background: linear-gradient(135deg, rgba(255,176,30,.22), rgba(255,122,69,.14)); border: 1px solid rgba(255,176,30,.35); color: var(--ink-0); border-bottom-right-radius: 3px; }
+.as-bot .as-bubble { background: var(--bg-2); border: 1px solid var(--line); color: var(--ink-1); border-bottom-left-radius: 3px; }
+.as-bot .as-fallback { border-left: 2px solid var(--violet); }
+.as-typing { color: var(--ink-2); animation: typing-dots 1s ease-in-out infinite; }
+@keyframes typing-dots { 0%,100% { opacity: .4; } 50% { opacity: 1; } }
+.as-actions { margin-top: 6px; }
+.as-alts { margin-top: 5px; display: flex; flex-wrap: wrap; gap: 5px; }
+.as-alt {
+  font-size: 11px; color: var(--ink-2); padding: 3px 9px;
+  border: 1px dashed var(--line-2); border-radius: 6px;
+  transition: .15s;
+}
+.as-alt:hover { color: var(--gold-soft); border-color: var(--gold); }
+
+.as-quick {
+  display: flex; flex-wrap: wrap; gap: 5px; padding: 8px 14px 4px;
+  border-top: 1px dashed var(--line);
+}
+.as-input { display: flex; gap: 8px; padding: 10px 14px 12px; }
+.as-input input {
+  flex: 1; background: var(--bg-0); border: 1px solid var(--line-2);
+  border-radius: 8px; padding: 9px 12px; color: var(--ink-0); font-size: 13px;
+}
+.as-input input:focus { outline: none; border-color: var(--gold); }
+
+.emb-status { font-size: 12.5px; color: var(--ink-1); line-height: 1.6; padding: 6px 0; }
+
 /* ---------- 信息录入页：双栏工作流 ---------- */
 .import-bar {
   display: flex; align-items: center; gap: 14px;
