@@ -197,6 +197,14 @@ async function main() {
     } catch (e) { modOk = false; }
     t('web-llm 模块可动态加载（exports=' + modExports + '）', modOk);
     t('WebGPU 检测返回布尔值（' + gpuType + '）', gpuType === 'boolean');
+    t('wasm 可编译（CSP wasm-unsafe-eval 生效）', window.EmbeddedLlm.wasmCompilable() === true);
+    let varOk = false, varKey = 'n/a';
+    try {
+      const v = await window.EmbeddedLlm.getVariantInfo();
+      varKey = v.key + '(' + (v.weightsMB + v.libMB) + 'MB)';
+      varOk = (v.key === 'f16' || v.key === 'f32') && (v.weightsMB + v.libMB) >= 265 && (v.weightsMB + v.libMB) <= 285;
+    } catch (e) { varOk = false; }
+    t('显卡自动选档有效（' + varKey + '）', varOk);
     return out.join('\\n');
   })()`));
 

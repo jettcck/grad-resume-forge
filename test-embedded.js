@@ -31,33 +31,50 @@ assert(/window\.EmbeddedLlm\s*=/.test(emb), '挂载 window.EmbeddedLlm（app.js 
 
 // ---------- 2) 国内镜像直连（huggingface 直连在国内不通，探针实测） ----------
 assert(/hf-mirror\.com\/mlc-ai\/Qwen2\.5-0\.5B-Instruct-q4f16_1-MLC\/resolve\/main\//.test(emb),
-  '模型权重走 hf-mirror 镜像');
+  '模型权重走 hf-mirror 镜像（f16 档）');
+assert(/hf-mirror\.com\/mlc-ai\/Qwen2\.5-0\.5B-Instruct-q4f32_1-MLC\/resolve\/main\//.test(emb),
+  '模型权重走 hf-mirror 镜像（f32 档）');
 assert(/gh-proxy\.com\/https:\/\/raw\.githubusercontent\.com\/mlc-ai\/binary-mlc-llm-libs/.test(emb),
   '模型库 wasm 走 gh-proxy 代理');
 assert(/'\.\.\/\.\.\/node_modules\/@mlc-ai\/web-llm\/lib\/index\.js'/.test(emb),
   'web-llm 用相对路径动态 import（dev 与 asar 打包同构）');
-assert(/mirroredAppConfig/.test(emb) && /model_lib:\s*MIRROR_MODEL_LIB_URL/.test(emb),
-  'appConfig 同时改写权重与模型库两个下载地址');
-assert(/totalMB:\s*28\d/.test(emb), 'modelInfo 标注真实下载量（约 281MB，非 500MB）');
-assert(/moduleSelfTest/.test(emb), '提供 moduleSelfTest 诊断入口（不触发 281MB 下载）');
+assert(/mirroredAppConfig/.test(emb) && /model_lib:\s*variant\.mirrorLibUrl/.test(emb),
+  'appConfig 同时改写权重与模型库两个下载地址（按所选档位）');
+assert(/weightsMB:\s*276/.test(emb) && /weightsMB:\s*265/.test(emb),
+  'modelInfo 标注真实下载量（f16 276MB / f32 265MB，非 500MB）');
+assert(/moduleSelfTest/.test(emb), '提供 moduleSelfTest 诊断入口（不触发模型下载）');
+
+// ---------- 2b) 显卡自动选档（q4f16 的 f16 shader 在无 shader-f16 的 GPU 上编译失败，探针实测） ----------
+assert(/shader-f16/.test(emb) && /detectVariant/.test(emb),
+  '按 adapter.features 检测 shader-f16 自动选档（f16 省显存 / f32 全兼容）');
+assert(/VARIANTS/.test(emb) && /requiresF16/.test(emb), '双档位定义完整（VARIANTS + requiresF16 标记）');
+assert(/isRetryableError/.test(emb), '重试区分错误类型（网络抖动续传，确定性失败快速失败）');
 
 // ---------- 3) CSP 必须放行镜像源 ----------
 const html = R('src/renderer/index.html');
 const csp = (html.match(/Content-Security-Policy[^>]*content="([^"]+)"/) || [])[1] || '';
 assert(/connect-src[^;]*hf-mirror\.com/.test(csp), 'CSP connect-src 放行 hf-mirror.com');
 assert(/connect-src[^;]*gh-proxy\.com/.test(csp), 'CSP connect-src 放行 gh-proxy.com');
+// hf-mirror 对 LFS 大文件 302 到 Xet CDN（cas-bridge.xethub.hf.co），跳转目标也必须在 connect-src 里
+// （全链路探针实测踩过：配置能拉、权重 fetch 跟随跳转即被拦 → Failed to fetch）
+assert(/connect-src[^;]*\*\.xethub\.hf\.co/.test(csp), 'CSP connect-src 放行 Xet CDN 跳转域（*.xethub.hf.co）');
 assert(/script-src/.test(csp), 'CSP 显式声明 script-src（动态 import 依赖）');
+// WebLLM 运行库是 wasm：script-src 缺 'wasm-unsafe-eval' 时 WebAssembly.instantiate 被 CSP 拒绝
+// （全链路探针实测踩过：模型能下载、库能拉回，卡死在 instantiate）
+assert(/script-src[^;]*'wasm-unsafe-eval'/.test(csp), "CSP script-src 含 'wasm-unsafe-eval'（WebAssembly 编译放行）");
+assert(/wasmCompilable/.test(emb), 'embedded-llm.js 提供 wasmCompilable 运行时检测（CSP 拦截时 UI 明示原因）');
 
 // ---------- 4) 配置弹窗：默认选应用内模型 + 诚实文案 ----------
 const app = R('src/renderer/app.js');
 assert(/isCloudStored \? 'cloud' : 'embedded'/.test(app), '未配置时默认选「应用内模型」（零门槛首选）');
-assert(/国内镜像/.test(app) && /281MB/.test(app), '配置弹窗明示 281MB 与国内镜像');
+assert(/国内镜像/.test(app) && /270-281MB/.test(app), '配置弹窗明示真实下载量区间与国内镜像');
+assert(/自动选/.test(app), '配置弹窗说明按显卡自动选档（用户无需理解 f16/f32）');
 assert(!/约 500MB/.test(app), '配置弹窗不再宣称 500MB');
 
 // ---------- 5) 全站无 500MB 夸大宣称 ----------
 const knowledge = R('src/main/assistant-knowledge.ts');
 assert(!/500\s?MB/.test(emb + app + knowledge + html), '渲染层/知识库无 500MB 旧口径');
-assert(/281MB/.test(knowledge) && /镜像/.test(knowledge), '小助手「免安装」条目更新为 281MB + 镜像口径');
+assert(/281MB/.test(knowledge) && /镜像/.test(knowledge), '小助手「免安装」条目更新为真实体积 + 镜像口径');
 
 // ---------- 6) 自检钩子（打包版验证与用户自查用） ----------
 const preload = R('src/main/preload.ts');

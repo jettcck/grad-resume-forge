@@ -1484,15 +1484,16 @@ function openAgentConfig() {
 
     if (provider === 'embedded') {
       embStatusLine = el('p', { class: 'emb-status' }, ['检测中…']);
-      embDlBtn = el('button', { class: 'btn btn-primary btn-sm', type: 'button' }, ['下载模型到本机（约 281MB · 国内镜像直连）']);
+      embDlBtn = el('button', { class: 'btn btn-primary btn-sm', type: 'button' }, ['下载模型到本机（约 270-281MB · 国内镜像直连）']);
       embDlBtn.addEventListener('click', async () => {
         embDlBtn.disabled = true;
-        embStatusLine.textContent = '开始下载…（首次约 281MB，走国内镜像不需要科学上网；之后断网可用）';
+        embStatusLine.textContent = '开始下载…（首次约 270-281MB 按显卡自动选档，走国内镜像不需要科学上网；之后断网可用）';
         try {
           await window.EmbeddedLlm.ensureEngine((p) => {
-            embStatusLine.textContent = (p.phase === 'download' ? '下载中 ' : '加载中 ') + p.percent + '%（首次下载约 281MB，之后离线）';
+            embStatusLine.textContent = (p.phase === 'download' ? '下载中 ' : '加载中 ') + p.percent + '%' + (p.text ? '（' + p.text + '）' : '（首次下载约 270-281MB，之后离线）');
           });
-          embStatusLine.textContent = '✅ 模型已就绪（qwen2.5-0.5b，应用内运行）';
+          const v = await window.EmbeddedLlm.getVariantInfo();
+          embStatusLine.textContent = '✅ 模型已就绪（qwen2.5-0.5b ' + v.key + '档，应用内运行）';
           if (window.Sound) window.Sound.play('done');
           window.api.embedded.reportStatus({ webgpu: true, ready: true });
         } catch (err) {
@@ -1503,16 +1504,27 @@ function openAgentConfig() {
       });
       fieldsBox.append(
         el('p', { style: 'font-size:12.5px;color:var(--ink-1);line-height:1.7;' },
-          ['模型（Qwen2.5-0.5B）下载到应用缓存后在本机运行——不装 Ollama、不填 API 密钥、之后断网可用。首次需联网下载约 281MB（hf-mirror / gh-proxy 国内镜像直连，一般几分钟），需要较新的显卡（WebGPU）。']),
+          ['模型（Qwen2.5-0.5B）下载到应用缓存后在本机运行——不装 Ollama、不填 API 密钥、之后断网可用。首次需联网下载约 270-281MB（按显卡自动选适配档位，hf-mirror / gh-proxy 国内镜像直连，一般几分钟），需要较新的显卡（WebGPU）。']),
         embStatusLine, embDlBtn
       );
-      // 异步检测 WebGPU
+      // 异步检测 WebGPU 与 wasm 编译能力（两者任一缺失都无法用应用内模型）
       (async () => {
         try {
           const has = await window.EmbeddedLlm.webgpuAvailable();
+          const wasmOk = window.EmbeddedLlm.wasmCompilable();
           const ready = window.EmbeddedLlm.isEngineReady();
-          if (ready) embStatusLine.textContent = '✅ 模型已就绪（qwen2.5-0.5b，应用内运行）';
-          else if (has) embStatusLine.textContent = '设备支持 WebGPU，模型未下载（可选）';
+          if (ready) {
+            const v0 = await window.EmbeddedLlm.getVariantInfo();
+            embStatusLine.textContent = '✅ 模型已就绪（qwen2.5-0.5b ' + v0.key + '档，应用内运行）';
+          }
+          else if (!wasmOk) {
+            embStatusLine.textContent = '⚠️ 应用安全策略未放行 WebAssembly，无法运行应用内模型。请选 Ollama 或云端 API';
+            embDlBtn.disabled = true;
+          }
+          else if (has) {
+            const v = await window.EmbeddedLlm.getVariantInfo();
+            embStatusLine.textContent = '设备支持 WebGPU（自动选 ' + v.key + '档 · 约 ' + v.weightsMB + 'MB），模型未下载（可选）';
+          }
           else {
             embStatusLine.textContent = '⚠️ 此设备不支持 WebGPU，无法使用应用内模型。请选 Ollama 或云端 API';
             embDlBtn.disabled = true;
@@ -2155,7 +2167,8 @@ function appCard(a) {
       } catch (e) { mirror = 'ERR ' + (e && e.message); }
       console.log('[embedded-selftest] module exports=' + st.exports +
         ' prebuilt=' + st.prebuiltModels + ' createMLCEngine=' + st.hasCreateMLCEngine +
-        ' webgpu=' + gpu + ' mirror=' + mirror);
+        ' wasm=' + st.wasmCompilable + ' webgpu=' + gpu +
+        ' variant=' + st.variant + '(' + st.variantTotalMB + 'MB) mirror=' + mirror);
     } catch (err) {
       console.log('[embedded-selftest] FAIL ' + (err && err.message));
     }

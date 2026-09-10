@@ -24,7 +24,7 @@ Everything except AI rewriting works with **no model, no key, no setup** — ins
 
 The three AI channels — pick whichever, switch anytime:
 
-1. **In-app model** *(default, zero config)* — Qwen2.5-0.5B runs inside the app via WebGPU. One-time download of **~281 MB** through mainland-China-friendly mirrors (hf-mirror.com for weights, gh-proxy.com for the runtime lib) — **no VPN needed** — then it works fully offline. Needs a reasonably recent GPU (WebGPU).
+1. **In-app model** *(default, zero config)* — Qwen2.5-0.5B runs inside the app via WebGPU. One-time download of **~270–281 MB** through mainland-China-friendly mirrors (hf-mirror.com for weights, gh-proxy.com for the runtime lib) — **no VPN needed** — then it works fully offline. The app auto-picks the q4f16/q4f32 build for your GPU, with resumable retries on flaky networks. Needs a reasonably recent GPU (WebGPU).
 2. **Local Ollama** — nothing leaves your machine.
 3. **Cloud API key** (BYOK) — DeepSeek / Kimi / Qwen / OpenAI presets; the key is stored locally only.
 
@@ -61,7 +61,7 @@ Electron
 └── evals/                  two-layer evals: golden cases (CI gate) + LLM offline eval
 ```
 
-**LLM privacy options** — the in-app model (Qwen2.5-0.5B via WebGPU, ~281 MB one-time download through China-friendly mirrors, then fully offline), a fully local Ollama model (nothing leaves your machine), or bring your own cloud API key (DeepSeek / Kimi / Qwen / OpenAI; the key is stored locally only). No key is ever bundled.
+**LLM privacy options** — the in-app model (Qwen2.5-0.5B via WebGPU, ~270–281 MB one-time download through China-friendly mirrors, then fully offline), a fully local Ollama model (nothing leaves your machine), or bring your own cloud API key (DeepSeek / Kimi / Qwen / OpenAI; the key is stored locally only). No key is ever bundled.
 
 ## 🚀 Getting Started
 
@@ -75,7 +75,7 @@ npm run eval:llm   # LLM-layer evals (requires local Ollama)
 
 ### Enable Agent optimization
 
-Recommended — **in-app model, zero config**: in-app ⚙ config → *In-app model* (default) → click *Download* (~281 MB via China-friendly mirrors, no VPN needed; runs offline afterwards). Requires WebGPU.
+Recommended — **in-app model, zero config**: in-app ⚙ config → *In-app model* (default) → click *Download* (~270–281 MB via China-friendly mirrors, no VPN needed; auto-picks the build for your GPU; runs offline afterwards). Requires WebGPU.
 
 Or, alternatively:
 - **Local**: install [Ollama](https://ollama.com) → `ollama pull qwen2.5:7b` (nothing leaves your machine), or

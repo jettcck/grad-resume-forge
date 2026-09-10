@@ -2,43 +2,50 @@
 
 // ============================================================
 //  内嵌模型 Provider（渲染进程侧）
-//  WebLLM + WebGPU：首次经国内镜像下载约 281MB 进缓存，之后完全离线
+//  WebLLM + WebGPU：首次经国内镜像下载约 270-281MB 进缓存，之后完全离线
 //  对主进程暴露与 LlmClient 相同的 chat() 形状——Agent 三通道之一。
 //
 //  加载形态：经典 <script>（禁止顶层 export / TS 注解，CI 有语法门禁），
 //  挂载 window.EmbeddedLlm。
 //
-//  镜像说明（2026-09 探针实测）：
-//    - huggingface.co 直连在大陆网络直接 Failed to fetch；
-//    - hf-mirror.com 200 / gh-proxy.com 206（Range 生效）。
-//  因此：模型权重走 hf-mirror；模型库 wasm 走 gh-proxy 代理
-//  raw.githubusercontent.com（与更新器同款镜像思路）。
+//  镜像（2026-09 探针实测）：huggingface.co 直连在大陆 Failed to fetch；
+//  hf-mirror.com 200（LFS 大文件 302 到 cas-bridge.xethub.hf.co，CSP 已放行）；
+//  gh-proxy.com 206（Range 生效）。权重走 hf-mirror，模型库 wasm 走 gh-proxy。
+//
+//  显卡选档（探针实测踩坑）：q4f16 模型的 WGSL 用 f16 着色器，
+//  GPU 不支持 shader-f16 时编译直接失败（Invalid ShaderModule）——
+//  故按 adapter.features 自动选 q4f16 / q4f32，用户无感。
 // ============================================================
 
 (function () {
-  const MODEL_ID = 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC';
+  const MODEL_VERSION = 'v0_2_84/base';
+  const LIB_PREFIX = 'https://gh-proxy.com/https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/';
 
-  // 权重目录（hf-mirror 镜像 huggingface.co/mlc-ai/…）
-  const MIRROR_MODEL_URL = 'https://hf-mirror.com/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/main/';
-  // 模型库 wasm（gh-proxy 代理 raw.githubusercontent.com）
-  const MIRROR_MODEL_LIB_URL = 'https://gh-proxy.com/https://raw.githubusercontent.com/mlc-ai/binary-mlc-llm-libs/main/web-llm-models/v0_2_84/base/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm';
-
-  // 首次下载量（诚实告知，实测：权重 276MB + 库 4.6MB）
-  const MODEL_INFO = {
-    id: MODEL_ID,
-    label: 'Qwen2.5-0.5B',
-    weightsMB: 276,
-    libMB: 5,
-    totalMB: 281,
-    vramMB: 945,
-    mirrorModelUrl: MIRROR_MODEL_URL,
-    mirrorLibUrl: MIRROR_MODEL_LIB_URL
+  // 两个量化档位：f16 更省显存；f32 兼容所有 WebGPU 显卡。权重体积几乎一样。
+  const VARIANTS = {
+    f16: {
+      key: 'f16',
+      modelId: 'Qwen2.5-0.5B-Instruct-q4f16_1-MLC',
+      weightsMB: 276, libMB: 5, vramMB: 945,
+      mirrorModelUrl: 'https://hf-mirror.com/mlc-ai/Qwen2.5-0.5B-Instruct-q4f16_1-MLC/resolve/main/',
+      mirrorLibUrl: LIB_PREFIX + MODEL_VERSION + '/Qwen2-0.5B-Instruct-q4f16_1_cs1k-webgpu.wasm',
+      requiresF16: true
+    },
+    f32: {
+      key: 'f32',
+      modelId: 'Qwen2.5-0.5B-Instruct-q4f32_1-MLC',
+      weightsMB: 265, libMB: 5, vramMB: 1060,
+      mirrorModelUrl: 'https://hf-mirror.com/mlc-ai/Qwen2.5-0.5B-Instruct-q4f32_1-MLC/resolve/main/',
+      mirrorLibUrl: LIB_PREFIX + MODEL_VERSION + '/Qwen2-0.5B-Instruct-q4f32_1_cs1k-webgpu.wasm',
+      requiresF16: false
+    }
   };
 
   let _webllm = null;
   let _engine = null;             // EngineInstance
   let _loading = null;
   let _progressCb = null;
+  let _variant = null;            // 已检测的档位（会话内不变）
 
   // 相对路径对开发（仓库根 node_modules）与打包（asar 根 node_modules）同构
   async function loadWebllm() {
@@ -59,49 +66,113 @@
     }
   }
 
-  // 用镜像源改写 prebuiltAppConfig 里本模型的两个下载地址（其余 162 条记录原样保留）
-  function mirroredAppConfig(webllm) {
+  // CSP 是否放行 WebAssembly 编译（WebLLM 运行库是 wasm；
+  // script-src 缺 'wasm-unsafe-eval' 时 instantiate 会被 CSP 拒绝——
+  // 8 字节最小合法模块，同步编译即验证，零下载）
+  function wasmCompilable() {
+    try {
+      new WebAssembly.Module(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0]));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // 按显卡能力选档：支持 shader-f16 → q4f16（省显存）；否则 q4f32（全兼容）
+  async function detectVariant() {
+    if (_variant) return _variant;
+    try {
+      const gpu = navigator.gpu;
+      const adapter = gpu ? await gpu.requestAdapter() : null;
+      _variant = (adapter && adapter.features && adapter.features.has('shader-f16'))
+        ? VARIANTS.f16
+        : VARIANTS.f32;
+    } catch (_) {
+      _variant = VARIANTS.f32;
+    }
+    return _variant;
+  }
+
+  // 用镜像源改写 prebuiltAppConfig 里所选模型的两个下载地址（其余记录原样保留）
+  function mirroredAppConfig(webllm, variant) {
     const base = webllm.prebuiltAppConfig;
     if (!base || !Array.isArray(base.model_list)) return undefined;
     return {
       ...base,
       model_list: base.model_list.map(function (r) {
-        return r.model_id === MODEL_ID
-          ? { ...r, model: MIRROR_MODEL_URL, model_lib: MIRROR_MODEL_LIB_URL }
+        return r.model_id === variant.modelId
+          ? { ...r, model: variant.mirrorModelUrl, model_lib: variant.mirrorLibUrl }
           : r;
       })
     };
   }
 
+  // 网络类错误才值得重试（镜像偶发抖动是常态）；
+  // 着色器编译 / 显存不足这类确定性失败重试无意义，快速失败
+  function isRetryableError(err) {
+    const msg = String((err && err.message) || err);
+    return /fetch|network|Cache\.add|aborted|timeout|ECONN|socket|ENOTFOUND|EAI_AGAIN/i.test(msg);
+  }
+
   // 初始化（含模型下载，带进度回调）。重复调用复用同一 engine。
+  // 网络抖动自动重试（已下载分片在缓存里命中，重试即断点续传），最多 3 次。
+  const DL_MAX_ATTEMPTS = 3;
+  const DL_RETRY_WAIT_MS = 1500;
+
+  async function ensureEngineOnce(variant, onProgress) {
+    const webllm = await loadWebllm();
+    return webllm.CreateMLCEngine(variant.modelId, {
+      appConfig: mirroredAppConfig(webllm, variant),
+      initProgressCallback: function (report) {
+        // report.progress: 0~1（下载+加载统一进度）
+        if (onProgress) {
+          onProgress({
+            phase: /fetch|download/i.test(report.text || '') ? 'download' : 'load',
+            percent: Math.round((report.progress || 0) * 100),
+            text: report.text || ''
+          });
+        }
+      }
+    });
+  }
+
   async function ensureEngine(onProgress) {
     if (_engine) return _engine;
     if (_loading) return _loading;
     _progressCb = onProgress || null;
 
     _loading = (async function () {
-      const webllm = await loadWebllm();
-      const engine = await webllm.CreateMLCEngine(MODEL_ID, {
-        appConfig: mirroredAppConfig(webllm),
-        initProgressCallback: function (report) {
-          // report.progress: 0~1（下载+加载统一进度）
+      const variant = await detectVariant();
+      let lastErr = null;
+      for (let attempt = 1; attempt <= DL_MAX_ATTEMPTS; attempt++) {
+        try {
+          const engine = await ensureEngineOnce(variant, function (p) {
+            if (_progressCb) _progressCb(p);
+          });
+          _engine = engine;
+          return engine;
+        } catch (err) {
+          lastErr = err;
+          // 确定性失败（如显卡能力不足）快速失败，不浪费重试
+          if (!isRetryableError(err) || attempt >= DL_MAX_ATTEMPTS) break;
+          // 已就绪的文件在缓存里，重试会跳过——只剩网络抖动恢复的成本
           if (_progressCb) {
             _progressCb({
-              phase: /fetch|download/i.test(report.text || '') ? 'download' : 'load',
-              percent: Math.round((report.progress || 0) * 100),
-              text: report.text || ''
+              phase: 'download',
+              percent: 0,
+              text: '网络波动，第 ' + (attempt + 1) + '/' + DL_MAX_ATTEMPTS + ' 次自动续传…'
             });
           }
+          await new Promise(function (r) { setTimeout(r, DL_RETRY_WAIT_MS * attempt); });
         }
-      });
-      _engine = engine;
-      return engine;
+      }
+      throw lastErr || new Error('模型下载失败');
     })();
 
     try {
       return await _loading;
     } catch (err) {
-      _loading = null; // 失败允许重试
+      _loading = null; // 失败允许整体重试
       throw err;
     }
   }
@@ -128,20 +199,39 @@
     _loading = null;
   }
 
-  // 诊断/测试用：只加载模块本体（不下载模型），验证相对 import 与 CSP 均可用
+  // 诊断/测试用：只加载模块本体（不触发下载），验证相对 import、CSP、wasm、选档
   async function moduleSelfTest() {
     const m = await loadWebllm();
+    const variant = await detectVariant();
     return {
       exports: Object.keys(m).length,
       hasCreateMLCEngine: typeof m.CreateMLCEngine === 'function',
-      prebuiltModels: m.prebuiltAppConfig && m.prebuiltAppConfig.model_list ? m.prebuiltAppConfig.model_list.length : 0
+      prebuiltModels: m.prebuiltAppConfig && m.prebuiltAppConfig.model_list ? m.prebuiltAppConfig.model_list.length : 0,
+      wasmCompilable: wasmCompilable(),
+      variant: variant.key,
+      variantModelId: variant.modelId,
+      variantTotalMB: variant.weightsMB + variant.libMB
     };
   }
 
+  // 同步信息（默认档）；UI 需要精确值时用 getVariantInfo()（异步、含显卡检测）
   window.EmbeddedLlm = {
-    MODEL_ID: MODEL_ID,
-    modelInfo: MODEL_INFO,
+    MODEL_ID: VARIANTS.f16.modelId,
+    modelInfo: {
+      id: VARIANTS.f16.modelId,
+      label: 'Qwen2.5-0.5B',
+      weightsMB: VARIANTS.f16.weightsMB,
+      libMB: VARIANTS.f16.libMB,
+      totalMB: VARIANTS.f16.weightsMB + VARIANTS.f16.libMB,
+      vramMB: VARIANTS.f16.vramMB,
+      mirrorModelUrl: VARIANTS.f16.mirrorModelUrl,
+      mirrorLibUrl: VARIANTS.f16.mirrorLibUrl
+    },
+    VARIANTS: VARIANTS,
     webgpuAvailable: webgpuAvailable,
+    wasmCompilable: wasmCompilable,
+    detectVariant: detectVariant,
+    getVariantInfo: detectVariant,
     ensureEngine: ensureEngine,
     isEngineReady: isEngineReady,
     embeddedChat: embeddedChat,

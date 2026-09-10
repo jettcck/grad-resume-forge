@@ -14,8 +14,9 @@ const fs = require('fs');
 const ROOT = path.join(__dirname, '..');
 const PROBE_HTML = path.join(ROOT, 'src', 'renderer', 'probe-tmp.html');
 
-// 与 src/renderer/index.html 同构的 CSP + 计划新增的 connect-src/script-src
-const CSP = "default-src 'self' 'unsafe-inline' data:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://hf-mirror.com https://huggingface.co https://gh-proxy.com https://cdn.jsdelivr.net https://raw.githubusercontent.com; script-src 'self' 'unsafe-inline' data:;";
+// CSP 直接取自真实 index.html（探针与主应用永远同一份策略，防漂移）
+const indexHtml = fs.readFileSync(path.join(ROOT, 'src', 'renderer', 'index.html'), 'utf-8');
+const CSP = (indexHtml.match(/Content-Security-Policy[^>]*content="([^"]+)"/) || [])[1];
 
 const html = `<!DOCTYPE html>
 <html><head><meta charset="UTF-8">
