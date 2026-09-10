@@ -7,7 +7,7 @@ window.addEventListener('unhandledrejection', (e) => {
   console.error('[app.js unhandledrejection] ' + ((e.reason && e.reason.message) || e.reason || ''));
 });
 
-const { el, esc, toast, call, modalForm, modalTextarea } = window.UI;
+const { el, esc, toast, call, modalForm, modalTextarea, modalConfirm } = window.UI;
 
 // 本地会话凭证的存储键
 const TOKEN_KEY = 'gradResume.sessionToken';
@@ -824,7 +824,8 @@ function renderProfile() {
     sideCol
   ]);
 
-  root.append(head, onboarding, importBar, twoCols, saveBar);
+  // append 遇 null 会渲染成文本「null」，这里过滤掉空节点
+  root.append(...[head, onboarding, importBar, twoCols, saveBar].filter(Boolean));
 }
 
 // 档案完成度：8 项检查（用于录入页侧栏仪表 + 保存条）
@@ -912,16 +913,42 @@ function isProfileEmpty(p) {
   return !p.name && !(p.projects || []).some((e) => e.name) && !(p.education || []).some((e) => e.school);
 }
 
-// 载入示例：替换当前档案并保存（新用户 30 秒体验完整流程）
+// 载入示例：非空档案先确认，并自动快照备份（回炉快照可撤销），避免覆盖后无法还原
 async function loadDemoProfile(kind) {
   const demo = DEMO_PROFILES[kind] || DEMO_PROFILES.cs;
+  const hasData = !isProfileEmpty(state.profile);
+
+  // 已有真实档案时先确认，杜绝「一按示例全没了」
+  if (hasData) {
+    const ok = await modalConfirm('载入示例会替换当前档案',
+      '你当前填的档案会被这份示例顶掉。载入前我们会自动备份一份到右侧「<b>回炉快照</b>」，误载后仍可一键还原。确定继续吗？',
+      '载入示例并备份');
+    if (!ok) return;
+  }
+
+  // 备份当前档案（非空才备份，作为撤销后的后悔药）
+  if (hasData) {
+    try {
+      await call(window.api.snapshots.save(state.user.id, '载入示例前 · ' + fmtSnapshotTime(Date.now()), state.profile));
+    } catch (_) { /* 备份失败不阻断载入，但提示可手动从快照恢复 */ }
+  }
+
   try {
     state.profile = await call(window.api.profile.save(state.user.id, JSON.parse(JSON.stringify(demo))));
-    toast('示例档案已载入，去「简历预览」看看效果 →', 'ok');
+    toast(hasData
+      ? '示例已载入；误操作可去右侧「回炉快照」一键还原'
+      : '示例档案已载入，去「简历预览」看看效果 →', 'ok');
     renderProfile();
   } catch (err) {
     toast('载入失败：' + err.message, 'err');
   }
+}
+
+// 快照时间标签：与 Agent 快照风格一致（"09/07 18:09"）
+function fmtSnapshotTime(ts) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
 }
 
 // ---------------- 一键导入旧简历 ----------------

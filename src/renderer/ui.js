@@ -144,5 +144,34 @@
     });
   }
 
-  window.UI = { el, esc, toast, call, modalForm, modalTextarea };
+  // 轻量确认框：返回 Promise<boolean>（确认 true / 取消或 Esc false）
+  function modalConfirm(title, message, confirmText) {
+    return new Promise((resolve) => {
+      const overlay = el('div', { class: 'modal-overlay' });
+      function close(result) {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      }
+      function onKey(e) { if (e.key === 'Escape') close(false); }
+
+      const box = el('div', { class: 'modal-box' }, [
+        el('h3', { class: 'modal-title' }, [title]),
+        el('div', { class: 'modal-body' }, [el('p', { class: 'modal-message' }, [message])]),
+        el('div', { class: 'modal-actions' }, [
+          el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: () => close(false) }, ['取消']),
+          el('button', { class: 'btn btn-danger btn-sm', type: 'button', onclick: () => close(true) }, [confirmText || '继续'])
+        ])
+      ]);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(false); });
+      document.addEventListener('keydown', onKey);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+      // 指向危险操作（右侧确认键），焦点下回车即触发 click → 确认
+      const primary = box.querySelector('.btn-danger');
+      if (primary) primary.focus();
+    });
+  }
+
+  window.UI = { el, esc, toast, call, modalForm, modalTextarea, modalConfirm };
 })();
