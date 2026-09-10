@@ -735,6 +735,13 @@ function renderProfile() {
   // ---- 右列：锻造侧栏（环形完成度仪表 + 档案统计 + 快照）----
   const stats = buildProfileStats(p);
   const scoreColor = stats.score >= 80 ? 'var(--teal)' : stats.score >= 50 ? 'var(--gold)' : 'var(--danger)';
+  // 回炉快照卡：先持有元素引用，异步填充紧跟其后。
+  // 此前用 document.getElementById 查询，而该卡此刻还没被 append 进 DOM（append 在函数末尾），
+  // 查不到就直接 return —— 卡片永久停在「读取中…」，「回炉」按钮永远不出现，于是无法还原。
+  const snapCard = el('div', { class: 'card side-card', id: 'card-snapshots' }, [
+    cardTitle('refresh', '回炉快照', 'Agent 改写前自动备份'),
+    el('div', { class: 'snap-list' }, [el('p', { style: 'font-size:12px;color:var(--ink-2);padding:4px 0;' }, ['读取中…'])])
+  ]);
   const sideCol = el('div', { class: 'profile-side' }, [
     el('div', { class: 'card side-card completeness' }, [
       cardTitle('gauge', '档案完成度'),
@@ -757,16 +764,12 @@ function renderProfile() {
         el('div', { class: 'stat-row' }, [ico(ic, 15), el('span', { class: 'sk' }, [k]), el('b', {}, [v])])
       ))
     ]),
-    el('div', { class: 'card side-card', id: 'card-snapshots' }, [
-      cardTitle('refresh', '回炉快照', 'Agent 改写前自动备份'),
-      el('div', { class: 'snap-list' }, [el('p', { style: 'font-size:12px;color:var(--ink-2);padding:4px 0;' }, ['读取中…'])])
-    ])
+    snapCard
   ]);
 
   // 快照列表异步填充（不阻塞首屏渲染）
   (async () => {
-    const card = document.getElementById('card-snapshots');
-    const list = card && card.querySelector('.snap-list');
+    const list = snapCard.querySelector('.snap-list');
     if (!list) return;
     try {
       const snaps = await call(window.api.snapshots.list(state.user.id));

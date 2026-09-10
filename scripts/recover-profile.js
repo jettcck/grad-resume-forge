@@ -16,14 +16,23 @@ if (!fs.existsSync(dbFile)) {
 
 const db = JSON.parse(fs.readFileSync(dbFile, 'utf-8'));
 
-// 找出所有用户，取其最新的真实快照（label 以「Agent 改写前 / 载入示例前」开头，排除示例档案）
+// 找出所有用户，取「最新一条真实档案快照」写回当前档案。
+// 快照都产生于某次操作之前（Agent 改写前 / 载入示例前），因此最新一条即最近的真实档案；
+// 但若用户曾载入示例后又跑过 Agent，快照里也可能是示例数据，故跳过示例档案特征。
+const DEMO_NAMES = ['李明', '王雨晴'];
+const realSnap = (snaps) => snaps.find((s) => {
+  const p = s.profile || {};
+  if (!p.name) return false;
+  return !DEMO_NAMES.includes(p.name);
+});
+
 let restored = [];
 for (const userId of Object.keys(db.profiles || {})) {
   const snaps = (db.agentSnapshots || {})[userId] || [];
   if (!snaps.length) continue;
-  const snap = snaps.find((s) => !/示例/.test(s.label || '')) || snaps[0];
+  const snap = realSnap(snaps);
+  if (!snap) continue;
   const p = snap.profile;
-  if (!p || !p.name) continue;
   // 写回当前档案（保留 userId / createdAt，刷新 updatedAt）
   db.profiles[userId] = {
     ...p,
@@ -31,7 +40,7 @@ for (const userId of Object.keys(db.profiles || {})) {
     createdAt: db.profiles[userId] && db.profiles[userId].createdAt,
     updatedAt: Date.now()
   };
-  restored.push({ userId, name: p.name, targetRole: p.targetRole });
+  restored.push({ userId, name: p.name, targetRole: p.targetRole, label: snap.label });
 }
 
 if (!restored.length) {
@@ -41,4 +50,4 @@ if (!restored.length) {
 
 fs.writeFileSync(dbFile, JSON.stringify(db, null, 2), 'utf-8');
 console.log('已恢复 ' + restored.length + ' 个用户档案:');
-restored.forEach((r) => console.log(`  - ${r.name}（${r.targetRole || '未填目标岗位'}）`));
+restored.forEach((r) => console.log(`  - ${r.name}（${r.targetRole || '未填目标岗位'}）来源快照: ${r.label}`));

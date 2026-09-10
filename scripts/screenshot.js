@@ -72,6 +72,16 @@ function registerIpc() {
   h('applications:list', (uid) => store.listApplications(uid));
   h('applications:save', (uid, a) => store.saveApplication(uid, a));
   h('applications:delete', (uid, id) => store.deleteApplication(uid, id));
+  // 快照 IPC：缺了它们，回炉快照卡只会显示「读取失败」，回归断言会（正确地）炸
+  h('snapshots:save', (uid, label, p) => store.saveAgentSnapshot(uid, label, p));
+  h('snapshots:list', (uid) => store.listAgentSnapshots(uid));
+  h('snapshots:get', (uid, id) => store.getAgentSnapshot(uid, id));
+  h('snapshots:restore', (uid, id) => {
+    const snap = store.getAgentSnapshot(uid, id);
+    if (!snap) throw new Error('快照不存在或已删除');
+    return store.saveProfile(uid, snap);
+  });
+  h('snapshots:delete', (uid, id) => store.deleteAgentSnapshot(uid, id));
   h('resume:generate', (p, o) => engine.generate(p, o || {}));
   h('agent:status', async () => {
     const c = createLlmClient(store.getSetting('agent') || {});
@@ -120,6 +130,13 @@ async function main() {
     summary: '', skills: '', education: [], internships: [], projects: []
   });
   DEMO_APPS.forEach((a) => store.saveApplication(user.id, a));
+  // 预置一条快照：验证「回炉快照」卡真的会渲染出条目与「回炉」按钮
+  // （曾经的 bug：卡永久停在「读取中…」，导致用户根本没有还原入口）
+  store.saveAgentSnapshot(user.id, 'Agent 改写前 · 快照还原验证', {
+    name: '快照还原验证', phone: '13000000000', email: 'snap@test.local', city: '成都',
+    github: '', targetRole: '后端开发工程师', summary: '', skills: '',
+    education: [], internships: [], projects: []
+  });
 
   const win = new BrowserWindow({
     width: 1440, height: 900, show: false,
@@ -325,9 +342,33 @@ async function main() {
     t('声音系统已加载', !!(window.Sound && typeof window.Sound.play === 'function'));
     t('静音开关按钮', !!document.getElementById('btn-sound'));
     t('纸张仍白底(PDF不变)', gs(document.querySelector('.paper')).backgroundColor === 'rgb(255, 255, 255)');
+    // —— 回炉快照：卡必须真的渲染出条目与「回炉」按钮 ——
+    // 回归守卫：此前快照 IIFE 在 root.append 之前查 DOM，卡片永久卡在「读取中…」，
+    // 「回炉」按钮永不出现 → 用户「无法还原」。
+    const snapList = document.querySelector('#card-snapshots .snap-list');
+    t('回炉快照卡已加载(未卡在读取中/未读取失败)', !!snapList && !/读取中|读取失败/.test(snapList.textContent || ''));
+    t('快照条目已渲染', document.querySelectorAll('#card-snapshots .snap-item').length >= 1);
+    t('快照带「回炉」按钮', Array.from(document.querySelectorAll('#card-snapshots .snap-item .btn'))
+      .some((b) => b.textContent.trim() === '回炉'));
     return out.join('\\n');
   })()`));
   await shot(win, '02-profile-b');
+
+  // 回炉还原全链路：点「回炉」后档案应被替换成快照内容（不能只是按钮在、点了没反应）
+  await win.webContents.executeJavaScript(`(() => {
+    const btns = Array.from(document.querySelectorAll('#card-snapshots .snap-item .btn'));
+    const back = btns.find((b) => b.textContent.trim() === '回炉');
+    if (back) back.click();
+    return !!back;
+  })()`);
+  await sleep(1200);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const nameInput = document.querySelector('#card-basics input[name="name"]');
+    t('点「回炉」后档案已还原为快照内容', !!nameInput && nameInput.value === '快照还原验证');
+    return out.join('\\n');
+  })()`));
 
   console.log('done. shots in', SHOTS);
   app.exit(0);
