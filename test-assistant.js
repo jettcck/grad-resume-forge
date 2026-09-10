@@ -45,7 +45,7 @@ assert(!/CPA/.test(tech.answer), '技术方向问证书不误入财务知识');
 const usage = askAssistant('AI 优化怎么用', null);
 assert(usage.matched && /Agent 深度优化|JD/.test(usage.answer), 'App 使用问题命中');
 const usage2 = askAssistant('不想装 ollama 也不想填 api', null);
-assert(usage2.matched && /应用内模型|500MB|WebGPU/.test(usage2.answer), '免安装问题命中（应用内模型知识）');
+assert(usage2.matched && /应用内模型|281MB|镜像|WebGPU/.test(usage2.answer), '免安装问题命中（应用内模型知识）');
 
 // 5) 兜底：无关问题不硬编答案，给操作引导
 const fb = askAssistant('今天天气怎么样', null);

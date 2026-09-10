@@ -9,12 +9,31 @@ A local-first desktop app that helps new grads of every major **write resumes, d
 
 > 💡 **Why "de-AI-flavor"?** Recruiters increasingly reject resumes that smell like ChatGPT. This app rewrites your real experience into strong, quantified, human-sounding bullets — and every LLM output must pass a **deterministic validation gate** before it can touch your profile.
 
+## 🧭 Zero-barrier to start, AI is optional
+
+Everything except AI rewriting works with **no model, no key, no setup** — install and use:
+
+| Capability | Needs a model? |
+|---|---|
+| Profile editing · resume import · generation · PDF export | ❌ none — pure local |
+| De-AI-flavor audit & 0-100 scoring | ❌ none — deterministic rules |
+| JD precision matching | ❌ none — deterministic rules |
+| Application kanban | ❌ none |
+| Job-hunt assistant (built-in knowledge base) | ❌ none — local, offline |
+| Agent deep-optimization (AI rewriting) | ✅ one of three channels below |
+
+The three AI channels — pick whichever, switch anytime:
+
+1. **In-app model** *(default, zero config)* — Qwen2.5-0.5B runs inside the app via WebGPU. One-time download of **~281 MB** through mainland-China-friendly mirrors (hf-mirror.com for weights, gh-proxy.com for the runtime lib) — **no VPN needed** — then it works fully offline. Needs a reasonably recent GPU (WebGPU).
+2. **Local Ollama** — nothing leaves your machine.
+3. **Cloud API key** (BYOK) — DeepSeek / Kimi / Qwen / OpenAI presets; the key is stored locally only.
+
 ## ✨ Features
 
 - **Import your old resume** — drop a PDF/TXT, a local parser (pdf.js + China's MOE university list) fills the forms for you
 - **De-AI-flavor engine** — deterministic rules strip clichés, upgrade weak verbs, and preserve every metric; a 0-100 audit score updates live
 - **JD precision matching** — paste a job description, see exactly which required skills your resume hits or misses
-- **Agent deep-optimization** — an LLM rewrites your bullets against a specific JD, but each output must pass the validation gate (cliché / lost numbers / score regression → rejected & regenerated). Human-in-the-loop: you approve every rewrite with a checkbox
+- **Agent deep-optimization** — an LLM rewrites your bullets against a specific JD (in-app model / local Ollama / cloud BYOK — see the matrix above), but each output must pass the validation gate (cliché / lost numbers / score regression → rejected & regenerated). Human-in-the-loop: you approve every rewrite with a checkbox
 - **Application kanban** — track wish → applied → interviewing → offer, with one-click links to job platforms
 - **Local-first** — all data stays on your machine (scrypt-hashed credentials), works offline, zero telemetry
 - **Auto-update** — silent download via GitHub Releases, with an optional mirror prefix for users in China
@@ -42,7 +61,7 @@ Electron
 └── evals/                  two-layer evals: golden cases (CI gate) + LLM offline eval
 ```
 
-**LLM privacy options** — use a fully local Ollama model (nothing leaves your machine), or bring your own cloud API key (DeepSeek / Kimi / Qwen / OpenAI; the key is stored locally only). No key is ever bundled.
+**LLM privacy options** — the in-app model (Qwen2.5-0.5B via WebGPU, ~281 MB one-time download through China-friendly mirrors, then fully offline), a fully local Ollama model (nothing leaves your machine), or bring your own cloud API key (DeepSeek / Kimi / Qwen / OpenAI; the key is stored locally only). No key is ever bundled.
 
 ## 🚀 Getting Started
 
@@ -54,9 +73,11 @@ npm run eval       # rule-layer golden-case evals
 npm run eval:llm   # LLM-layer evals (requires local Ollama)
 ```
 
-### Enable Agent optimization (optional)
+### Enable Agent optimization
 
-Either:
+Recommended — **in-app model, zero config**: in-app ⚙ config → *In-app model* (default) → click *Download* (~281 MB via China-friendly mirrors, no VPN needed; runs offline afterwards). Requires WebGPU.
+
+Or, alternatively:
 - **Local**: install [Ollama](https://ollama.com) → `ollama pull qwen2.5:7b` (nothing leaves your machine), or
 - **Cloud**: in-app ⚙ config → Cloud API → pick a preset → paste your own API key
 
@@ -87,6 +108,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 | Agent | validation gate / regen loop / streaming / cloud client (mocked end-to-end) | `node test-agent.js` |
 | E2E | register → login → profile → generate → applications → snapshot restore | `node test-e2e.js` |
 | Updater | publish config / mirror rules / pipeline assertions | `node test-updater.js` |
+| Zero-barrier guard | in-app model loading shape / China mirrors / CSP / honest copy | `node test-embedded.js` |
 | Rule-layer evals | 19 golden cases as a regression gate | `npm run eval` |
 | LLM-layer evals | dual-mode comparison on a real model | `npm run eval:llm` |
 

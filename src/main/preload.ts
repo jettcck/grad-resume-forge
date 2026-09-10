@@ -6,6 +6,10 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
 contextBridge.exposeInMainWorld('api', {
+  // 环境标记（渲染进程继承主进程 env）：GRF_EMBEDDED_SELFTEST=1 时渲染层跑内嵌链路自检
+  env: {
+    embeddedSelfTest: process.env.GRF_EMBEDDED_SELFTEST === '1'
+  },
   auth: {
     register: (payload: unknown) => ipcRenderer.invoke('auth:register', payload),
     login: (payload: unknown) => ipcRenderer.invoke('auth:login', payload),

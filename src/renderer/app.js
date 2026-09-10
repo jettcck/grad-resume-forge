@@ -1454,8 +1454,9 @@ const CLOUD_PRESETS = [
 function openAgentConfig() {
   const stored = (_agentStatus && _agentStatus.config) || {};
   const isCloudStored = stored.provider === 'cloud';
-  const isEmbStored = stored.provider === 'embedded';
-  let provider = isCloudStored ? 'cloud' : (isEmbStored ? 'embedded' : 'ollama');
+  // 零门槛默认：没配过就选「应用内模型」——首次经国内镜像下载约 281MB，之后离线；
+  // Ollama / 云端 API 是进阶选项，不设为默认（这正是"零门槛"的落点）
+  let provider = isCloudStored ? 'cloud' : 'embedded';
 
   const overlay = el('div', { class: 'modal-overlay' });
   function close() {
@@ -1483,13 +1484,13 @@ function openAgentConfig() {
 
     if (provider === 'embedded') {
       embStatusLine = el('p', { class: 'emb-status' }, ['检测中…']);
-      embDlBtn = el('button', { class: 'btn btn-primary btn-sm', type: 'button' }, ['下载模型到本机（约 500MB）']);
+      embDlBtn = el('button', { class: 'btn btn-primary btn-sm', type: 'button' }, ['下载模型到本机（约 281MB · 国内镜像直连）']);
       embDlBtn.addEventListener('click', async () => {
         embDlBtn.disabled = true;
-        embStatusLine.textContent = '开始下载…（走网络，仅首次；之后离线可用）';
+        embStatusLine.textContent = '开始下载…（首次约 281MB，走国内镜像不需要科学上网；之后断网可用）';
         try {
           await window.EmbeddedLlm.ensureEngine((p) => {
-            embStatusLine.textContent = (p.phase === 'download' ? '下载中 ' : '加载中 ') + p.percent + '%';
+            embStatusLine.textContent = (p.phase === 'download' ? '下载中 ' : '加载中 ') + p.percent + '%（首次下载约 281MB，之后离线）';
           });
           embStatusLine.textContent = '✅ 模型已就绪（qwen2.5-0.5b，应用内运行）';
           if (window.Sound) window.Sound.play('done');
@@ -1502,7 +1503,7 @@ function openAgentConfig() {
       });
       fieldsBox.append(
         el('p', { style: 'font-size:12.5px;color:var(--ink-1);line-height:1.7;' },
-          ['模型（Qwen2.5-0.5B）下载到应用缓存后在本机运行——不装 Ollama、不填 API 密钥、断网可用。需要较新的显卡（WebGPU）。']),
+          ['模型（Qwen2.5-0.5B）下载到应用缓存后在本机运行——不装 Ollama、不填 API 密钥、之后断网可用。首次需联网下载约 281MB（hf-mirror / gh-proxy 国内镜像直连，一般几分钟），需要较新的显卡（WebGPU）。']),
         embStatusLine, embDlBtn
       );
       // 异步检测 WebGPU
@@ -2139,6 +2140,26 @@ function appCard(a) {
     } catch (_) {} // eslint-disable-line no-empty
   };
   await report();
+
+  // 诊断模式：GRF_EMBEDDED_SELFTEST=1 启动时自检嵌入式链路（模块加载 / WebGPU / 镜像连通），
+  // 结果打到主进程日志（main 会转发 renderer console），用于打包版验证与用户自查
+  if (window.api.env && window.api.env.embeddedSelfTest) {
+    try {
+      const st = await window.EmbeddedLlm.moduleSelfTest();
+      const gpu = await window.EmbeddedLlm.webgpuAvailable();
+      let mirror = 'n/a';
+      try {
+        const r = await fetch(window.EmbeddedLlm.modelInfo.mirrorModelUrl + 'mlc-chat-config.json', { headers: { Range: 'bytes=0-99' } });
+        mirror = r.status + '';
+        try { if (r.body) await r.body.cancel(); } catch (_) {} // eslint-disable-line no-empty
+      } catch (e) { mirror = 'ERR ' + (e && e.message); }
+      console.log('[embedded-selftest] module exports=' + st.exports +
+        ' prebuilt=' + st.prebuiltModels + ' createMLCEngine=' + st.hasCreateMLCEngine +
+        ' webgpu=' + gpu + ' mirror=' + mirror);
+    } catch (err) {
+      console.log('[embedded-selftest] FAIL ' + (err && err.message));
+    }
+  }
 
   // 响应主进程的推理请求（Agent embedded 通道）
   window.api.embedded.onRequest(async (req) => {

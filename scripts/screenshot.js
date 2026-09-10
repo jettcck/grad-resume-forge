@@ -176,7 +176,7 @@ async function main() {
 
   // —— 新手引导（空档案）断言 + 截图 ——
   await shot(win, '02-onboarding');
-  console.log(await verify(win, `(() => {
+  console.log(await verify(win, `(async () => {
     const out = [];
     const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
     t('新手引导卡出现', !!document.querySelector('.onboarding .ob-actions'));
@@ -184,6 +184,19 @@ async function main() {
     t('环形仪表渲染', !!document.querySelector('.completeness .ring-svg .ring-fill'));
     t('路由过渡动画', getComputedStyle(document.getElementById('route-profile')).animationName === 'route-in');
     t('小助手悬浮球', !!document.getElementById('assistant-fab'));
+    // —— 零门槛守卫：应用内模型通道（embedded-llm.js 曾因经典脚本带 export 从未执行过） ——
+    t('EmbeddedLlm 已挂载', !!window.EmbeddedLlm);
+    t('modelInfo 标注真实下载量', !!(window.EmbeddedLlm && window.EmbeddedLlm.modelInfo && window.EmbeddedLlm.modelInfo.totalMB >= 270 && window.EmbeddedLlm.modelInfo.totalMB <= 300));
+    t('镜像地址指向国内源', !!(window.EmbeddedLlm && /hf-mirror\\.com/.test(window.EmbeddedLlm.modelInfo.mirrorModelUrl) && /gh-proxy\\.com/.test(window.EmbeddedLlm.modelInfo.mirrorLibUrl)));
+    let modOk = false, modExports = 0, gpuType = 'n/a';
+    try {
+      const st = await window.EmbeddedLlm.moduleSelfTest(); // 真实动态 import（不触发 281MB 下载）
+      modOk = st.exports > 30 && st.hasCreateMLCEngine;
+      modExports = st.exports;
+      gpuType = typeof (await window.EmbeddedLlm.webgpuAvailable());
+    } catch (e) { modOk = false; }
+    t('web-llm 模块可动态加载（exports=' + modExports + '）', modOk);
+    t('WebGPU 检测返回布尔值（' + gpuType + '）', gpuType === 'boolean');
     return out.join('\\n');
   })()`));
 
