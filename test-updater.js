@@ -115,4 +115,22 @@ if (fs.existsSync(buildYml)) {
   assert(buildSrc.includes('--publish never'), 'build.yml 只构建不发布');
 }
 
+// 7) 固定产物名 + README 永久下载直链
+// README 里用的是 releases/latest/download/<文件名>，一旦产物名里带版本号，
+// 链接每发一版就失效——这里守住"文件名不含 ${version}"
+const winName = (pkg.build.win && pkg.build.win.artifactName) || '';
+assert(!!winName && !winName.includes('${version}') && !winName.includes('${productName}'),
+  'Windows 产物名不含版本号（README 直链才能长期有效）：' + winName);
+assert(!!(linux && linux.artifactName) && !linux.artifactName.includes('${version}'),
+  'Linux 产物名不含版本号：' + (linux && linux.artifactName));
+
+const readmeEn = fs.readFileSync(path.join(__dirname, 'README.md'), 'utf8');
+const readmeZh = fs.readFileSync(path.join(__dirname, 'README.zh-CN.md'), 'utf8');
+['grad-resume-forge-setup.exe', 'grad-resume-forge-x86_64.AppImage', 'grad-resume-forge-amd64.deb'].forEach((f) => {
+  const url = 'releases/latest/download/' + f;
+  assert(readmeEn.includes(url) && readmeZh.includes(url), '双语 README 含永久直链：' + f);
+});
+assert(readmeEn.includes('## ⬇️ Download') && readmeZh.includes('## ⬇️ 下载安装'),
+  '双语 README 有下载安装章节');
+
 console.log('\n更新器烟测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

@@ -55,7 +55,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "artifactName": "grad-resume-forge-setup.${ext}"
     },
     "nsis": {
       "oneClick": false,
@@ -83,7 +84,7 @@
       "category": "Office",
       "maintainer": "jettcck <jettcck@users.noreply.github.com>",
       "executableName": "grad-resume-forge",
-      "artifactName": "grad-resume-forge-${version}-${arch}.${ext}",
+      "artifactName": "grad-resume-forge-${arch}.${ext}",
       "synopsis": "应届生简历锻造工具 · 本地优先 · 去 AI 味",
       "description": "全专业通用的应届生简历工具：规则引擎去 AI 味、JD 精准匹配、Agent 深度优化、投递管理。数据全部保存在本机。",
       "desktop": {

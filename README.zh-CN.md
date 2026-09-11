@@ -28,17 +28,19 @@ AI 三通道，任选其一、随时切换：
 
 ## ⬇️ 下载安装
 
-全部在 [最新 Release](https://github.com/jettcck/grad-resume-forge/releases/latest)，无需注册、无需密钥：
+直接点链接即可，永远是最新版，无需注册、无需密钥：
 
-| 平台 | 文件 | 安装方式 |
+| 平台 | 下载 | 安装方式 |
 |---|---|---|
-| **Windows 10/11 (x64)** | `grad-resume-forge-setup-*.exe` | 运行安装程序（NSIS），支持自动更新 |
-| **Linux (x64)** | `grad-resume-forge-*-x86_64.AppImage` | `chmod +x` 后直接运行，支持自动更新 |
-| | `grad-resume-forge-*-amd64.deb` | `sudo apt install ./grad-resume-forge-*-amd64.deb`（装到 `/opt`，自动加菜单项）；手动更新 |
+| **Windows 10/11 (x64)** | **[⬇ grad-resume-forge-setup.exe](https://github.com/jettcck/grad-resume-forge/releases/latest/download/grad-resume-forge-setup.exe)** | 运行安装程序（NSIS），支持自动更新 |
+| **Linux (x64)** | **[⬇ grad-resume-forge-x86_64.AppImage](https://github.com/jettcck/grad-resume-forge/releases/latest/download/grad-resume-forge-x86_64.AppImage)** | `chmod +x` 后直接运行，支持自动更新 |
+| | **[⬇ grad-resume-forge-amd64.deb](https://github.com/jettcck/grad-resume-forge/releases/latest/download/grad-resume-forge-amd64.deb)** | `sudo apt install ./grad-resume-forge-amd64.deb`（装到 `/opt`，自动加菜单项）；手动更新 |
 | **macOS** | — | 暂未提供 |
 
+> 上面用的是 GitHub 的 `releases/latest/download/<文件名>` 形式，**换版本也不会失效**——产物文件名特意不含版本号。需要指定版本或校验值请看[全部 Releases](https://github.com/jettcck/grad-resume-forge/releases)。
+
 Linux 两点提示：
-- **AppImage 沙箱**：在限制非特权 user namespace 的发行版（如 Ubuntu 24.04+）上，Electron 的 AppImage 可能报 `SUID sandbox helper` / namespace 错误而拒绝启动。用 `./grad-resume-forge-*.AppImage --no-sandbox` 运行，或为你的发行版开启非特权 user namespace。
+- **AppImage 沙箱**：在限制非特权 user namespace 的发行版（如 Ubuntu 24.04+）上，Electron 的 AppImage 可能报 `SUID sandbox helper` / namespace 错误而拒绝启动。用 `./grad-resume-forge-x86_64.AppImage --no-sandbox` 运行，或为你的发行版开启非特权 user namespace。
 - 想要菜单项就装 `.deb`；想要自动更新、不在系统里留东西就用 AppImage。
 
 > 安装包未做代码签名：Windows 可能弹 SmartScreen「未知发布者」→ 点「更多信息 → 仍要运行」。

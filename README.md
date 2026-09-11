@@ -30,17 +30,19 @@ The three AI channels — pick whichever, switch anytime:
 
 ## ⬇️ Download & install
 
-Everything is on the [latest release](https://github.com/jettcck/grad-resume-forge/releases/latest) — no account, no key:
+Direct links — always the latest build, no account, no key:
 
-| Platform | File | Install |
+| Platform | Download | Install |
 |---|---|---|
-| **Windows 10/11 (x64)** | `grad-resume-forge-setup-*.exe` | Run the installer (NSIS). Auto-updates. |
-| **Linux (x64)** | `grad-resume-forge-*-x86_64.AppImage` | `chmod +x` it, then run. Auto-updates. |
-| | `grad-resume-forge-*-amd64.deb` | `sudo apt install ./grad-resume-forge-*-amd64.deb` (installs to `/opt`, adds a menu entry). Manual updates. |
+| **Windows 10/11 (x64)** | **[⬇ grad-resume-forge-setup.exe](https://github.com/jettcck/grad-resume-forge/releases/latest/download/grad-resume-forge-setup.exe)** | Run the installer (NSIS). Auto-updates. |
+| **Linux (x64)** | **[⬇ grad-resume-forge-x86_64.AppImage](https://github.com/jettcck/grad-resume-forge/releases/latest/download/grad-resume-forge-x86_64.AppImage)** | `chmod +x` it, then run. Auto-updates. |
+| | **[⬇ grad-resume-forge-amd64.deb](https://github.com/jettcck/grad-resume-forge/releases/latest/download/grad-resume-forge-amd64.deb)** | `sudo apt install ./grad-resume-forge-amd64.deb` — installs to `/opt`, adds a menu entry. Manual updates. |
 | **macOS** | — | not built yet |
 
+> These links use GitHub's `releases/latest/download/<file>` form, so they **stay valid across releases** — artifact filenames deliberately carry no version number. Need a specific version or a checksum? See [all releases](https://github.com/jettcck/grad-resume-forge/releases).
+
 Linux notes:
-- **AppImage sandbox**: on distros that restrict unprivileged user namespaces (e.g. Ubuntu 24.04+), an Electron AppImage may refuse to start with a `SUID sandbox helper` / `namespace` error. Run it as `./grad-resume-forge-*.AppImage --no-sandbox`, or enable unprivileged user namespaces for your distro.
+- **AppImage sandbox**: on distros that restrict unprivileged user namespaces (e.g. Ubuntu 24.04+), an Electron AppImage may refuse to start with a `SUID sandbox helper` / `namespace` error. Run it as `./grad-resume-forge-x86_64.AppImage --no-sandbox`, or enable unprivileged user namespaces for your distro.
 - Prefer the `.deb` if you want the app in your application menu; prefer the AppImage if you want to update automatically and keep nothing installed.
 
 > Unsigned installers: Windows SmartScreen may warn ("unknown publisher") → *More info → Run anyway*.
