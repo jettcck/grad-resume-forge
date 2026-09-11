@@ -12,8 +12,10 @@
     "eval": "node evals/run-evals.js",
     "eval:llm": "node evals/run-llm-eval.js",
     "dist": "tsc && electron-builder --win --x64 --publish never",
+    "dist:linux": "tsc && electron-builder --linux --x64 --publish never",
     "dist:local": "powershell -ExecutionPolicy Bypass -File scripts/dist-local.ps1",
-    "release": "tsc && electron-builder --win --x64 --publish always"
+    "release": "tsc && electron-builder --win --x64 --publish always",
+    "release:linux": "tsc && electron-builder --linux --x64 --publish always"
   },
   "author": "",
   "license": "MIT",
@@ -26,6 +28,7 @@
   "build": {
     "appId": "com.gradresume.forge",
     "productName": "简历锻造炉",
+    "icon": "build/icon.png",
     "directories": {
       "output": "release"
     },
@@ -33,7 +36,8 @@
       "dist/**/*",
       "src/renderer/**/*",
       "data/**/*",
-      "package.json"
+      "package.json",
+      "!node_modules/@napi-rs/**"
     ],
     "publish": [
       {
@@ -60,6 +64,35 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "简历锻造炉"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Office",
+      "maintainer": "jettcck <jettcck@users.noreply.github.com>",
+      "executableName": "grad-resume-forge",
+      "artifactName": "grad-resume-forge-${version}-${arch}.${ext}",
+      "synopsis": "应届生简历锻造工具 · 本地优先 · 去 AI 味",
+      "description": "全专业通用的应届生简历工具：规则引擎去 AI 味、JD 精准匹配、Agent 深度优化、投递管理。数据全部保存在本机。",
+      "desktop": {
+        "Name": "简历锻造炉",
+        "GenericName": "Resume Builder",
+        "Comment": "应届生简历锻造工具（本地优先、离线可用）",
+        "Categories": "Office;Utility;"
+      },
+      "icon": "build/icons"
     }
   },
   "dependencies": {

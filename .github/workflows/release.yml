@@ -7,7 +7,19 @@ on:
 
 jobs:
   release:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      # 串行：两个平台都要往同一个 Release 上传资产，并行会有竞态
+      max-parallel: 1
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win --x64
+            label: windows
+          - os: ubuntu-latest
+            args: --linux --x64
+            label: linux
+    runs-on: ${{ matrix.os }}
     permissions:
       contents: write
     steps:
@@ -38,6 +50,7 @@ jobs:
         run: npm test
 
       - name: Build & publish to GitHub Releases
-        run: npm run release
+        shell: bash
+        run: npx electron-builder ${{ matrix.args }} --publish always
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

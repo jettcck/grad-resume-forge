@@ -1,0 +1,65 @@
+name: Build
+
+# 构建校验：不发布，只验证三个平台的产物能正常构建出来。
+# 用途：1) 发版前确认打包配置没坏  2) PR 上先发现构建问题，别等到 tag 才发现
+on:
+  workflow_dispatch:
+    inputs:
+      platforms:
+        description: '构建哪些平台'
+        required: true
+        default: 'all'
+        type: choice
+        options: [all, windows, linux]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: --win --x64
+            label: windows
+          - os: ubuntu-latest
+            args: --linux --x64
+            label: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check & compile
+        run: npm run build
+
+      - name: Build packages (no publish)
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.platforms }}" != "all" ] && [ "${{ inputs.platforms }}" != "${{ matrix.label }}" ]; then
+            echo "skipped by input (${{ inputs.platforms }})"
+            exit 0
+          fi
+          npx electron-builder ${{ matrix.args }} --publish never
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.label }}-packages
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/*.AppImage
+            release/*.deb
+            release/latest*.yml
