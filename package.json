@@ -92,7 +92,11 @@
         "Comment": "应届生简历锻造工具（本地优先、离线可用）",
         "Categories": "Office;Utility;"
       },
-      "icon": "build/icons"
+      "icon": "build/icons",
+      "packageCategory": "office"
+    },
+    "deb": {
+      "packageCategory": "office"
     }
   },
   "dependencies": {

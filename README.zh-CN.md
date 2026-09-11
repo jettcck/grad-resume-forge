@@ -26,6 +26,23 @@ AI 三通道，任选其一、随时切换：
 2. **本地 Ollama** —— 全程不出本机。
 3. **云端 API 密钥**（BYOK）—— DeepSeek / Kimi / 通义 / OpenAI 预设，密钥只存本机。
 
+## ⬇️ 下载安装
+
+全部在 [最新 Release](https://github.com/jettcck/grad-resume-forge/releases/latest)，无需注册、无需密钥：
+
+| 平台 | 文件 | 安装方式 |
+|---|---|---|
+| **Windows 10/11 (x64)** | `grad-resume-forge-setup-*.exe` | 运行安装程序（NSIS），支持自动更新 |
+| **Linux (x64)** | `grad-resume-forge-*-x86_64.AppImage` | `chmod +x` 后直接运行，支持自动更新 |
+| | `grad-resume-forge-*-amd64.deb` | `sudo apt install ./grad-resume-forge-*-amd64.deb`（装到 `/opt`，自动加菜单项）；手动更新 |
+| **macOS** | — | 暂未提供 |
+
+Linux 两点提示：
+- **AppImage 沙箱**：在限制非特权 user namespace 的发行版（如 Ubuntu 24.04+）上，Electron 的 AppImage 可能报 `SUID sandbox helper` / namespace 错误而拒绝启动。用 `./grad-resume-forge-*.AppImage --no-sandbox` 运行，或为你的发行版开启非特权 user namespace。
+- 想要菜单项就装 `.deb`；想要自动更新、不在系统里留东西就用 AppImage。
+
+> 安装包未做代码签名：Windows 可能弹 SmartScreen「未知发布者」→ 点「更多信息 → 仍要运行」。
+
 ## ✨ 核心特性
 
 - **一键导入旧简历**：选个 PDF / TXT，本地解析器（pdfjs + 教育部高校词表反查）自动填表，合并或替换由你选
@@ -84,7 +101,15 @@ npm run release     # 打包并发布到 GitHub Releases（需 GH_TOKEN）
 ```
 
 正式发版走 CI：`npm version patch` → `git push --follow-tags` → 自动构建发布。
-推送 `v*` tag 时 CI 会校验 tag 与 package.json 版本一致性、先跑全量测试再构建。
+推送 `v*` tag 时 CI 会校验 tag 与 package.json 版本一致性、先跑全量测试再构建，**同时出 Windows 与 Linux 产物**（矩阵跑 `windows-latest` + `ubuntu-latest`，串行执行避免两个平台同时往同一个 Release 上传产生竞态）。
+
+另有 `build.yml`（可手动触发，PR 也会跑）：只构建不发布，用于**打 tag 之前**验证打包配置。
+
+本地构建：Windows 用 `npm run dist`，Linux 用 `npm run dist:linux`。
+**Linux 目标无法在 Windows 上构建**——AppImage 需要符号链接特权、`.deb` 需要 `fpm`，两者都在 ubuntu runner 上正常（公开仓库免费）。
+
+图标由 `npx electron scripts/make-icon.js --no-sandbox` 生成（`build/icon.png` + `build/icons/`）。
+Linux 必须用多尺寸目录：单文件图标会让 electron-builder 把图标丢进 `hicolor/0x0/`（菜单里显示不出来）。
 
 ### 本地构建（国内网络环境）
 
@@ -166,7 +191,7 @@ git config http.proxy http://127.0.0.1:7890
 | **有实义的形容词会保留** | 「建立了**良好的**客户关系」不该变成「建立了客户关系」。后接有实义中心词（客户关系/业绩/经验/渠道/数据…）的形容词一律保留，只删真空洞的（如「良好的沟通能力」）。 |
 | **JD 匹配是词表 + 加权，不是语义理解** | 别名关键词匹配，并区分硬性要求（3 倍权重）与加分项（1 倍）——堆加分项关键词刷不上分。常见换说法已收进别名；若 JD 用完全不同的描述表达同一技能仍可能漏判，需要语义判断时请用「Agent 深度优化」贴同一份 JD。 |
 | **匹配分不是录用概率** | 它衡量的是你对这一份 JD 的关键词覆盖度，是投递前的自检参考，不是拿到面试的概率。 |
-| **平台与维护** | 目前仅 Windows x64（macOS/Linux 在计划内）；单人维护。评测、文档与 CI 的存在就是为了把接手成本压低，而不是假装人多。 |
+| **平台与维护** | 目前 Windows x64 与 Linux x64（AppImage + deb），macOS 在计划内；单人维护。评测、文档与 CI 的存在就是为了把接手成本压低，而不是假装人多。 |
 | **尚无大规模用户验证** | 早期项目、用户量小。公开数字是**可复现的评测结果**，不是用户证言或大规模 A/B 数据——功能宣传请按此口径理解。 |
 
 ## 📄 License

@@ -75,9 +75,44 @@ assert(ciSrc.includes("branches: [main]"), 'CI 监听 main 分支');
 assert(relSrc.includes("tags:") && relSrc.includes("- 'v*'"), '发布工作流由 v* tag 触发');
 assert(relSrc.includes('contents: write'), '发布工作流声明 contents:write 权限');
 assert(relSrc.includes('secrets.GITHUB_TOKEN'), '发布工作流使用 GITHUB_TOKEN');
-assert(relSrc.includes('npm run release'), '发布工作流执行 npm run release');
+assert(relSrc.includes('--publish always'), '发布工作流执行带 --publish always 的构建');
 assert(relSrc.includes('Verify tag matches'), '发布前校验 tag 与版本一致性');
 assert(pub && pub.releaseType === 'release', 'publish 配置 releaseType=release（tag 直发正式版，latest.yml 可解析）');
 assert(pkg.scripts.dist.includes('--publish never'), '本地 dist 显式 --publish never（防误发版）');
+
+// 6) 跨平台支持（Linux）——防止配置被无意破坏
+const linux = pkg.build && pkg.build.linux;
+assert(!!linux, 'package.json 有 linux 打包配置');
+const linTargets = ((linux && linux.target) || []).map((t) => (typeof t === 'string' ? t : t.target));
+assert(linTargets.includes('AppImage') && linTargets.includes('deb'), 'Linux 目标含 AppImage 与 deb（实际 ' + linTargets.join('/') + '）');
+assert(!!(linux && linux.icon), 'Linux 指定多尺寸图标目录（单文件图标会落到 hicolor/0x0/）');
+assert(!!(linux && linux.executableName) && /^[\x20-\x7e]+$/.test(linux.executableName), 'Linux 可执行名为 ASCII（避免中文路径/命令）');
+assert(!!(linux && linux.maintainer), 'Linux 声明 maintainer（deb 必需字段）');
+const files = (pkg.build && pkg.build.files) || [];
+assert(files.some((f) => f.includes('@napi-rs') && f.startsWith('!')),
+  '打包排除 @napi-rs（pdfjs 的可选原生依赖，否则 Windows 二进制会混进 Linux 包）');
+
+// 图标资源存在且尺寸齐全
+const iconPng = path.join(__dirname, 'build', 'icon.png');
+const iconDir = path.join(__dirname, 'build', 'icons');
+assert(fs.existsSync(iconPng), 'build/icon.png 存在');
+const iconSizes = fs.existsSync(iconDir) ? fs.readdirSync(iconDir).filter((f) => /^\d+x\d+\.png$/.test(f)) : [];
+assert(iconSizes.length >= 6, 'build/icons 多尺寸图标齐全（实际 ' + iconSizes.length + ' 个）');
+if (fs.existsSync(iconPng)) {
+  const b = fs.readFileSync(iconPng);
+  const w = b.readUInt32BE(16), h = b.readUInt32BE(20);
+  assert(w >= 256 && h >= 256 && w === h, `应用图标为方形且 ≥256（实际 ${w}x${h}）`);
+}
+
+// 发布流水线：双平台矩阵 + 可手动触发的构建校验
+assert(relSrc.includes('ubuntu-latest') && relSrc.includes('windows-latest'), '发布流水线覆盖 Windows + Linux');
+assert(relSrc.includes('max-parallel: 1'), '双平台串行发布（避免同时上传同一 Release 的竞态）');
+const buildYml = path.join(__dirname, '.github', 'workflows', 'build.yml');
+assert(fs.existsSync(buildYml), 'build.yml 存在（可手动触发的构建校验）');
+if (fs.existsSync(buildYml)) {
+  const buildSrc = fs.readFileSync(buildYml, 'utf8');
+  assert(buildSrc.includes('workflow_dispatch'), 'build.yml 支持手动触发');
+  assert(buildSrc.includes('--publish never'), 'build.yml 只构建不发布');
+}
 
 console.log('\n更新器烟测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
