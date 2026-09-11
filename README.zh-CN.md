@@ -99,6 +99,29 @@ npm run dist:local
 起本地二进制源（`scripts/local-bin-source.js`）→ 构建。产物与 CI 同源。
 依赖重装后重跑本命令即可，无需手工操作。
 
+### 推送（GitHub 直连不通时）
+
+`github.com:443` 连不上时，**只给本仓库**挂本地代理：
+
+```bash
+git config http.proxy http://127.0.0.1:7890
+```
+
+刻意用仓库级而非 `--global`：代理没开时只坏这一个仓库，而不是所有仓库。
+
+### 发版注意事项（补发旧 tag 前必读）
+
+**GitHub 判定哪个 release 算「latest」看的是发布先后，不是版本号。**
+`electron-updater` 读的是 `GET /releases/latest`——所以只要你在新版**之后**补发了旧 tag，指针就会**往回走**：老版本用户会被提示升级到那个旧版本，然后**永远收不到更新的版本**（卡住）。
+
+- **按版本升序发布。** 确实要补发旧 tag 时，收尾必须让最新版重新成为「最近发布」的那一个。
+- `make_latest` 这个 release 字段在这里**不管用**——实测给最新版设 `true`、给旧版设 `false`，指针纹丝不动。
+- 真正有效的做法：**重新发布最新版**——`PATCH /repos/{owner}/{repo}/releases/{id}` 传 `{"draft":true}`，再传 `{"draft":false}`。资产不会丢，`published_at` 会刷新，它重新成为 latest。**不需要重传安装包。**
+- **每次发版后的检查项：**
+  1. `curl -s https://api.github.com/repos/OWNER/REPO/releases/latest` → `tag_name` 必须是你刚发的版本
+  2. 拉取该 release 的 `latest.yml`，确认 `version:` 与之一致（这才是更新器真正读的文件）
+  3. 若期间补发过旧 tag 且第 1 步不对，按上面的办法把指针修回来
+
 ## 📊 测试与评测
 
 **240+ 项自动化断言**，push 即跑（CI 门禁）。

@@ -96,6 +96,20 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 - **Release** (tag `v*`) verifies tag↔version consistency, re-runs tests, then builds and publishes
 - Local packaging for personal use: `npm run dist` (explicitly `--publish never`)
 - Building behind restrictive networks (e.g. mainland China): `npm run dist:local` — one command that mirrors the winCodeSign binary, applies idempotent runtime patches to `app-builder-lib`, and serves binaries from a local HTTP source. Safe to re-run after `npm install`.
+- Pushing where `github.com:443` is unreachable: point git at a local proxy **for this repo only** — `git config http.proxy http://127.0.0.1:7890`. Repo-local (not `--global`) on purpose: a stopped proxy then breaks one repo instead of every repo.
+
+#### Release gotchas — read before back-filling tags
+
+**GitHub decides which release is "latest" by *publication time*, not by version number.**
+`electron-updater` reads `GET /releases/latest`, so if you publish an **older** tag *after* a newer one, the pointer moves **backwards**: users on older builds are offered the older version and never see the newer one — they get stuck.
+
+- **Publish in ascending version order.** If you really must back-fill old tags, finish by making the newest release the most recently published one again.
+- The `make_latest` release field is **not** authoritative here — setting it (true on the newest, false on the old ones) did **not** move the pointer in practice.
+- What does work: re-publish the newest release — `PATCH /repos/{owner}/{repo}/releases/{id}` with `{"draft":true}`, then `{"draft":false}`. Assets stay attached and `published_at` refreshes, so it becomes latest again. No re-upload needed.
+- **Checklist after every release:**
+  1. `curl -s https://api.github.com/repos/OWNER/REPO/releases/latest` → `tag_name` must be the version you just released
+  2. Fetch that release's `latest.yml` and confirm `version:` matches (this is the file the updater actually reads)
+  3. If a back-fill happened and step 1 fails, fix the pointer as above
 
 ## 📊 Testing & Evals
 
