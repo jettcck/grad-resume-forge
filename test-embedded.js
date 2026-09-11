@@ -91,7 +91,14 @@ assert(/in-app model/i.test(en) && /281\s?MB/i.test(en), '英文 README 提及�
 assert(/应用内模型/.test(zh) && /281\s?MB/.test(zh), '中文 README 提及应用内模型与真实下载量');
 assert(/hf-mirror/i.test(en) && /hf-mirror/.test(zh), '双语 README 说明国内镜像来源');
 
-// ---------- 8) 本测试挂在 npm test 上（CI 门禁） ----------
+// ---------- 8) README 必须如实声明能力边界（不许只讲好话） ----------
+assert(/## ⚠️ Limits/.test(en) && /## ⚠️ 能力边界/.test(zh), '双语 README 含「能力边界」章节');
+assert(/lexical|词表/.test(en) && /词表/.test(zh), 'README 说明 JD 匹配是词表级而非语义级');
+assert(/hiring prediction|录用概率/.test(en + zh), 'README 声明匹配分不等于录用概率');
+assert(/one person|单人维护|single person/i.test(en + zh), 'README 如实说明单人维护');
+assert(/macOS/.test(en) && /macOS/.test(zh), 'README 如实说明仅 Windows 平台');
+
+// ---------- 9) 本测试挂在 npm test 上（CI 门禁） ----------
 const pkg = JSON.parse(R('package.json'));
 assert(/test-embedded\.js/.test(pkg.scripts.test), 'npm test 包含 test-embedded.js');
 

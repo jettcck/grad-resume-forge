@@ -1327,7 +1327,12 @@ function buildJdCard() {
     el('div', { class: 'score-level', style: 'color:' + color }, [jd.level]),
     el('div', { class: 'meter' }, [el('i', { style: 'width:' + jd.score + '%;background:' + color })]),
     el('div', { style: 'font-size:12.5px;color:var(--ink-2);margin:2px 0 8px;' },
-      ['JD 方向：' + (DOMAIN_LABELS[jd.domain] || jd.domain) + ' · 覆盖 ' + jd.hitCount + ' / ' + jd.jdSkillCount + ' 项 JD 技能']),
+      ['JD 方向：' + (DOMAIN_LABELS[jd.domain] || jd.domain) + ' · 覆盖 ' + jd.hitCount + ' / ' + jd.jdSkillCount + ' 项 JD 技能'
+        + (jd.rawScore != null && jd.rawScore !== jd.score ? '（纯命中率 ' + jd.rawScore + '%，加权后 ' + jd.score + '%——硬性要求权重更高）' : '')]),
+    jd.mustMissing && jd.mustMissing.length
+      ? el('div', { style: 'font-size:12.5px;color:var(--danger);margin:6px 0;' },
+        ['硬性要求未体现（' + jd.mustMissing.length + ' 项，优先补）：' + jd.mustMissing.slice(0, 6).map((m) => m.label).join('、')])
+      : null,
     el('div', { class: 'skill-cloud' }, hitTags),
     jd.missing.length ? el('div', { style: 'font-size:12.5px;color:var(--ink-2);margin:10px 0 6px;' }, ['JD 要求但简历缺失：']) : null,
     el('div', { class: 'skill-cloud' }, missTags),

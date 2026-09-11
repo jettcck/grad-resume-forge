@@ -6,7 +6,8 @@
 // ============================================================
 
 import {
-  AI_CLICHES, AI_EN_WORDS, EMPTY_ADJECTIVES,
+  AI_CLICHES, AI_CLICHES_SOFT, AI_EN_WORDS, EMPTY_ADJECTIVES, EMPTY_ADJ_KEEP_HEADS,
+  EXTRA_VERB_START_CHARS, JD_REQUIRED_MARKERS, JD_NICE_MARKERS,
   WEAK_TO_STRONG, STRONG_VERBS, ROLE_SKILLS
 } from './lexicon';
 import type {
@@ -111,6 +112,54 @@ function cleanupFragments(text: string): string {
   return kept.join('，').replace(/[，,、]+$/, '').replace(/^[，,、]+/, '').trim();
 }
 
+// ---------- 空洞形容词删除（带保义守卫） ----------
+// 「良好的客户关系」删成「客户关系」语义反而变弱——形容词后接有实义的中心词时保留。
+// 体检与改写共用本函数：体检报的问题，改写时一定真的会处理（口径一致）。
+export function stripEmptyAdjectives(input: string): string {
+  let s = input;
+  for (const w of EMPTY_ADJECTIVES) {
+    let idx = s.indexOf(w);
+    while (idx >= 0) {
+      // 形容词后 4 字窗口内出现「有实义的中心词」即保留
+      // （覆盖「项目经验」「工作业绩」这类中心词前还带修饰的情况）
+      const window = s.slice(idx + w.length, idx + w.length + 4);
+      const keep = EMPTY_ADJ_KEEP_HEADS.some((h) => window.includes(h));
+      if (keep) {
+        idx = s.indexOf(w, idx + w.length);
+        continue;
+      }
+      s = s.slice(0, idx) + s.slice(idx + w.length);
+      idx = s.indexOf(w, idx);
+    }
+  }
+  return s;
+}
+
+// ---------- 英文 AI 高频词删除（词边界，避免误伤同形子串） ----------
+export function stripEnAiWords(input: string): string {
+  let s = input;
+  for (const w of AI_EN_WORDS) {
+    const escaped = w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    s = s.replace(new RegExp('(?<![a-z])' + escaped + '(?![a-z])', 'gi'), '');
+  }
+  return s;
+}
+
+// ---------- 动词开头判定：首字集合由词库自动派生 ----------
+// 技术债修复：新增方向动词只需改 STRONG_VERBS / WEAK_TO_STRONG，
+// 本集合自动跟上（test-engine 有「词库动词零遗漏」的守卫用例）。
+const VERB_START_CHARS: ReadonlySet<string> = new Set<string>(
+  [
+    ...Object.values(STRONG_VERBS).flat(),
+    ...Object.values(WEAK_TO_STRONG),
+    ...EXTRA_VERB_START_CHARS.split('')
+  ].map((v) => v.trim().charAt(0)).filter(Boolean)
+);
+
+export function startsWithVerb(text: string): boolean {
+  return VERB_START_CHARS.has(text.charAt(0));
+}
+
 // ---------- 单条经历改写：去套话 + 强动词 + 保留量化 ----------
 export function rewriteBullet(raw: string, domain: Domain, index: number): string {
   let s = clean(raw);
@@ -118,13 +167,13 @@ export function rewriteBullet(raw: string, domain: Domain, index: number): strin
 
   s = s.replace(/^[-*·•\d.、\s]+/, '');
 
-  for (const w of EMPTY_ADJECTIVES) {
-    s = s.split(w).join('');
-  }
+  // 顺序：先删带「的/地」的长搭配，再删短词，避免留下孤立助词
+  s = stripEmptyAdjectives(s);
 
   for (const w of AI_CLICHES) {
     s = s.split(w).join('');
   }
+  s = stripEnAiWords(s);
 
   s = cleanupFragments(s);
 
@@ -137,10 +186,8 @@ export function rewriteBullet(raw: string, domain: Domain, index: number): strin
   s = s.replace(/\s{2,}/g, ' ').trim();
   if (!s) return '';
 
-  // 动词开头识别（覆盖全部方向的强动词首字：技术 + 金融/市场/设计/工科/
-  // 土木/教育/医药/人力——非动词开头的条目才会被补领域动词）
-  const startsWithVerb = /^[主设实优重搭封开还构清分建训调解承完运推排交独带领写攻测编策产打输制加施复讲组辅批规执核随整跟维绘]/.test(s);
-  if (!startsWithVerb) {
+  // 动词开头识别（首字集合由词库派生，见 VERB_START_CHARS）
+  if (!startsWithVerb(s)) {
     s = pickVerb(domain, index) + s;
   }
 
@@ -366,6 +413,36 @@ function scanSkillHits(contentLower: string): Array<SkillHit & { domain: Domain 
   return found;
 }
 
+// JD 里一项技能的权重：硬性要求 3 / 一般提及 2 / 加分项 1
+// 判定方式：只看该技能命中的**那一行**（JD 的权重标记是逐条声明的，
+// 用固定字符半径会跨行把上一条的「熟悉」吸进来）
+export function skillWeightInJd(jdLower: string, aliases: readonly string[]): number {
+  let weight = 0;
+  for (const a of aliases) {
+    const needle = a.toLowerCase();
+    if (!needle) continue;
+    let from = 0;
+    let idx = jdLower.indexOf(needle, from);
+    while (idx >= 0) {
+      const lineStart = jdLower.lastIndexOf('\n', idx) + 1;
+      let lineEnd = jdLower.indexOf('\n', idx + needle.length);
+      if (lineEnd < 0) lineEnd = jdLower.length;
+      let win = jdLower.slice(lineStart, lineEnd);
+      // 超长行（有些 JD 一整段不分行）再退回字符窗口，避免把整段标记都算上
+      if (win.length > 120) {
+        const s = Math.max(lineStart, idx - 30);
+        const e = Math.min(lineEnd, idx + needle.length + 30);
+        win = jdLower.slice(s, e);
+      }
+      if (JD_REQUIRED_MARKERS.some((m) => win.includes(m))) weight = Math.max(weight, 3);
+      else if (JD_NICE_MARKERS.some((m) => win.includes(m))) weight = Math.max(weight, 1);
+      from = idx + needle.length;
+      idx = jdLower.indexOf(needle, from);
+    }
+  }
+  return weight || 2;
+}
+
 export function matchJd(resume: Partial<Resume>, jdText: string): MatchJdResult {
   const jd = clean(jdText);
   if (!jd) throw new Error('请先粘贴职位描述（JD）');
@@ -378,16 +455,38 @@ export function matchJd(resume: Partial<Resume>, jdText: string): MatchJdResult 
   const resumeSkills = scanSkillHits(resumeLower);
   const resumeLabels = new Set(resumeSkills.map((s) => s.label));
 
+  // 带权重的比对：硬性要求（必须/熟练/掌握）比加分项重要得多，
+  // 不加权时「会一个加分项」和「会一个硬指标」等分，会把分数刷好看
+  const entryByLabel = new Map<string, readonly string[]>();
+  (Object.keys(ROLE_SKILLS) as Domain[]).forEach((dom) => {
+    ROLE_SKILLS[dom].forEach((entry) => {
+      const aliases = entry.split('|');
+      if (!entryByLabel.has(aliases[0]!)) entryByLabel.set(aliases[0]!, aliases);
+    });
+  });
+  const weightOf = (label: string): number => {
+    const aliases = entryByLabel.get(label);
+    return aliases ? skillWeightInJd(jdLower, aliases) : 2;
+  };
+
   const hit = jdSkills.filter((s) => resumeLabels.has(s.label));
   const missing = jdSkills.filter((s) => !resumeLabels.has(s.label));
   const jdLabels = new Set(jdSkills.map((s) => s.label));
   const extra = resumeSkills.filter((s) => !jdLabels.has(s.label));
 
   const total = jdSkills.length;
-  const score = total ? Math.round((hit.length / total) * 100) : 0;
+  const totalWeight = jdSkills.reduce((sum, s) => sum + weightOf(s.label), 0);
+  const hitWeight = hit.reduce((sum, s) => sum + weightOf(s.label), 0);
+  // 加权得分：硬性要求没命中时惩罚更重
+  const score = totalWeight ? Math.round((hitWeight / totalWeight) * 100) : 0;
+  const rawScore = total ? Math.round((hit.length / total) * 100) : 0;
+
+  // 硬性要求（必须/熟练/掌握）未体现——最该优先补的
+  const mustMissing = missing.filter((s) => weightOf(s.label) >= 3);
 
   let level: string;
   if (!total) level = '未识别出技能关键词，请检查 JD 是否粘贴完整';
+  else if (mustMissing.length) level = '有硬性要求未体现，补齐前投递风险偏高';
   else if (score >= 80) level = '高度匹配，放心投递';
   else if (score >= 60) level = '基本匹配，建议补齐缺失关键词';
   else if (score >= 40) level = '匹配偏低，按缺失项补强再投';
@@ -397,8 +496,13 @@ export function matchJd(resume: Partial<Resume>, jdText: string): MatchJdResult 
   if (!total) {
     tips.push('职位描述通常含「任职要求 / 技能要求」清单，请完整粘贴后再试。');
   } else {
+    if (mustMissing.length) {
+      tips.push('JD 里的硬性要求（写到「必须 / 熟练 / 掌握」）而简历未体现：' +
+        mustMissing.slice(0, 5).map((m) => m.label).join('、') +
+        (mustMissing.length > 5 ? ' 等' : '') + '——这几项优先级最高，会的话务必补进技能或项目描述。');
+    }
     if (missing.length) {
-      tips.push('JD 明确要求而简历未体现：' + missing.slice(0, 5).map((m) => m.label).join('、') +
+      tips.push('JD 提到而简历未体现（含加分项）：' + missing.slice(0, 5).map((m) => m.label).join('、') +
         (missing.length > 5 ? ' 等' : '') + '，会的话补进技能或项目描述。');
     }
     if (score >= 60 && hit.length) {
@@ -407,16 +511,21 @@ export function matchJd(resume: Partial<Resume>, jdText: string): MatchJdResult 
     if (extra.length >= 8) {
       tips.push('简历技能比 JD 更广（' + extra.length + ' 项 JD 未提及），无碍投递，面试可作加分项展开。');
     }
+    // 方法是词表级匹配，说清边界（避免用户以为这是语义理解）
+    tips.push('说明：本匹配是本地词表级筛查（离线、不编造、结果可复现），已收录常见同义表述；' +
+      '若 JD 用完全不同的说法描述同一技能，可能漏判——需要语义级判断时，用「Agent 深度优化」贴同一份 JD 让模型分析。');
   }
 
   return {
     domain,
     score,
+    rawScore,
     level,
     tips,
     hit,
     missing,
     extra,
+    mustMissing,
     jdSkillCount: total,
     hitCount: hit.length
   };
@@ -430,7 +539,7 @@ export function auditAiFlavor(text: string): AuditResult {
   const issues: AuditIssue[] = [];
   let penalty = 0;
 
-  // 中文套话（重扣）
+  // 中文套话（重扣）——硬套话，改写时会真的删掉
   for (const w of AI_CLICHES) {
     const count = content.split(w).length - 1;
     if (count > 0) {
@@ -439,9 +548,24 @@ export function auditAiFlavor(text: string): AuditResult {
     }
   }
 
-  // 空洞形容词（中扣）
-  for (const w of EMPTY_ADJECTIVES) {
+  // 软套话（轻扣，只提示不改写）：这些词也可能是真实术语
+  // （「数据对齐」「复盘会议」「闭环控制」「技术生态」），自动删除会破坏语义，
+  // 所以只标记，让用户自己判断是不是空话
+  for (const w of AI_CLICHES_SOFT) {
     const count = content.split(w).length - 1;
+    if (count > 0) {
+      issues.push({ type: '疑似套话（也可能是实际术语，请自查）', word: w, count });
+      penalty += count * 2;
+    }
+  }
+
+  // 空洞形容词（中扣）——与改写口径一致：带保义守卫，
+  // 「良好的客户关系」这类改写不会处理的，体检也不该报
+  const strippedAdjs = stripEmptyAdjectives(content);
+  for (const w of EMPTY_ADJECTIVES) {
+    const rawCount = content.split(w).length - 1;
+    const keptCount = strippedAdjs.split(w).length - 1;
+    const count = rawCount - keptCount;
     if (count > 0) {
       issues.push({ type: '空洞形容词', word: w, count });
       penalty += count * 3;

@@ -187,4 +187,69 @@ console.log('  改写结果:', rwYong);
 assert(rwYong.startsWith('运用 Python'), '「用 X 开发」强化为「运用 X 开发」');
 assert(engine.rewriteBullet('用到了 Spark 清洗 10 万行日志', 'data', 0).startsWith('运用'), '「用到了」仍优先匹配（长前缀优先）');
 
+// ============================================================
+//  11) 代码评审发现的边界修复（四条守卫）
+// ============================================================
+
+// 11a) 形容词保义：修饰有实义的中心词时保留，不再把语义改弱
+const keepAdj = engine.rewriteBullet('建立了良好的客户关系，维护 30 家渠道', 'business', 0);
+console.log('  保义改写:', keepAdj);
+assert(keepAdj.includes('良好的客户关系'), '「良好的客户关系」不被删（删了语义变弱）');
+const keepAdj2 = engine.rewriteBullet('积累了丰富的项目经验，覆盖 6 个行业', 'business', 0);
+assert(keepAdj2.includes('丰富的项目经验'), '「丰富的项目经验」不被删（丰富承载数量信息）');
+const dropAdj = engine.rewriteBullet('具备良好的沟通能力，积极主动认真负责', 'general', 0);
+assert(!dropAdj.includes('良好的'), '「良好的沟通能力」仍被删（真空洞）');
+const dropAdj2 = engine.rewriteBullet('优秀的团队协作能力', 'general', 0);
+assert(!dropAdj2.includes('优秀的'), '「优秀的团队协作能力」仍被删');
+
+// 11b) 体检与改写口径一致：改写会保留的形容词，体检不报
+const auditKeep = engine.auditAiFlavor('建立了良好的客户关系');
+assert(!auditKeep.issues.some((i) => i.word === '良好的'), '体检不报「良好的客户关系」（与改写口径一致）');
+const auditDrop = engine.auditAiFlavor('具备良好的沟通能力');
+assert(auditDrop.issues.some((i) => i.word === '良好的'), '体检仍报「良好的沟通能力」');
+
+// 11c) 软套话只标记不删除（可能是真实术语）
+const soft = engine.auditAiFlavor('完成 3 次数据对齐与复盘');
+assert(soft.issues.some((i) => i.type.includes('疑似套话')), '软套话以「疑似套话」单独标记');
+const softRw = engine.rewriteBullet('完成 3 次数据对齐与复盘', 'data', 0);
+assert(softRw.includes('对齐') && softRw.includes('复盘'), '软套话不被自动删除（语义安全）');
+
+// 11d) 词库动词零遗漏：新增方向动词无需手工维护首字集合（技术债守卫）
+const lex = require('./dist/main/lexicon');
+const verbMisses = [];
+Object.keys(lex.STRONG_VERBS).forEach((dom) => {
+  lex.STRONG_VERBS[dom].forEach((v) => {
+    if (!engine.startsWithVerb(v + '了相关流程')) verbMisses.push(dom + ':' + v);
+  });
+});
+Object.values(lex.WEAK_TO_STRONG).forEach((v) => {
+  if (!engine.startsWithVerb(v + '相关工作')) verbMisses.push('weak:' + v);
+});
+assert(verbMisses.length === 0, '词库全部动词都被识别为动词开头（遗漏=' + (verbMisses.join(',') || '无') + '）');
+
+// 11e) 英文 AI 词在改写阶段也被清理（此前只在体检里报）
+const enRw = engine.rewriteBullet('Leverage the robust pipeline to cut latency', 'backend', 0);
+assert(!/leverage/i.test(enRw) && !/robust/i.test(enRw), '英文 AI 高频词在改写阶段被清除');
+assert(/dynamic/i.test(engine.rewriteBullet('dynamic team player', 'general', 0)) === false, '英文词删除带词边界');
+
+// 11f) JD 加权：硬性要求缺失比加分项缺失扣分更重
+const jdWeighted = [
+  '任职要求：',
+  '1. 必须熟练掌握 Java 与 MySQL；',
+  '2. 熟悉 Redis 缓存与微服务架构；',
+  '加分项：了解 Kafka 消息队列者优先。'
+].join('\n');
+const resumeJava = { skills: ['Java', 'MySQL'], projects: [], internships: [], summary: '' };
+const resumeKafka = { skills: ['Kafka'], projects: [], internships: [], summary: '' };
+const wJava = engine.matchJd(resumeJava, jdWeighted);
+const wKafka = engine.matchJd(resumeKafka, jdWeighted);
+console.log('  加权分 java档:', wJava.score, '| kafka档(仅加分项):', wKafka.score);
+assert(wJava.score > wKafka.score, '命中硬性要求得分高于仅命中加分项（加权生效）');
+assert(wJava.rawScore !== undefined, '保留未加权纯命中率（rawScore）');
+assert(wJava.mustMissing.length === 0 || wJava.mustMissing.every((m) => m.label !== 'java'), 'java 属硬性要求且已命中，不进 mustMissing');
+assert(wKafka.mustMissing.length >= 2, '只答加分项时硬性要求全部列为 mustMissing');
+assert(wJava.tips.some((t) => t.includes('词表级筛查')), '结果里如实说明匹配方法的边界');
+assert(engine.skillWeightInJd(jdWeighted.toLowerCase(), ['java']) === 3, '硬性要求权重判定为 3');
+assert(engine.skillWeightInJd(jdWeighted.toLowerCase(), ['kafka', '消息队列']) === 1, '加分项权重判定为 1');
+
 console.log('\n引擎自测完成，最终 exitCode =', process.exitCode || 0);

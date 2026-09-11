@@ -109,7 +109,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 | E2E | register → login → profile → generate → applications → snapshot restore | `node test-e2e.js` |
 | Updater | publish config / mirror rules / pipeline assertions | `node test-updater.js` |
 | Zero-barrier guard | in-app model loading shape / China mirrors / CSP / honest copy | `node test-embedded.js` |
-| Rule-layer evals | 19 golden cases as a regression gate | `npm run eval` |
+| Rule-layer evals | 32 golden cases as a regression gate | `npm run eval` |
 | LLM-layer evals | dual-mode comparison on a real model | `npm run eval:llm` |
 
 ### Real-model evals (deepseek-chat, Sep 2026)
@@ -129,6 +129,20 @@ Same JD, same profile, both modes, 4 cases (backend / frontend / algorithm / **f
 > JD coverage 88%→100% — clichés like “认真负责…各项任务” are cleaned by the same
 > deterministic gate. 100% gate acceptance across all majors means the constraints
 > never falsely reject. Full data: `evals/llm-report.json`.
+
+## ⚠️ Limits — what this app deliberately does *not* claim
+
+We'd rather state the ceilings up front than let you hit them:
+
+| Aspect | The honest reality |
+|---|---|
+| **De-AI-flavor is a rules engine, not a language model** | A curated lexicon + rewrite rules. It reliably kills *known* clichés (`赋能`/`抓手`/`闭环`/`leverage`/`robust`…) and never drops your numbers — but newly invented AI-speak or unfamiliar phrasings can slip through. Being deterministic is the point: auditable and reproducible (`npm run eval`). |
+| **The lexicon is finite** | ~70 hard clichés + ~30 English GPT-isms, expanding by golden cases. Words that are *also* real terms (对齐 / 沉淀 / 复盘 / 闭环 / 生态) are **flagged, never auto-deleted** — deleting them would silently weaken your text. |
+| **Empty adjectives are kept when they carry meaning** | “建立了**良好的**客户关系” must not become “建立了客户关系”. Adjectives before substantive heads (客户关系/业绩/经验/渠道/数据…) are preserved; only pure filler (“良好的沟通能力”) is removed. |
+| **JD matching is lexical + weighted, not semantic** | Alias-based keyword matching with must-have (3×) / nice-to-have (1×) weighting, so stuffing bonus keywords cannot inflate the score. Common rephrasings are covered by aliases; a JD describing the same skill in a completely different way can still be missed — use **Agent deep-optimization** on the same JD for a semantic pass. |
+| **The JD score is not a hiring prediction** | It measures keyword coverage of one posting. A screening aid, not a probability of getting an interview. |
+| **Platform & maintenance** | Windows x64 only today (macOS/Linux are next); maintained by one person. The eval suite, docs and CI exist to keep handover cost low, not to pretend otherwise. |
+| **No large-scale user validation yet** | Early-stage project with a small user base. Published numbers are **reproducible eval results**, not testimonials or large-scale A/B data — treat feature claims accordingly. |
 
 ## 📄 License
 

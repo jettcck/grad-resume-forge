@@ -112,12 +112,17 @@ export interface MatchJobResult {
 
 export interface MatchJdResult {
   domain: Domain;
+  /** 加权得分：硬性要求（必须/熟练/掌握）权重 3、一般提及 2、加分项 1 */
   score: number;
+  /** 未加权的纯命中率（保留用于对比与回归） */
+  rawScore: number;
   level: string;
   tips: string[];
   hit: Array<SkillHit & { domain: Domain }>;
   missing: Array<SkillHit & { domain: Domain }>;
   extra: Array<SkillHit & { domain: Domain }>;
+  /** 硬性要求（JD 中「必须/熟练/掌握」）但简历未体现的项 */
+  mustMissing: Array<SkillHit & { domain: Domain }>;
   jdSkillCount: number;
   hitCount: number;
 }

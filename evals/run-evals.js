@@ -58,7 +58,9 @@ console.log('== audit：去 AI 味体检 ==');
   const lo = (c.scoreRange || [0, 100])[0];
   const hi = (c.scoreRange || [0, 100])[1];
   const okTypes = (c.expectTypes || []).every((t) => types.has(t));
-  check(c.name, r.score >= lo && r.score <= hi && okTypes,
+  // expectNotTypes：断言「不应出现某类问题」（如保义形容词不该报空洞）
+  const okNotTypes = (c.expectNotTypes || []).every((t) => !types.has(t));
+  check(c.name, r.score >= lo && r.score <= hi && okTypes && okNotTypes,
     'score=' + r.score + ' issues=[' + Array.from(types).join(',') + ']');
 });
 

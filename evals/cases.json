@@ -68,7 +68,7 @@
       ]
     },
     {
-      "name": "算法 JD vs 算法简历（python/pytorch 命中）",
+      "name": "算法 JD vs 算法简历（硬性要求全命中 → 加权 88）",
       "jd": "算法工程师\n要求：熟悉 Python、PyTorch\n有深度学习与 NLP 项目经验优先",
       "resume": {
         "summary": "",
@@ -93,8 +93,8 @@
       ],
       "expectMiss": [],
       "scoreRange": [
-        30,
-        70
+        75,
+        100
       ]
     },
     {
@@ -175,6 +175,62 @@
         40,
         80
       ]
+    },
+    {
+      "name": "加权：命中硬性要求得分明显更高",
+      "jd": "岗位：后端开发工程师\n任职要求：\n1. 必须熟练掌握 Java 与 MySQL；\n2. 熟悉 Redis 缓存与微服务架构；\n加分项：了解 Kafka 消息队列者优先。",
+      "resume": {
+        "summary": "后端应届生",
+        "skills": [
+          "Java",
+          "MySQL"
+        ],
+        "projects": [
+          {
+            "name": "订单系统",
+            "tech": "Java/MySQL",
+            "bullets": [
+              "优化接口，P99 降低 60%"
+            ]
+          }
+        ],
+        "internships": []
+      },
+      "expectHit": [
+        "java",
+        "mysql"
+      ],
+      "scoreRange": [
+        40,
+        75
+      ]
+    },
+    {
+      "name": "加权：只命中加分项不能刷分",
+      "jd": "岗位：后端开发工程师\n任职要求：\n1. 必须熟练掌握 Java 与 MySQL；\n2. 熟悉 Redis 缓存与微服务架构；\n加分项：了解 Kafka 消息队列者优先。",
+      "resume": {
+        "summary": "后端应届生",
+        "skills": [
+          "Kafka"
+        ],
+        "projects": [
+          {
+            "name": "消息系统",
+            "tech": "Kafka",
+            "bullets": [
+              "搭建消息管道"
+            ]
+          }
+        ],
+        "internships": []
+      },
+      "expectHit": [
+        "kafka"
+      ],
+      "scoreRange": [
+        0,
+        20
+      ]
     }
   ],
   "audit": [
@@ -241,6 +297,28 @@
       "expectTypes": [
         "空洞形容词"
       ]
+    },
+    {
+      "name": "保义形容词不报空洞（与改写口径一致）",
+      "text": "建立了良好的客户关系，维护 30 家渠道",
+      "scoreRange": [
+        85,
+        100
+      ],
+      "expectNotTypes": [
+        "空洞形容词"
+      ]
+    },
+    {
+      "name": "软套话以「疑似套话」单独提示",
+      "text": "完成 3 次数据对齐与复盘会议",
+      "scoreRange": [
+        70,
+        100
+      ],
+      "expectTypes": [
+        "疑似套话（也可能是实际术语，请自查）"
+      ]
     }
   ],
   "rewrite": [
@@ -273,6 +351,41 @@
         "100 万"
       ],
       "expectStartsWith": "承担"
+    },
+    {
+      "name": "形容词保义：良好的客户关系不被删（删了语义变弱）",
+      "input": "建立了良好的客户关系，维护 30 家渠道",
+      "domain": "business",
+      "expectInclude": [
+        "良好的客户关系"
+      ],
+      "expectStartsWith": "建立"
+    },
+    {
+      "name": "空转形容词仍被删：良好的沟通能力",
+      "input": "具备良好的沟通能力",
+      "domain": "general",
+      "expectNotInclude": [
+        "良好的"
+      ]
+    },
+    {
+      "name": "软套话保留（数据对齐/复盘可能是真实工作内容）",
+      "input": "完成 3 次数据对齐与复盘",
+      "domain": "data",
+      "expectInclude": [
+        "对齐",
+        "复盘"
+      ]
+    },
+    {
+      "name": "英文 AI 高频词在改写阶段被清除",
+      "input": "Leverage the robust pipeline to cut latency",
+      "domain": "backend",
+      "expectNotInclude": [
+        "Leverage",
+        "robust"
+      ]
     }
   ],
   "domain": [
