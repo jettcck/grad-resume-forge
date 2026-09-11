@@ -263,7 +263,10 @@ tryResumeSession();
 })();
 
 // ---------------- 关于 / 自动更新 ----------------
-let _updState = { status: null, downloaded: null }; // 更新运行时状态（供横幅）
+let _updState = { status: null, downloaded: null, target: null }; // 更新运行时状态（供横幅）
+// 「关于」弹窗打开时的实时状态绑定：检查结果就地显示，
+// 不再让用户自己去看左下角的炉温提示
+let _aboutUi = null;
 
 function setFurnace(text, hot) {
   const txt = document.getElementById('furnace-txt');
@@ -272,26 +275,59 @@ function setFurnace(text, hot) {
   if (dot) dot.classList.toggle('hot', !!hot);
 }
 
+// 弹窗状态渲染：tone 决定配色（info/ok/warn/err），终态会自动解锁按钮
+const ABOUT_TONE = { checking: 'info', available: 'info', progress: 'info', downloaded: 'ok', 'not-available': 'ok', error: 'err', dev: 'warn', idle: 'info' };
+
+function aboutSet(state, text, extra) {
+  if (!_aboutUi) return;
+  const ui = _aboutUi;
+  ui.state = state;
+  ui.statusText.className = 'about-status tone-' + (ABOUT_TONE[state] || 'info');
+  ui.statusText.textContent = text;
+
+  const pct = extra && typeof extra.percent === 'number' ? extra.percent : null;
+  const showBar = state === 'progress' || (state === 'available' && pct != null);
+  ui.bar.style.display = showBar ? 'block' : 'none';
+  if (showBar) ui.barFill.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+
+  // 下载完成 → 弹窗内直接给出安装入口
+  ui.installBtn.style.display = state === 'downloaded' ? '' : 'none';
+  // 到了终态就允许再次检查
+  if (state === 'downloaded' || state === 'not-available' || state === 'error') {
+    ui.checkBtn.disabled = false;
+    if (ui.timer) { clearTimeout(ui.timer); ui.timer = null; }
+  }
+}
+
 // 全局订阅更新事件（登录前后都生效）
 window.api.updater.onEvent((ev) => {
   const { ev: kind, payload } = ev || {};
+  const ver = (payload && payload.version) || '?';
   if (kind === 'checking') {
     setFurnace('检查更新中…', true);
+    aboutSet('checking', '正在检查更新…');
   } else if (kind === 'available') {
-    setFurnace('发现新版本 v' + (payload && payload.version || '?') + '，下载中…', true);
+    _updState.target = ver;
+    setFurnace('发现新版本 v' + ver + '，下载中…', true);
+    aboutSet('available', '发现新版本 v' + ver + '，开始下载…', { percent: 0 });
   } else if (kind === 'progress') {
-    setFurnace('下载更新 ' + (payload && payload.percent || 0) + '%', true);
+    const pct = (payload && payload.percent) || 0;
+    setFurnace('下载更新 ' + pct + '%', true);
+    aboutSet('progress', '正在下载 v' + (_updState.target || ver) + ' · ' + pct + '%', { percent: pct });
   } else if (kind === 'downloaded') {
-    _updState.downloaded = (payload && payload.version) || '?';
+    _updState.downloaded = ver;
     setFurnace('新版本已就绪 · v' + _updState.downloaded, true);
     if (window.Sound) window.Sound.play('done'); // 更新就绪：琶音
+    aboutSet('downloaded', '✓ 新版本 v' + ver + ' 已下载完成，重启即可生效');
     showUpdateReady(_updState.downloaded);
   } else if (kind === 'not-available') {
     setFurnace('炉温就绪 · FORGE READY', false);
+    aboutSet('not-available', '✓ 已是最新版本' + (_updState.status && _updState.status.version ? '（v' + _updState.status.version + '）' : ''));
   } else if (kind === 'error') {
     setFurnace('炉温就绪 · FORGE READY', false);
-    // 网络失败不打扰：仅当用户主动打开「关于」弹窗时可见
-    _updState.lastError = payload && payload.message;
+    const msg = (payload && payload.message) || '未知错误';
+    _updState.lastError = msg; // 网络失败不弹窗打扰，但「关于」里能看到
+    aboutSet('error', '✗ 检查失败：' + msg + '\n（国内网络可在下方填写下载镜像后重试）');
   }
 });
 
@@ -319,10 +355,11 @@ function showUpdateReady(version) {
   document.body.appendChild(overlay);
 }
 
-// 「关于」弹窗：版本 / 检查更新 / 镜像设置 / 手动下载链接
+// 「关于」弹窗：版本 / 检查更新（结果就地显示）/ 镜像设置 / 发布页
 async function openAbout() {
   const overlay = el('div', { class: 'modal-overlay' });
   function close() {
+    _aboutUi = null; // 解绑：弹窗关了就不再接收状态更新
     overlay.remove();
     document.removeEventListener('keydown', onKey);
   }
@@ -330,59 +367,62 @@ async function openAbout() {
 
   let st = null;
   try { st = await call(window.api.updater.status()); } catch (_) {} // eslint-disable-line no-empty
+  _updState.status = st;
 
   const statusText = el('div', { class: 'about-status' }, ['读取中…']);
+  const barFill = el('i');
+  const bar = el('div', { class: 'about-bar', style: 'display:none' }, [barFill]);
   const checkBtn = el('button', { class: 'btn btn-primary btn-sm', type: 'button' }, ['检查更新']);
+  const installBtn = el('button', {
+    class: 'btn btn-primary btn-sm', type: 'button', style: 'display:none',
+    onclick: async () => {
+      const res = await window.api.updater.install();
+      if (res && !res.ok) toast(res.error, 'err');
+    }
+  }, ['重启并安装']);
   const mirrorInput = el('input', {
     type: 'text', value: (st && st.mirror) || '',
-    placeholder: '留空直连 GitHub；例：https://ghproxy.cn'
+    placeholder: '留空直连 GitHub；例：https://gh-proxy.com'
   });
+
+  const curVersion = (st && st.version) || '';
+  const repo = (st && st.repo) || '';
 
   async function runCheck() {
     checkBtn.disabled = true;
-    statusText.textContent = '正在检查…';
+    aboutSet('checking', '正在检查更新…');
     try {
       await call(window.api.updater.check());
-      // 结果经 updater:event 异步回来；这里先给出中间反馈
-      setTimeout(() => {
-        checkBtn.disabled = false;
-        if (statusText.textContent === '正在检查…') {
-          statusText.textContent = '检查请求已发出（结果见左下角炉温提示）';
-        }
-      }, 4000);
     } catch (err) {
-      checkBtn.disabled = false;
-      statusText.textContent = '检查失败：' + err.message;
+      aboutSet('error', '✗ 检查失败：' + err.message);
+      return;
+    }
+    // 结果经 updater:event 异步回来；这里只做超时兜底（不再把用户推去看左下角）
+    if (_aboutUi) {
+      _aboutUi.timer = setTimeout(() => {
+        if (_aboutUi && _aboutUi.state === 'checking') {
+          aboutSet('error', '✗ 检查超时：网络可能不通。\n国内网络可在下方填写下载镜像前缀（如 https://gh-proxy.com）后重试。');
+        }
+      }, 25000);
     }
   }
   checkBtn.addEventListener('click', runCheck);
 
-  if (_updState.downloaded) {
-    statusText.textContent = '✓ 新版本 v' + _updState.downloaded + ' 已下载，等待安装';
-  } else if (_updState.lastError) {
-    statusText.textContent = '⚠ 上次检查失败：' + _updState.lastError + '（可尝试填写下载镜像）';
-  } else if (st && !st.updaterActive) {
-    statusText.textContent = '当前为开发模式，更新仅在安装版（打包后）生效';
-  } else {
-    statusText.textContent = '当前版本 v' + ((st && st.version) || '1.0.0');
-  }
-
-  const repo = (st && st.repo) || '';
   const box = el('div', { class: 'modal-box' }, [
     el('h3', { class: 'modal-title' }, ['关于 简历锻造炉']),
     el('div', { class: 'modal-body' }, [
-      el('div', { class: 'about-status-wrap' }, [statusText]),
+      el('div', { class: 'about-status-wrap' }, [statusText, bar]),
       el('label', { class: 'field' }, [
         el('span', {}, ['下载镜像（国内加速，选填）']),
         mirrorInput
       ]),
       el('p', { style: 'font-size:11.5px;color:var(--ink-2);line-height:1.7;' },
-        ['更新包托管在 GitHub Releases；国内网络不通时可填写加速镜像前缀（如 https://ghproxy.cn），保存后重试检查。'])
+        ['更新包托管在 GitHub Releases；国内网络不通时可填写加速镜像前缀（如 https://gh-proxy.com），保存后重试检查。'])
     ]),
     el('div', { class: 'modal-actions' }, [
       repo ? el('button', {
         class: 'btn btn-ghost btn-sm', type: 'button',
-        onclick: () => window.api.shell.openExternal('https://github.com/' + repo + '/releases')
+        onclick: () => window.api.shell.openExternal('https://github.com/' + repo + '/releases/latest')
       }, ['发布页']) : null,
       el('button', {
         class: 'btn btn-ghost btn-sm', type: 'button',
@@ -395,6 +435,7 @@ async function openAbout() {
         }
       }, ['保存镜像']),
       el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: close }, ['关闭']),
+      installBtn,
       checkBtn
     ])
   ]);
@@ -402,6 +443,19 @@ async function openAbout() {
   document.addEventListener('keydown', onKey);
   overlay.appendChild(box);
   document.body.appendChild(overlay);
+
+  // 绑定实时状态，并按已知情况给出初始文案（版本号始终可见）
+  _aboutUi = { statusText, bar, barFill, checkBtn, installBtn, state: 'idle', timer: null, version: curVersion };
+  const verLabel = '当前版本 v' + (curVersion || '未知');
+  if (_updState.downloaded) {
+    aboutSet('downloaded', '✓ 新版本 v' + _updState.downloaded + ' 已下载完成，重启即可生效');
+  } else if (_updState.lastError) {
+    aboutSet('error', '✗ 上次检查失败：' + _updState.lastError + '\n（可填写下方下载镜像后重试）');
+  } else if (st && !st.updaterActive) {
+    aboutSet('dev', verLabel + ' · 当前为开发模式，自动更新仅在安装版（打包后）生效');
+  } else {
+    aboutSet('idle', verLabel + ' · 点右侧「检查更新」看看有没有新版');
+  }
 }
 
 document.getElementById('btn-about').addEventListener('click', openAbout);

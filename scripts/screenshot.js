@@ -391,6 +391,94 @@ async function main() {
     return out.join('\\n');
   })()`));
 
+  // —— 关于弹窗：更新检查结果必须就地显示（此前只说"结果见左下角炉温提示"）——
+  await win.webContents.executeJavaScript(`(() => { document.getElementById('btn-about').click(); return true; })()`);
+  await sleep(700);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const status = box && box.querySelector('.about-status');
+    t('关于弹窗含状态区', !!status);
+    t('初始显示当前版本', !!status && /当前版本 v/.test(status.textContent));
+    t('状态区有配色类(tone-*)', !!status && /tone-/.test(status.className));
+    t('含下载进度条(默认隐藏)', !!box.querySelector('.about-bar') && box.querySelector('.about-bar').style.display === 'none');
+    t('含内联「重启并安装」(默认隐藏)', Array.from(box.querySelectorAll('.btn')).some((b) => b.textContent.trim() === '重启并安装' && b.style.display === 'none'));
+    return out.join('\\n');
+  })()`));
+  await shot(win, '06-about');
+
+  // 模拟主进程推送更新事件，验证弹窗就地变化（而不是让用户去看左下角）
+  const sendUpd = (kind, payload) => win.webContents.send('updater:event', { ev: kind, payload });
+  sendUpd('checking', {});
+  await sleep(250);
+  console.log(await verify(win, `(() => {
+    const s = document.querySelector('.about-status');
+    return '检查中状态: ' + (s ? s.textContent : '(无)');
+  })()`));
+  sendUpd('not-available', {});
+  await sleep(250);
+  console.log(await verify(win, `(() => {
+    const s = document.querySelector('.about-status');
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    t('已是最新版本就地显示', !!s && /已是最新版本/.test(s.textContent));
+    t('成功态用 tone-ok 配色', !!s && s.classList.contains('tone-ok'));
+    return out.join('\\n');
+  })()`));
+  sendUpd('available', { version: '9.9.9' });
+  await sleep(150);
+  sendUpd('progress', { percent: 42, version: '9.9.9' });
+  await sleep(250);
+  console.log(await verify(win, `(() => {
+    const s = document.querySelector('.about-status');
+    const bar = document.querySelector('.about-bar');
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    t('下载进度就地显示', !!s && /正在下载 v9\\.9\\.9 · 42%/.test(s.textContent));
+    t('进度条可见且宽度=42%', !!bar && bar.style.display !== 'none' && bar.querySelector('i').style.width === '42%');
+    return out.join('\\n');
+  })()`));
+  sendUpd('downloaded', { version: '9.9.9' });
+  await sleep(400);
+  console.log(await verify(win, `(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const btn = Array.from(box.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '重启并安装');
+    const s = box.querySelector('.about-status');
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    t('下载完成就地提示', !!s && /已下载完成/.test(s.textContent));
+    t('内联「重启并安装」按钮出现', !!btn && btn.style.display !== 'none');
+    return out.join('\\n');
+  })()`));
+  // 关掉「更新已就绪」自动弹窗（关于弹窗保持打开，仍是同一实例）
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelectorAll('.modal-overlay').forEach((o) => {
+      const later = Array.from(o.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '稍后');
+      if (later) later.click();
+    });
+    return true;
+  })()`);
+  await sleep(300);
+  sendUpd('error', { message: 'Failed to connect to github.com:443' });
+  await sleep(250);
+  console.log(await verify(win, `(() => {
+    const s = document.querySelector('.about-status');
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    t('失败原因就地显示', !!s && /检查失败/.test(s.textContent) && /github\\.com/.test(s.textContent));
+    t('失败态用 tone-err 配色', !!s && s.classList.contains('tone-err'));
+    t('失败时给出镜像提示', !!s && /镜像/.test(s.textContent));
+    return out.join('\\n');
+  })()`));
+  await win.webContents.executeJavaScript(`(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const close = Array.from(box.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '关闭');
+    if (close) close.click();
+    return true;
+  })()`);
+  await sleep(300);
+
   console.log('done. shots in', SHOTS);
   app.exit(0);
 }

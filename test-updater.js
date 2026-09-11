@@ -62,6 +62,14 @@ assert(preloadSrc.includes('onEvent') && preloadSrc.includes("'updater:event'"),
   'preload 暴露 updater.onEvent 并订阅 updater:event');
 const appSrc = fs.readFileSync(path.join(__dirname, 'src', 'renderer', 'app.js'), 'utf8');
 assert(appSrc.includes('showUpdateReady') && appSrc.includes('openAbout'), '渲染层含更新弹窗与关于弹窗');
+// 更新检查结果必须就地显示在「关于」弹窗里（此前只提示“结果见左下角炉温提示”，用户看不到结果）
+assert(!appSrc.includes('结果见左下角'), '关于弹窗不再把检查结果推给左下角提示');
+assert(appSrc.includes('aboutSet') && appSrc.includes('_aboutUi'), '关于弹窗有就地状态更新机制');
+const cssSrc = fs.readFileSync(path.join(__dirname, 'src', 'renderer', 'styles.css'), 'utf8');
+assert(/downloaded:\s*'ok'/.test(appSrc) && /error:\s*'err'/.test(appSrc), '检查结果按成功/失败分态（ABOUT_TONE 映射）');
+assert(cssSrc.includes('.about-status.tone-ok') && cssSrc.includes('.about-status.tone-err') && cssSrc.includes('.about-bar'),
+  '样式含成功/失败配色与下载进度条');
+assert(appSrc.includes('检查超时'), '检查有超时兜底（不再让用户干等）');
 
 // 5) CI / 发布流水线配置存在且关键项齐全
 const ciYml = path.join(__dirname, '.github', 'workflows', 'ci.yml');

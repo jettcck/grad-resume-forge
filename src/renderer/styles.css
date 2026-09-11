@@ -1070,6 +1070,13 @@ em { font-style: normal; color: var(--gold); }
 .agent-dot { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-family: var(--font-mono); margin-top: 10px; }
 .about-status-wrap { padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--line); border-left: 2px solid var(--gold); border-radius: var(--radius-sm); }
 .about-status { font-size: 12.5px; color: var(--ink-1); line-height: 1.6; white-space: pre-line; }
+/* 更新检查结果的就地配色：信息 / 成功 / 警告 / 失败 一眼可辨 */
+.about-status.tone-ok { color: var(--teal); }
+.about-status.tone-warn { color: var(--gold); }
+.about-status.tone-err { color: var(--danger); }
+/* 下载进度条（仅下载中出现） */
+.about-bar { margin-top: 8px; height: 4px; border-radius: 2px; background: var(--bg-3); overflow: hidden; }
+.about-bar > i { display: block; height: 100%; width: 0; border-radius: 2px; background: linear-gradient(90deg, rgba(255,212,121,.9), var(--gold) 55%, var(--ember)); transition: width .3s ease; }
 .furnace-dot.hot { background: var(--gold); box-shadow: 0 0 8px rgba(240,161,60,.8); animation: furnacePulse 1.2s infinite; }
 @keyframes furnacePulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
 .agent-dot.on { color: var(--teal); }
