@@ -45,6 +45,8 @@ contextBridge.exposeInMainWorld('api', {
   agent: {
     status: () => ipcRenderer.invoke('agent:status'),
     run: (profile: unknown, jdText: string, opts: unknown) => ipcRenderer.invoke('agent:run', profile, jdText, opts),
+    // 探测本机已有的本地模型服务（只在 127.0.0.1 上短超时并发探测）
+    detectLocal: () => ipcRenderer.invoke('agent:detectLocal'),
     onProgress: (cb: (step: unknown) => void) => {
       const handler = (_e: unknown, step: unknown) => cb(step);
       ipcRenderer.on('agent:progress', handler as never);

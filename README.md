@@ -11,7 +11,7 @@ A local-first desktop app that helps new grads of every major **write resumes, d
 
 ## 🧭 Zero-barrier to start, AI is optional
 
-Everything except AI rewriting works with **no model, no key, no setup** — install and use:
+Everything except *semantic* rewriting works with **no model, no key, no setup** — install and use:
 
 | Capability | Needs a model? |
 |---|---|
@@ -20,13 +20,14 @@ Everything except AI rewriting works with **no model, no key, no setup** — ins
 | JD precision matching | ❌ none — deterministic rules |
 | Application kanban | ❌ none |
 | Job-hunt assistant (built-in knowledge base) | ❌ none — local, offline |
-| Agent deep-optimization (AI rewriting) | ✅ one of three channels below |
+| JD-driven optimization | ❌ none in **zero-config (rules)** mode · ✅ only if you want semantic rewriting |
 
-The three AI channels — pick whichever, switch anytime:
+JD-driven optimization — four channels, pick any, switch anytime:
 
-1. **In-app model** *(default, zero config)* — Qwen2.5-0.5B runs inside the app via WebGPU. One-time download of **~270–281 MB** through mainland-China-friendly mirrors (hf-mirror.com for weights, gh-proxy.com for the runtime lib) — **no VPN needed** — then it works fully offline. The app auto-picks the q4f16/q4f32 build for your GPU, with resumable retries on flaky networks. Needs a reasonably recent GPU (WebGPU).
-2. **Local Ollama** — nothing leaves your machine.
-3. **Cloud API key** (BYOK) — DeepSeek / Kimi / Qwen / OpenAI presets; the key is stored locally only.
+1. **Zero-config (rules)** *(needs nothing)* — the deterministic engine rewrites your bullets against the JD: strips clichés, upgrades weak verbs, preserves every metric, aligns wording with the JD's skills. Instant, offline, reproducible, and every candidate still passes the same validation gate. It **cannot** semantically restructure sentences or invent new phrasing the way a model can — that is the honest limitation of this channel.
+2. **In-app model** *(zero config, one download)* — Qwen2.5-0.5B runs inside the app via WebGPU. One-time download of **~270–281 MB** through mainland-China-friendly mirrors (hf-mirror.com for weights, gh-proxy.com for the runtime lib) — **no VPN needed** — then it works fully offline. The app auto-picks the q4f16/q4f32 build for your GPU, with resumable retries on flaky networks. Needs a reasonably recent GPU (WebGPU).
+3. **Any local service you already have** — the app probes `127.0.0.1` for Ollama, LM Studio, llama.cpp server, vLLM, Jan, text-generation-webui, KoboldCpp and GPT4All, and offers one-click use of whatever it finds. No need to install anything new.
+4. **Cloud API key** (BYOK) — DeepSeek / Kimi / Qwen / OpenAI presets; the key is stored locally only.
 
 ## ⬇️ Download & install
 

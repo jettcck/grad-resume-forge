@@ -1469,16 +1469,40 @@ function buildAgentCard() {
       ['○ ' + (isEmbedded ? '应用内模型未就绪（仍可用规则引擎）' : isCloud ? '云端模型未就绪（仍可用规则引擎）' : '未检测到 Ollama（仍可用规则引擎）')]);
   }
 
-  const runLabel = _agentStatus.available
-    ? '⚡ 对着这份 JD 跑一轮'
-    : (isEmbedded ? '运行（需先在配置里下载模型）' : isCloud ? '运行（需先配置云端密钥）' : '运行（需先启动 Ollama）');
+  const modelReady = !!_agentStatus.available;
+  // 没配任何模型时：默认走「零配置（规则）」通道，用户无需下载模型或填密钥
+  if (!modelReady && _agentMode !== 'rules') _agentMode = 'rules';
+  if (modelReady && _agentMode === 'rules') _agentMode = 'pipeline';
+
+  const runLabel = _agentMode === 'rules'
+    ? '⚡ 对着这份 JD 跑一轮（零配置 · 规则引擎）'
+    : modelReady
+      ? '⚡ 对着这份 JD 跑一轮'
+      : (isEmbedded ? '运行（需先在配置里下载模型）' : isCloud ? '运行（需先配置云端密钥）' : '运行（需先启动 Ollama）');
 
   const modeBtns = {
-    pipeline: el('button', { class: 'seg-btn' + (_agentMode === 'pipeline' ? ' active' : ''), type: 'button', title: '固定流程：分析 JD → 改写 → 校验 → 复测，快且稳' }, ['流水线']),
-    agentic: el('button', { class: 'seg-btn' + (_agentMode === 'agentic' ? ' active' : ''), type: 'button', title: 'LLM 通过原生 function calling 自主决定调用哪个工具、何时收工' }, ['自主 Agent'])
+    rules: el('button', {
+      class: 'seg-btn' + (_agentMode === 'rules' ? ' active' : ''), type: 'button',
+      title: '不下载模型、不填密钥、不联网：改写由确定性规则引擎完成，其余步骤（JD 分析 / 体检 / 校验门）完全一致'
+    }, ['零配置（规则）']),
+    pipeline: el('button', {
+      class: 'seg-btn' + (_agentMode === 'pipeline' ? ' active' : ''), type: 'button',
+      title: '固定流程：分析 JD → 改写 → 校验 → 复测，快且稳（需模型）'
+    }, ['流水线']),
+    agentic: el('button', {
+      class: 'seg-btn' + (_agentMode === 'agentic' ? ' active' : ''), type: 'button',
+      title: 'LLM 通过原生 function calling 自主决定调用哪个工具、何时收工（需模型）'
+    }, ['自主 Agent'])
   };
+  modeBtns.rules.addEventListener('click', () => { _agentMode = 'rules'; renderResumePage(); });
   modeBtns.pipeline.addEventListener('click', () => { _agentMode = 'pipeline'; renderResumePage(); });
   modeBtns.agentic.addEventListener('click', () => { _agentMode = 'agentic'; renderResumePage(); });
+
+  const modeHint = _agentMode === 'rules'
+    ? '零配置模式：不下载模型、不填密钥、不联网，即时完成。规则引擎擅长删套话、强化动词、保量化、按 JD 对齐技能表述；但它无法像大模型那样按 JD 语义重组句子、生成全新表述——需要那一层时再选流水线/自主模式。'
+    : _agentMode === 'agentic'
+      ? '自主模式：LLM 通过 function calling 自主调用分析 / 体检 / 改写工具，自己决定何时收工。产出仍过确定性校验门。'
+      : '流水线模式：固定流程「分析 JD → 改写 → 校验 → 复测」，轮次少、速度快，产出过确定性校验门。';
 
   return el('div', { class: 'audit' }, [
     el('div', { class: 'card-title mb-0' }, [
@@ -1489,12 +1513,8 @@ function buildAgentCard() {
       }, [window.Icons.icon('gear', 13), '配置'])
     ]),
     statusLine,
-    el('div', { class: 'seg seg-thin' }, [modeBtns.pipeline, modeBtns.agentic]),
-    el('p', { style: 'font-size:12px;color:var(--ink-2);line-height:1.7;margin:0 0 12px;' }, [
-      _agentMode === 'agentic'
-        ? '自主模式：LLM 通过 function calling 自主调用分析 / 体检 / 改写工具，自己决定何时收工。产出仍过确定性校验门。'
-        : '流水线模式：固定流程「分析 JD → 改写 → 校验 → 复测」，轮次少、速度快，产出过确定性校验门。'
-    ]),
+    el('div', { class: 'seg seg-thin' }, [modeBtns.rules, modeBtns.pipeline, modeBtns.agentic]),
+    el('p', { style: 'font-size:12px;color:var(--ink-2);line-height:1.7;margin:0 0 12px;' }, [modeHint]),
     el('button', {
       class: 'btn btn-primary btn-sm', type: 'button', style: 'width:100%;',
       onclick: openAgentRun
@@ -1536,6 +1556,40 @@ function openAgentConfig() {
   };
   const fieldsBox = el('div', { class: 'modal-body' }, []);
   let endpointInput, modelInput, keyInput, tempInput, presetSelect, embStatusLine, embDlBtn;
+
+  // ---- 本机已有的本地模型服务：探测到就一键用，省掉「让用户自己装一个」----
+  const detectBox = el('div', { class: 'detect-box' }, [
+    el('p', { style: 'font-size:11.5px;color:var(--ink-2);' }, ['正在探测本机已有的本地模型服务…'])
+  ]);
+  (async () => {
+    let found = [];
+    try { found = await call(window.api.agent.detectLocal()); } catch (_) { found = []; }
+    detectBox.innerHTML = '';
+    if (!found.length) {
+      detectBox.appendChild(el('p', { style: 'font-size:11.5px;color:var(--ink-2);line-height:1.7;' },
+        ['未检测到本机模型服务。如果你已装过 LM Studio / llama.cpp / vLLM / Jan 等，启动它们后重开本弹窗即可自动识别；没有也能用——「零配置（规则）」通道不需要任何模型。']));
+      return;
+    }
+    detectBox.appendChild(el('p', { style: 'font-size:11.5px;color:var(--teal);font-weight:600;' },
+      ['检测到本机已有 ' + found.length + ' 个模型服务，可直接使用：']));
+    found.forEach((s) => {
+      detectBox.appendChild(el('div', { class: 'detect-row' }, [
+        el('span', { class: 'dr-name' }, [s.name]),
+        el('span', { class: 'dr-meta' }, [s.endpoint + (s.models.length ? ' · ' + s.models.length + ' 个模型' : '')]),
+        el('button', {
+          class: 'btn btn-ghost btn-sm', type: 'button',
+          onclick: async () => {
+            // 必须先切到该模式并重建字段区，输入框才存在（否则赋值打在 undefined 上）
+            provider = 'ollama'; // 这些服务都是 OpenAI 兼容协议，走本地客户端即可
+            renderFields();
+            endpointInput.value = s.endpoint;
+            modelInput.value = s.models[0] || '';
+            toast('已填入 ' + s.name + '，点「保存」即生效', 'ok');
+          }
+        }, ['使用'])
+      ]));
+    });
+  })();
 
   function renderFields() {
     ['embedded', 'ollama', 'cloud'].forEach((k) => segBtns[k].classList.toggle('active', provider === k));
@@ -1681,8 +1735,9 @@ function openAgentConfig() {
   const box = el('div', { class: 'modal-box modal-box-wide' }, [
     el('h3', { class: 'modal-title' }, ['Agent 模型配置']),
     el('p', { style: 'font-size:12px;color:var(--ink-2);margin-bottom:12px;line-height:1.7;' },
-      ['三种模型来源：应用内模型（推荐，下载一次后离线用、零配置）、本地 Ollama（全程不出本机）、云端 API（DeepSeek / Kimi / 通义 / OpenAI，密钥自备只存本机）。无论哪种，改写都先过本地确定性校验门。']),
-    el('div', { class: 'seg' }, [segBtns.ollama, segBtns.cloud]),
+      ['三种模型来源：应用内模型（推荐，下载一次后离线用、零配置）、本地 Ollama 或其它本机服务（全程不出本机）、云端 API（DeepSeek / Kimi / 通义 / OpenAI，密钥自备只存本机）。无论哪种，改写都先过本地确定性校验门。不想用任何模型的话，用「零配置（规则）」通道即可。']),
+    detectBox,
+    el('div', { class: 'seg' }, [segBtns.embedded, segBtns.ollama, segBtns.cloud]),
     fieldsBox,
     el('div', { class: 'modal-actions' }, [
       el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: close }, ['取消']),
@@ -1696,14 +1751,16 @@ function openAgentConfig() {
 }
 
 async function openAgentRun() {
-  if (!_agentStatus || !_agentStatus.available) {
+  // 零配置（规则）通道不需要任何模型，直接开跑
+  if (_agentMode !== 'rules' && (!_agentStatus || !_agentStatus.available)) {
     const prov = _agentStatus && _agentStatus.config && _agentStatus.config.provider;
+    const tip = '，或切到上方「零配置（规则）」直接跑（不需要任何模型）';
     if (prov === 'embedded') {
-      toast('应用内模型未就绪：' + (_agentStatus.error || '到 ⚙ 配置 → 应用内模型 → 下载模型到本机'), 'err');
+      toast('应用内模型未就绪：' + (_agentStatus.error || '到 ⚙ 配置 → 应用内模型 → 下载模型到本机') + tip, 'err');
     } else if (prov === 'cloud') {
-      toast('云端模型未就绪：' + (_agentStatus.error || '请到 ⚙ 配置填写 API 地址与密钥'), 'err');
+      toast('云端模型未就绪：' + (_agentStatus.error || '请到 ⚙ 配置填写 API 地址与密钥') + tip, 'err');
     } else {
-      toast('未检测到 Ollama。安装后执行 ollama pull ' + ((_agentStatus && _agentStatus.config && _agentStatus.config.model) || 'qwen2.5:7b') + '，或到 ⚙ 配置切换应用内模型（免安装）', 'err');
+      toast('未检测到本地模型服务。可到 ⚙ 配置一键使用本机已装的服务，或切到「零配置（规则）」' + tip, 'err');
     }
     return;
   }
@@ -1725,11 +1782,14 @@ async function openAgentRun() {
   const stepsBox = el('div', { class: 'agent-steps' }, []);
   const streamBox = el('pre', { class: 'agent-stream' }, []);
   streamBox.style.display = 'none';
+  const rulesMode = _agentMode === 'rules';
   const overlay = el('div', { class: 'modal-overlay' });
   const box = el('div', { class: 'modal-box modal-box-wide' }, [
-    el('h3', { class: 'modal-title' }, ['Agent 深度优化 · 运行中']),
+    el('h3', { class: 'modal-title' }, [rulesMode ? '按 JD 优化 · 规则引擎（无模型）' : 'Agent 深度优化 · 运行中']),
     el('p', { style: 'font-size:12px;color:var(--ink-2);margin-bottom:12px;' },
-      ['本地模型推理需要一些时间，每个步骤完成后会实时出现在下面。']),
+      [rulesMode
+        ? '零配置模式：不调用任何模型，由确定性规则引擎完成改写，秒级完成。'
+        : '本地模型推理需要一些时间，每个步骤完成后会实时出现在下面。']),
     stepsBox,
     streamBox,
     el('div', { class: 'modal-actions' }, [])
@@ -1798,6 +1858,14 @@ function renderAgentResult(overlay, box, result, error) {
   }
 
   const up = (a, b) => b > a ? '（↑' + (b - a) + '）' : (b < a ? '（↓' + (b - a) + '）' : '（持平）');
+  // 如实标注这次结果来自哪条通道（规则通道 ≠ LLM 改写，不能让用户误以为是大模型做的）
+  const isRules = result.mode === 'rules';
+  box.appendChild(el('div', { class: 'agent-mode-tag' + (isRules ? ' rules' : '') },
+    [isRules ? '通道：确定性规则引擎（无模型 · 可复现）' : '通道：LLM 改写（' + ((_agentStatus && _agentStatus.config && _agentStatus.config.model) || '模型') + '）']));
+  if (isRules) {
+    box.appendChild(el('p', { style: 'font-size:12px;color:var(--ink-2);line-height:1.7;margin:6px 0 12px;' },
+      ['规则通道擅长删套话、强化动词、保量化、按 JD 对齐表述，但不会按 JD 语义重组句子或生成全新内容。想要那一层，可在上方切到「流水线 / 自主 Agent」（需模型）。']));
+  }
   const stat = (label, a, b, suffix) =>
     el('div', { class: 'agent-stat' }, [
       el('span', {}, [label]),

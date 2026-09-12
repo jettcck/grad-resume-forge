@@ -12,6 +12,7 @@ import * as store from './store';
 import * as auth from './auth';
 import * as engine from './resume-engine';
 import { createLlmClient } from './llm-client';
+import { detectLocalServices } from './local-detect';
 import * as secureStore from './secure-store';
 import type { IpcResult, Profile, LlmConfig } from './types';
 
@@ -360,12 +361,16 @@ ipcMain.handle('agent:status', async () => {
   }
 });
 
-// 运行 Agent：mode='pipeline'（默认）或 'agentic'
+// 运行 Agent：mode='pipeline'（默认）/ 'agentic' / 'rules'（零下载规则通道，不调模型）
 ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string, opts: { mode?: string } & Partial<LlmConfig>) => {
   try {
     const o = opts || {};
+    const rulesOnly = o.mode === 'rules';
     const cfg = Object.assign({}, decryptAgentConfig(store.getSetting<LlmConfig>('agent')) || {}, o);
-    const llm = cfg.provider === 'embedded' ? embeddedLlmClient() : createLlmClient(cfg);
+    // 规则通道不需要任何模型客户端
+    const llm = rulesOnly
+      ? undefined
+      : (cfg.provider === 'embedded' ? embeddedLlmClient() : createLlmClient(cfg));
     const send = (s: unknown) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('agent:progress', s);
@@ -376,9 +381,23 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
         mainWindow.webContents.send('agent:stream', { round, piece });
       }
     };
+    if (rulesOnly) {
+      const result = await agent.runAgent(profile, jdText, { onStep: send, rulesOnly: true });
+      return ok(result);
+    }
     const runner = o.mode === 'agentic' ? agent.agenticLoop : agent.runAgent;
     const result = await runner(profile, jdText, { llm, onStep: send, onChunk: sendStream });
     return ok(result);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 探测本机已有的本地模型服务（LM Studio / llama.cpp / vLLM / Ollama …）
+// 有就直接用，省掉「让用户自己去装一个」这一步；只探 127.0.0.1
+ipcMain.handle('agent:detectLocal', async () => {
+  try {
+    return ok(await detectLocalServices());
   } catch (err) {
     return fail((err as Error).message);
   }

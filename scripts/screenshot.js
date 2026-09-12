@@ -83,14 +83,21 @@ function registerIpc() {
   });
   h('snapshots:delete', (uid, id) => store.deleteAgentSnapshot(uid, id));
   h('resume:generate', (p, o) => engine.generate(p, o || {}));
-  h('agent:status', async () => {
-    const c = createLlmClient(store.getSetting('agent') || {});
-    return { ...(await c.status()), config: c.config, provider: c.provider };
-  });
+  // 固定返回「无可用模型」：零配置通道的默认行为必须可确定地测到，
+  // 不能受开发机上是否跑着 Ollama 影响
+  h('agent:status', () => ({
+    available: false, models: [], error: '',
+    config: { provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'qwen2.5:7b', temperature: 0.3 },
+    provider: 'ollama'
+  }));
   h('settings:get', () => null);
   h('settings:save', (_k, v) => v);
   h('assistant:ask', (query, dom) => askAssistantReal(query, dom));
   h('assistant:hot', () => hotQuestionsReal());
+  // 本机模型服务探测：返回一个假服务，用于验证「一键使用」
+  h('agent:detectLocal', () => ([
+    { id: 'lmstudio', name: 'LM Studio', endpoint: 'http://127.0.0.1:1234/v1', models: ['qwen2.5-7b-instruct'] }
+  ]));
   h('updater:status', () => ({ version: '1.1.0', isPackaged: false, updaterActive: false, repo: 'jettcck/grad-resume-forge', mirror: '' }));
   h('clipboard:writeText', () => ({ done: true }));
   h('shell:openExternal', (u) => ({ opened: u }));
@@ -475,6 +482,71 @@ async function main() {
     const box = document.querySelector('.modal-overlay .modal-box');
     const close = Array.from(box.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '关闭');
     if (close) close.click();
+    return true;
+  })()`);
+  await sleep(300);
+
+  // —— 零配置（规则）通道：没有任何模型时也能一键按 JD 优化 ——
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.nav-item[data-route="resume"]').click();
+    return true;
+  })()`);
+  await sleep(1500);
+  console.log(await verify(win, `(async () => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    // mock 里模型不可用 → 应该自动落到「零配置（规则）」通道
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const rulesBtn = segs.find((b) => /零配置/.test(b.textContent));
+    t('优化卡片含「零配置（规则）」通道', !!rulesBtn);
+    t('模型不可用时默认选中零配置通道', !!rulesBtn && rulesBtn.classList.contains('active'));
+    const runBtn = Array.from(document.querySelectorAll('#route-resume .btn-primary')).find((b) => /对着这份 JD 跑一轮/.test(b.textContent));
+    t('运行按钮标明零配置（无需模型）', !!runBtn && /零配置/.test(runBtn.textContent));
+    // 如实标注：提示里必须说明规则通道的能力边界
+    const hint = document.querySelector('#route-resume .audit p');
+    t('如实说明规则通道的能力边界', !!hint && /无法像大模型那样/.test(hint.textContent));
+    // 真跑一轮：不传模型也应产出改写并过校验门
+    const st = document.querySelector('#route-resume .audit');
+    t('卡片提示不需要下载模型', !!st && /不下载模型|不填密钥/.test(st.textContent));
+    return out.join('\\n');
+  })()`));
+
+  // 配置弹窗：出现「本机模型服务探测」区块
+  await win.webContents.executeJavaScript(`(() => {
+    const cfg = Array.from(document.querySelectorAll('#route-resume .btn')).find((b) => b.textContent.trim() === '配置');
+    if (cfg) cfg.click();
+    return !!cfg;
+  })()`);
+  await sleep(1600);
+  console.log(await verify(win, `(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const detect = box && box.querySelector('.detect-box');
+    t('配置弹窗含本机服务探测区', !!detect);
+    t('探测到服务时列出名称与端口', !!detect && /LM Studio/.test(detect.textContent) && /1234/.test(detect.textContent));
+    const useBtn = detect && Array.from(detect.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '使用');
+    t('每个服务有一键「使用」按钮', !!useBtn);
+    t('弹窗如实提示零配置通道可选', /零配置（规则）/.test(box.textContent));
+    if (useBtn) useBtn.click();
+    return out.join('\\n');
+  })()`));
+  await sleep(600);
+  console.log(await verify(win, `(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const inputs = Array.from(box.querySelectorAll('input[type="text"]'));
+    const endpointFilled = inputs.some((i) => i.value === 'http://127.0.0.1:1234/v1');
+    t('点「使用」后地址已自动填入', endpointFilled);
+    const ollamaActive = Array.from(box.querySelectorAll('.seg-btn')).some((b) => b.textContent.trim() === '本地 Ollama' && b.classList.contains('active'));
+    t('点「使用」后切换到本地服务模式', ollamaActive);
+    return out.join('\\n');
+  })()`));
+  await win.webContents.executeJavaScript(`(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const cancel = Array.from(box.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '取消');
+    if (cancel) cancel.click();
     return true;
   })()`);
   await sleep(300);

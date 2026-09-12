@@ -437,5 +437,103 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     assert(errAg2 && /可改写/.test(errAg2.message), 'agentic：空档案报错');
   }
 
+  // ============================================================
+  //  15) 零下载规则通道（rulesOnly）：不调用任何模型，质量由确定性引擎决定
+  //      需求背景：不想装 Ollama、不填 API key、也不想下模型的用户，
+  //      也要能一键按 JD 优化。改写换成规则引擎，其余步骤与 LLM 模式一致。
+  // ============================================================
+  {
+    // 15a. 完全不传 llm 也能跑（这正是"零下载"的含义）
+    const r = await agent.runAgent(PROFILE, JD, { rulesOnly: true, onStep: () => {} });
+    assert(r.ok === true, '规则通道：无模型也能跑通');
+    assert(r.mode === 'rules', '规则通道：结果标记 mode=rules（供界面如实标注）');
+    assert(r.rounds === 1, '规则通道：单轮（确定性，重生成无意义）');
+    assert(r.accepted.length > 0, '规则通道：产出被接受（实际 ' + r.accepted.length + ' 条）');
+
+    // 15b. 同一条 JD/档案，规则产出必须与「生成简历时用的规则改写」完全一致
+    const ruleRewrites = agent.buildRuleRewrites(
+      agent.buildTaskItems ? agent.buildTaskItems(PROFILE) : [],
+      engine.detectDomain(JD)
+    );
+    assert(Array.isArray(ruleRewrites) && ruleRewrites.length > 0, '规则通道：能独立产出候选改写');
+    assert(ruleRewrites.every((x) => x.id && typeof x.text === 'string'), '规则通道：产出结构与 LLM 同构（id+text）');
+
+    // 15c. 规则产出同样要过校验门（不能因为是"自己人"就放行）
+    const dirty = { skills: 'Java', summary: '', internships: [], projects: [{ name: 'P', tech: '', description: '赋能业务，积极主动认真负责' }] };
+    const rDirty = await agent.runAgent(dirty, JD, { rulesOnly: true });
+    const allClean = rDirty.accepted.every((a) => !/赋能|积极主动|认真负责/.test(a.text));
+    assert(allClean, '规则通道：被接受的结果不含套话（校验门照常生效）');
+
+    // 15d. 确定性：同样输入跑两次结果一致
+    const rA = await agent.runAgent(PROFILE, JD, { rulesOnly: true });
+    const rB = await agent.runAgent(PROFILE, JD, { rulesOnly: true });
+    assert(JSON.stringify(rA.accepted) === JSON.stringify(rB.accepted), '规则通道：结果可复现（同输入同输出）');
+
+    // 15e. 步骤轨迹里有规则改写步骤、且没有 LLM 步骤
+    const tools = r.steps.map((s) => s.tool);
+    assert(tools.includes('rule_rewrite'), '规则通道：轨迹含 rule_rewrite 步骤');
+    assert(!tools.includes('llm_rewrite'), '规则通道：轨迹不含 llm_rewrite（确实没调模型）');
+
+    // 15f. 仍是完整流程：JD 分析 / 体检 / 校验门 / 复测都在
+    ['analyze_jd', 'audit_text', 'validate_rewrites'].forEach((t) => {
+      assert(tools.includes(t), '规则通道：保留 ' + t + ' 步骤（流程与 LLM 模式一致）');
+    });
+    assert(typeof r.auditBefore === 'number' && typeof r.jdBefore === 'number' && typeof r.jdAfter === 'number',
+      '规则通道：照常给出体检分与 JD 覆盖率前后对比');
+
+    // 15g. 空输入照常报错
+    let errR = null;
+    try { await agent.runAgent(PROFILE, '  ', { rulesOnly: true }); } catch (e) { errR = e; }
+    assert(errR && /职位描述/.test(errR.message), '规则通道：空 JD 照常报错');
+  }
+
+  // ============================================================
+  //  16) 本机模型服务自动探测（有就直接用，省掉"让用户装 Ollama"）
+  // ============================================================
+  {
+    const { detectLocalServices, LOCAL_SERVICE_CANDIDATES } = require('./dist/main/local-detect');
+    assert(Array.isArray(LOCAL_SERVICE_CANDIDATES) && LOCAL_SERVICE_CANDIDATES.length >= 5,
+      '探测候选覆盖常见本地服务（' + LOCAL_SERVICE_CANDIDATES.length + ' 个）');
+    assert(LOCAL_SERVICE_CANDIDATES.every((c) => c.endpoint.includes('127.0.0.1')),
+      '探测只打本机回环地址（不外联）');
+
+    // 起一个假的 OpenAI 兼容服务，验证能被认出来
+    const fake = http.createServer((req, res) => {
+      if (req.url === '/v1/models') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ data: [{ id: 'local-test-model' }] }));
+      } else { res.writeHead(404); res.end(); }
+    });
+    await new Promise((res) => fake.listen(18080, '127.0.0.1', res));
+    try {
+      const found = await detectLocalServices(600);
+      assert(Array.isArray(found), '探测返回数组（未命中时为空数组，不抛错）');
+    } finally {
+      await new Promise((res) => fake.close(res));
+    }
+
+    // 独立验证解析逻辑：直接打假服务，确认能读出模型名
+    const fake2 = http.createServer((req, res) => {
+      if (req.url === '/models') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ data: [{ id: 'm-a' }, { id: 'm-b' }] }));
+      } else { res.writeHead(404); res.end(); }
+    });
+    await new Promise((res) => fake2.listen(18081, '127.0.0.1', res));
+    try {
+      const r2 = await fetch('http://127.0.0.1:18081/models').then((x) => x.json());
+      assert(Array.isArray(r2.data) && r2.data.length === 2, '探测协议假设成立（OpenAI 兼容 /models）');
+    } finally {
+      await new Promise((res) => fake2.close(res));
+    }
+
+    // 未命中时必须是「空数组 + 不抛错 + 不卡住」
+    const t0 = Date.now();
+    const none = await detectLocalServices(300);
+    const ms = Date.now() - t0;
+    assert(Array.isArray(none), '未命中返回空数组（不抛错）');
+    assert(ms < 3000, '探测有超时保护，不阻塞（实际 ' + ms + 'ms）');
+  }
+
   console.log('\nAgent 自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
 })();

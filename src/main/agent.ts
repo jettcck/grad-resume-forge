@@ -349,6 +349,10 @@ function brief(tool: string, out: unknown): string {
     return '接受 ' + r.accepted!.length + ' 条，拒收 ' + r.rejected!.length + ' 条';
   }
   if (tool === 'llm_rewrite') return '返回 ' + String(out).length + ' 字符';
+  if (tool === 'rule_rewrite') {
+    const r = out as { rewrites?: unknown[] };
+    return '规则产出 ' + ((r.rewrites && r.rewrites.length) || 0) + ' 条（无模型）';
+  }
   return '完成';
 }
 
@@ -356,20 +360,46 @@ function brief(tool: string, out: unknown): string {
 //  流水线模式（确定性编排）
 // ============================================================
 export interface AgentRunOptions {
-  llm: LlmClient;
+  /** 规则通道（rulesOnly）不需要客户端，故为可选 */
+  llm?: LlmClient;
   maxRounds?: number;   // 流水线：重生成轮数上限
   maxSteps?: number;    // agentic：工具调用步数上限
   onStep?: (s: AgentStep) => void;
   onChunk?: (piece: string, round: number) => void;
+  // 零下载通道：不调用任何模型，改写由确定性规则引擎产出，
+  // 其余步骤（JD 分析 / 体检 / 校验门 / 复测 / 应用）完全一致
+  rulesOnly?: boolean;
+}
+
+// 规则改写：把每条经历交给确定性引擎处理，产出与 LLM 模式同构的 { id, text } 清单。
+// 因此它同样要过 validateRewrites 那道门——规则产出不合格时同样被拒收（而不是放行）。
+export function buildRuleRewrites(items: TaskItem[], domain: Domain): Array<{ id: string; text: string }> {
+  const out: Array<{ id: string; text: string }> = [];
+  items.forEach((it) => {
+    if (it.id === 'summary') {
+      const t = engine.rewriteBullet(it.lines[0] || '', domain, 0);
+      if (t) out.push({ id: 'summary', text: t });
+      return;
+    }
+    it.lines.forEach((line, j) => {
+      const t = engine.rewriteBullet(line, domain, j);
+      if (t) out.push({ id: it.id + '-b' + j, text: t });
+    });
+  });
+  return out;
 }
 
 export async function runAgent(profile: Partial<Profile>, jdText: string, opts: AgentRunOptions): Promise<PipelineResult> {
   const o = opts || {} as AgentRunOptions;
+  const rulesOnly = o.rulesOnly === true;
   const llm = o.llm;
-  if (!llm || typeof llm.chat !== 'function') {
+  // 规则通道不需要模型；LLM 通道必须提供客户端
+  if (!rulesOnly && (!llm || typeof llm.chat !== 'function')) {
     throw new Error('未提供 LLM 客户端');
   }
-  const maxRounds = Math.max(1, o.maxRounds || 2);
+  const llmClient = llm as LlmClient; // rulesOnly 分支不会调用它
+  // 规则改写是确定性的：重生成同一输入只会得到同一结果，所以固定单轮
+  const maxRounds = rulesOnly ? 1 : Math.max(1, o.maxRounds || 2);
   const onStep = typeof o.onStep === 'function' ? o.onStep : null;
   const steps: AgentStep[] = [];
 
@@ -417,7 +447,7 @@ export async function runAgent(profile: Partial<Profile>, jdText: string, opts: 
   const auditBefore = await timedStep('audit_text', '体检原始条目', () =>
     Promise.resolve(engine.auditAiFlavor(rawText)));
 
-  // ---- 第 3 步：LLM 改写 + 校验门 + 重生成回路 ----
+  // ---- 第 3 步：改写 + 校验门 + 重生成回路（规则通道为单轮、无模型）----
   let accepted: AcceptedRewrite[] = [];
   let rejected: RejectedRewrite[] = [];
   let rounds = 0;
@@ -426,20 +456,27 @@ export async function runAgent(profile: Partial<Profile>, jdText: string, opts: 
   for (let round = 1; round <= maxRounds; round++) {
     rounds = round;
     const feedback = round > 1 ? buildFeedback(rejected) : '';
-    const messages = buildRewriteMessages(profile, jd, jdBefore, ctx.selected, feedback, ctx.omitted);
 
-    let content: string;
-    try {
-      content = await timedStep('llm_rewrite', 'LLM 改写条目（第 ' + round + ' 轮）', () =>
-        llm.chat(messages, o.onChunk ? { onChunk: (piece) => o.onChunk!(piece, round) } : undefined) as Promise<string>);
-    } catch (err) {
-      llmError = err instanceof Error ? err.message : String(err);
-      break;
+    let parsed: { rewrites?: unknown } | null;
+    if (rulesOnly) {
+      // 零下载通道：确定性规则产出候选，同样要过下面的校验门
+      parsed = await timedStep('rule_rewrite', '规则改写条目（第 ' + round + ' 轮 · 无模型）', () =>
+        Promise.resolve({ rewrites: buildRuleRewrites(items, jdBefore.domain) }));
+    } else {
+      const messages = buildRewriteMessages(profile, jd, jdBefore, ctx.selected, feedback, ctx.omitted);
+      let content: string;
+      try {
+        content = await timedStep('llm_rewrite', 'LLM 改写条目（第 ' + round + ' 轮）', () =>
+          llmClient.chat(messages, o.onChunk ? { onChunk: (piece) => o.onChunk!(piece, round) } : undefined) as Promise<string>);
+      } catch (err) {
+        llmError = err instanceof Error ? err.message : String(err);
+        break;
+      }
+      parsed = parseJsonLoose(content);
     }
 
-    const parsed = parseJsonLoose(content);
     if (!parsed || !Array.isArray(parsed.rewrites)) {
-      rejected = [{ id: '-', reason: 'LLM 输出不是合法 JSON' }];
+      rejected = [{ id: '-', reason: (rulesOnly ? '规则' : 'LLM') + '输出不是合法 JSON' }];
       continue;
     }
 
@@ -472,6 +509,7 @@ export async function runAgent(profile: Partial<Profile>, jdText: string, opts: 
   const ok = accepted.length > 0 && !llmError;
   return {
     ok,
+    mode: rulesOnly ? 'rules' : 'pipeline',
     error: llmError,
     rounds,
     accepted,

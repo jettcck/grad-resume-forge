@@ -1077,6 +1077,14 @@ em { font-style: normal; color: var(--gold); }
 /* 下载进度条（仅下载中出现） */
 .about-bar { margin-top: 8px; height: 4px; border-radius: 2px; background: var(--bg-3); overflow: hidden; }
 .about-bar > i { display: block; height: 100%; width: 0; border-radius: 2px; background: linear-gradient(90deg, rgba(255,212,121,.9), var(--gold) 55%, var(--ember)); transition: width .3s ease; }
+/* 本机模型服务探测结果 */
+.detect-box { padding: 10px 12px; margin-bottom: 12px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.detect-row { display: flex; align-items: center; gap: 8px; padding: 5px 0; font-size: 12px; }
+.detect-row .dr-name { color: var(--teal); font-weight: 600; min-width: 92px; }
+.detect-row .dr-meta { color: var(--ink-2); font-family: var(--font-mono); font-size: 11px; flex: 1; }
+/* Agent 结果：通道标签（规则通道必须与 LLM 通道可区分） */
+.agent-mode-tag { display: inline-block; font-size: 11px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 3px; margin-bottom: 4px; color: var(--ink-2); background: var(--bg-2); border: 1px solid var(--line); }
+.agent-mode-tag.rules { color: var(--gold); border-color: rgba(255,176,30,.42); background: rgba(255,176,30,.08); }
 .furnace-dot.hot { background: var(--gold); box-shadow: 0 0 8px rgba(240,161,60,.8); animation: furnacePulse 1.2s infinite; }
 @keyframes furnacePulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
 .agent-dot.on { color: var(--teal); }

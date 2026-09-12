@@ -156,6 +156,8 @@ export interface RejectedRewrite {
 
 export interface PipelineResult {
   ok: boolean;
+  /** pipeline = LLM 流水线；rules = 零下载规则通道（不调用任何模型） */
+  mode: 'pipeline' | 'rules';
   error: string | null;
   rounds: number;
   accepted: AcceptedRewrite[];
