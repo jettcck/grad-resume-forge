@@ -6,7 +6,10 @@
 
 import fs from 'fs';
 import path from 'path';
-import type { StoredUser, PublicUser, Profile, Application, AgentSnapshot, AgentSnapshotMeta } from './types';
+import type {
+  StoredUser, PublicUser, Profile, Application, AgentSnapshot, AgentSnapshotMeta,
+  ResumeVersion, ResumeVersionMeta
+} from './types';
 
 interface DbShape {
   users: StoredUser[];
@@ -15,6 +18,7 @@ interface DbShape {
   sessions: Record<string, { userId: string; expiresAt: number; createdAt: number }>;
   settings: Record<string, unknown>;
   agentSnapshots: Record<string, AgentSnapshot[]>;
+  resumeVersions: Record<string, ResumeVersion[]>;
 }
 
 let dataDir: string | null = null;
@@ -26,11 +30,14 @@ const db: DbShape = {
   applications: {},
   sessions: {},
   settings: {},
-  agentSnapshots: {} // userId → 快照数组（最多 5 份，最新在前）
+  agentSnapshots: {}, // userId → 快照数组（最多 5 份，最新在前）
+  resumeVersions: {}  // userId → 简历版本数组（最多 30 份，最新在前）
 };
 
 // 快照上限：防止无限膨胀（每份档案通常 < 10KB）
 const MAX_SNAPSHOTS = 5;
+// 版本上限：一版一个岗位，30 份够用；每份含档案本体，容量需有界
+const MAX_VERSIONS = 30;
 
 export function init(userDataPath: string): void {
   dataDir = path.join(userDataPath, 'grad-resume-data');
@@ -67,6 +74,8 @@ function load(): void {
       db.sessions = parsed.sessions || {};
       db.settings = parsed.settings || {};
       db.agentSnapshots = parsed.agentSnapshots || {};
+      // 老库没有 resumeVersions 字段：缺省为空，向前兼容
+      db.resumeVersions = parsed.resumeVersions || {};
     }
   } catch (err) {
     // 数据损坏时不崩溃，退回空库并备份原文件
@@ -225,6 +234,102 @@ export function deleteAgentSnapshot(userId: string, snapshotId: string): { remov
   db.agentSnapshots[userId] = list.filter((x) => x.id !== snapshotId);
   persist();
   return { removed: snapshotId };
+}
+
+// ---------------- 简历版本（多版本：一个岗位一版） ----------------
+// 与「回炉快照」的区别：快照是自动产生的后悔药（最多 5 份、只有标签）；
+// 版本是用户主动命名并长期保留的定制稿，带它针对的 JD 与保存时的评分，
+// 便于横向比较「哪一版更贴这个岗位」，也便于下次同一岗位直接载入。
+
+function toVersionMeta(v: ResumeVersion): ResumeVersionMeta {
+  return {
+    id: v.id, name: v.name, note: v.note, targetRole: v.targetRole,
+    hasJd: !!(v.jdText && v.jdText.trim()),
+    template: v.template,
+    auditScore: v.auditScore, jdScore: v.jdScore, jdHit: v.jdHit, jdTotal: v.jdTotal,
+    createdAt: v.createdAt, updatedAt: v.updatedAt
+    // 刻意不带 profile / jdText：列表轻量，需要时再 getVersion
+  };
+}
+
+export function listVersions(userId: string): ResumeVersionMeta[] {
+  return (db.resumeVersions[userId] || []).map(toVersionMeta);
+}
+
+export function getVersion(userId: string, versionId: string): ResumeVersion | null {
+  const v = (db.resumeVersions[userId] || []).find((x) => x.id === versionId);
+  return v ? (JSON.parse(JSON.stringify(v)) as ResumeVersion) : null;
+}
+
+export interface SaveVersionInput {
+  id?: string;
+  name?: string;
+  note?: string;
+  profile: Partial<Profile>;
+  jdText?: string;
+  targetRole?: string;
+  template?: string;
+  auditScore?: number | null;
+  jdScore?: number | null;
+  jdHit?: number;
+  jdTotal?: number;
+}
+
+export function saveVersion(userId: string, input: SaveVersionInput): ResumeVersionMeta {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  const now = Date.now();
+  if (!db.resumeVersions[userId]) db.resumeVersions[userId] = [];
+  const list = db.resumeVersions[userId]!;
+
+  const name = String(input.name || '').trim().slice(0, 40) || '未命名版本';
+  const base = {
+    name,
+    note: String(input.note || '').trim().slice(0, 120),
+    profile: JSON.parse(JSON.stringify(input.profile || {})) as Profile, // 深拷贝，与后续修改隔离
+    jdText: String(input.jdText || '').slice(0, 8000),
+    targetRole: String(input.targetRole || '').slice(0, 60),
+    template: String(input.template || 'classic'),
+    auditScore: typeof input.auditScore === 'number' ? input.auditScore : null,
+    jdScore: typeof input.jdScore === 'number' ? input.jdScore : null,
+    jdHit: Number(input.jdHit) || 0,
+    jdTotal: Number(input.jdTotal) || 0,
+    updatedAt: now
+  };
+
+  // 带 id → 覆盖该版本（改名/更新内容）；否则新建
+  if (input.id) {
+    const idx = list.findIndex((x) => x.id === input.id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx]!, ...base };
+      persist();
+      return toVersionMeta(list[idx]!);
+    }
+  }
+  const created: ResumeVersion = { id: 'ver_' + now + '_' + Math.random().toString(36).slice(2, 8), createdAt: now, ...base };
+  list.unshift(created);
+  if (list.length > MAX_VERSIONS) list.length = MAX_VERSIONS; // 超出丢弃最旧的
+  persist();
+  return toVersionMeta(created);
+}
+
+// 只改名字/备注（不动档案本体）
+export function renameVersion(userId: string, versionId: string, name: string, note?: string): ResumeVersionMeta {
+  const list = db.resumeVersions[userId] || [];
+  const v = list.find((x) => x.id === versionId);
+  if (!v) throw new Error('版本不存在或已删除');
+  const next = String(name || '').trim().slice(0, 40);
+  if (next) v.name = next;
+  if (typeof note === 'string') v.note = note.trim().slice(0, 120);
+  v.updatedAt = Date.now();
+  persist();
+  return toVersionMeta(v);
+}
+
+export function deleteVersion(userId: string, versionId: string): { removed: string } {
+  const list = db.resumeVersions[userId] || [];
+  db.resumeVersions[userId] = list.filter((x) => x.id !== versionId);
+  persist();
+  return { removed: versionId };
 }
 
 // 测试专用：直接访问内部 db（仅测试断言用）

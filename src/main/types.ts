@@ -270,6 +270,30 @@ export interface AgentSnapshot extends AgentSnapshotMeta {
   profile: Profile;
 }
 
+// ---------- 简历版本（多版本：一个岗位一版） ----------
+/** 落盘的版本记录（含档案本体与针对的 JD） */
+export interface ResumeVersion {
+  id: string;
+  name: string;
+  note: string;
+  targetRole: string;
+  template: string;
+  /** 保存时算好的体检分 / JD 覆盖率（便于横向比较哪版更合适） */
+  auditScore: number | null;
+  jdScore: number | null;
+  jdHit: number;
+  jdTotal: number;
+  createdAt: number;
+  updatedAt: number;
+  profile: Profile;
+  jdText: string;
+}
+
+/** 列表用的轻量元数据：去掉两个大字段，hasJd 由 jdText 派生（不落盘） */
+export interface ResumeVersionMeta extends Omit<ResumeVersion, 'profile' | 'jdText'> {
+  hasJd: boolean;
+}
+
 // ---------- 用户 / 会话 ----------
 export interface StoredUser {
   id: string;

@@ -85,6 +85,17 @@ function registerIpc() {
     return store.saveProfile(uid, snap);
   });
   h('snapshots:delete', (uid, id) => store.deleteAgentSnapshot(uid, id));
+  // 简历版本（多版本）IPC：同样必须注册，否则版本卡只会显示读取失败
+  h('versions:list', (uid) => store.listVersions(uid));
+  h('versions:get', (uid, id) => {
+    const v = store.getVersion(uid, id);
+    if (!v) throw new Error('版本不存在或已删除');
+    return v;
+  });
+  h('versions:save', (uid, input) => store.saveVersion(uid, input));
+  h('versions:rename', (uid, id, name, note) => store.renameVersion(uid, id, name, note));
+  h('versions:delete', (uid, id) => store.deleteVersion(uid, id));
+  h('resume:matchJd', (resume, jd) => engine.matchJd(resume, jd));
   h('resume:generate', (p, o) => engine.generate(p, o || {}));
   // 固定返回「无可用模型」：零配置通道的默认行为必须可确定地测到，
   // 不能受开发机上是否跑着 Ollama 影响。可用性可由测试动态切换（见下方 mockAgentAvailable）
@@ -608,6 +619,134 @@ async function main() {
     return (p && p.classList.contains('active') ? '✅' : '❌') + ' 切回「流水线」同样生效（双向可选）';
   })()`));
   mockAgentAvailable = false;
+
+  // —— 简历版本（多版本：一个岗位一版）——
+  // 先切回档案页：版本卡在档案页侧栏，用户操作路径也应从这里开始
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.nav-item[data-route="profile"]').click();
+    return true;
+  })()`);
+  await sleep(1600);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const card = document.getElementById('card-versions');
+    t('侧栏有「简历版本」卡', !!card && /简历版本/.test(card.textContent));
+    t('版本卡有保存入口', !!card && Array.from(card.querySelectorAll('.btn')).some((b) => /存为新版本/.test(b.textContent)));
+    t('无版本时给出引导文案', !!card && /还没有版本/.test(card.textContent));
+    // 点保存 → 弹窗（名称已按目标岗位预填）
+    const saveBtn = Array.from(card.querySelectorAll('.btn')).find((b) => /存为新版本/.test(b.textContent));
+    if (saveBtn) saveBtn.click();
+    return out.join('\\n');
+  })()`));
+  await sleep(1200);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const box = document.querySelector('.modal-overlay .modal-box');
+    t('保存弹窗出现', !!box && /存为新版本/.test(box.textContent));
+    const nameInput = box && box.querySelector('input[name="name"]');
+    t('版本名按目标岗位预填', !!nameInput && nameInput.value.length > 0);
+    t('有备注字段（选填）', !!box && !!box.querySelector('input[name="note"]'));
+    if (nameInput) nameInput.value = '字节-后端（测试版）';
+    const ok = box && Array.from(box.querySelectorAll('.btn')).find((b) => /保存版本/.test(b.textContent));
+    if (ok) ok.click();
+    return out.join('\\n');
+  })()`));
+  await sleep(1600);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const card = document.getElementById('card-versions');
+    t('保存后列表出现该版本', !!card && /字节-后端（测试版）/.test(card.textContent));
+    t('列表显示体检分等评分', !!card && /体检 \\d+/.test(card.textContent));
+    t('版本条目有三个操作（载入/改名/删除）', !!card && card.querySelectorAll('.ver-item .ver-ops .btn').length >= 3);
+    // 再存一版，验证多版本并存
+    return out.join('\\n');
+  })()`));
+  // 侧栏较长，截图前滚到底部让版本卡入镜
+  await win.webContents.executeJavaScript(`(() => {
+    document.getElementById('card-versions').scrollIntoView({ block: 'center' });
+    return true;
+  })()`);
+  await sleep(600);
+  await shot(win, '08-versions');
+
+  // 载入版本：应先弹确认（并说明会备份到回炉快照）
+  await win.webContents.executeJavaScript(`(() => {
+    const card = document.getElementById('card-versions');
+    const load = Array.from(card.querySelectorAll('.ver-item .btn')).find((b) => b.textContent.trim() === '载入');
+    if (load) load.click();
+    return !!load;
+  })()`);
+  await sleep(900);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const box = document.querySelector('.modal-overlay .modal-box');
+    t('载入前弹确认框', !!box && /载入版本/.test(box.textContent));
+    t('确认框说明会先备份到回炉快照', !!box && /回炉快照/.test(box.textContent));
+    const ok = box && Array.from(box.querySelectorAll('.btn')).find((b) => /载入并备份/.test(b.textContent));
+    if (ok) ok.click();
+    return out.join('\\n');
+  })()`));
+  await sleep(1500);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const nameInput = document.querySelector('#card-basics input[name="name"]');
+    t('载入后档案已替换为该版本内容', !!nameInput && nameInput.value === '快照还原验证');
+    return out.join('\\n');
+  })()`));
+
+  // 改名与删除
+  await win.webContents.executeJavaScript(`(() => {
+    const card = document.getElementById('card-versions');
+    const btn = Array.from(card.querySelectorAll('.ver-item .btn')).find((b) => b.textContent.trim() === '改名');
+    if (btn) btn.click();
+    return !!btn;
+  })()`);
+  await sleep(900);
+  await win.webContents.executeJavaScript(`(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const nameInput = box && box.querySelector('input[name="name"]');
+    if (nameInput) nameInput.value = '字节-后端（改名后）';
+    const ok = box && Array.from(box.querySelectorAll('.btn')).find((b) => /保存/.test(b.textContent));
+    if (ok) ok.click();
+    return true;
+  })()`);
+  await sleep(1400);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const card = document.getElementById('card-versions');
+    t('改名生效', !!card && /字节-后端（改名后）/.test(card.textContent));
+    return out.join('\\n');
+  })()`));
+
+  // 删除：先确认再消失
+  await win.webContents.executeJavaScript(`(() => {
+    const card = document.getElementById('card-versions');
+    const btn = Array.from(card.querySelectorAll('.ver-item .btn')).find((b) => b.textContent.trim() === '删除');
+    if (btn) btn.click();
+    return !!btn;
+  })()`);
+  await sleep(900);
+  await win.webContents.executeJavaScript(`(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const ok = box && Array.from(box.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '删除');
+    if (ok) ok.click();
+    return true;
+  })()`);
+  await sleep(1400);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const card = document.getElementById('card-versions');
+    t('删除后列表不再有该版本', !!card && !/字节-后端（改名后）/.test(card.textContent));
+    t('删除后回到空态引导', !!card && /还没有版本/.test(card.textContent));
+    return out.join('\\n');
+  })()`));
 
   // —— 面试准备（第 4 个路由，全本地零模型）——
   // 面试素材来自项目/实习，所以先经「示例」按钮载入完整档案（顺带验证确认框链路）

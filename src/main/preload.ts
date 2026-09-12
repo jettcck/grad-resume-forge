@@ -39,6 +39,15 @@ contextBridge.exposeInMainWorld('api', {
     restore: (userId: string, snapshotId: string) => ipcRenderer.invoke('snapshots:restore', userId, snapshotId),
     remove: (userId: string, snapshotId: string) => ipcRenderer.invoke('snapshots:delete', userId, snapshotId)
   },
+  // 简历版本（多版本：一个岗位一版，长期保留的定制稿）
+  versions: {
+    list: (userId: string) => ipcRenderer.invoke('versions:list', userId),
+    get: (userId: string, versionId: string) => ipcRenderer.invoke('versions:get', userId, versionId),
+    save: (userId: string, input: unknown) => ipcRenderer.invoke('versions:save', userId, input),
+    rename: (userId: string, versionId: string, name: string, note?: string) =>
+      ipcRenderer.invoke('versions:rename', userId, versionId, name, note),
+    remove: (userId: string, versionId: string) => ipcRenderer.invoke('versions:delete', userId, versionId)
+  },
   clipboard: {
     writeText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text)
   },

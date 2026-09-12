@@ -805,6 +805,15 @@ function renderProfile() {
     cardTitle('refresh', '回炉快照', 'Agent 改写前自动备份'),
     el('div', { class: 'snap-list' }, [el('p', { style: 'font-size:12px;color:var(--ink-2);padding:4px 0;' }, ['读取中…'])])
   ]);
+  // 简历版本卡：同样先持有引用再异步填充（与快照卡同样的坑，别再用 getElementById）
+  const verCard = el('div', { class: 'card side-card', id: 'card-versions' }, [
+    cardTitle('doc', '简历版本', '一个岗位一版 · 手动命名'),
+    el('div', { class: 'ver-list' }, [el('p', { style: 'font-size:12px;color:var(--ink-2);padding:4px 0;' }, ['读取中…'])]),
+    el('button', {
+      class: 'btn btn-ghost btn-sm', type: 'button', style: 'width:100%;margin-top:8px;',
+      onclick: () => openSaveVersion()
+    }, ['＋ 把当前档案存为新版本'])
+  ]);
   const sideCol = el('div', { class: 'profile-side' }, [
     el('div', { class: 'card side-card completeness' }, [
       cardTitle('gauge', '档案完成度'),
@@ -827,8 +836,13 @@ function renderProfile() {
         el('div', { class: 'stat-row' }, [ico(ic, 15), el('span', { class: 'sk' }, [k]), el('b', {}, [v])])
       ))
     ]),
+    // 简历版本在回炉快照之前：前者是用户主动管理的功能，后者是自动备份（少有人翻）
+    verCard,
     snapCard
   ]);
+
+  // 版本列表异步填充（与快照同样在 append 之后才查 DOM，但这里用直接引用，不依赖时机）
+  fillVersionList(verCard);
 
   // 快照列表异步填充（不阻塞首屏渲染）
   (async () => {
@@ -2470,6 +2484,157 @@ function appCard(a) {
 //  自我介绍由档案确定性生成；题库按方向给；每题带考察点与回答框架，
 //  「讲自己经历」类的问题自动指向你档案里最合适的那条素材。
 // ============================================================
+// ============================================================
+//  简历版本（多版本：一个岗位一版）
+//  与「回炉快照」的分工：快照是自动产生的后悔药（5 份、只有标签）；
+//  版本是用户主动命名、长期保留的定制稿，带它针对的 JD 与保存时评分。
+// ============================================================
+function fmtVersionTime(ts) {
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+}
+
+async function fillVersionList(card) {
+  const list = card.querySelector('.ver-list');
+  if (!list) return;
+  try {
+    const versions = await call(window.api.versions.list(state.user.id));
+    list.innerHTML = '';
+    if (!versions.length) {
+      list.appendChild(el('p', { style: 'font-size:12px;color:var(--ink-2);padding:4px 0;line-height:1.7;' },
+        ['还没有版本。给不同岗位各存一版（比如「字节-后端」「国企-数据」），下次同一岗位直接载入，不用重填。']));
+      return;
+    }
+    versions.forEach((v) => {
+      const scoreBits = [];
+      if (v.auditScore != null) scoreBits.push('体检 ' + v.auditScore);
+      if (v.jdScore != null) scoreBits.push('JD ' + v.jdScore + '%');
+      list.appendChild(el('div', { class: 'ver-item' }, [
+        el('div', { class: 'ver-meta' }, [
+          el('span', { class: 'ver-name' }, [v.name]),
+          v.hasJd ? el('span', { class: 'ver-jd' }, ['带 JD']) : null,
+          el('span', { class: 'ver-time' }, [fmtVersionTime(v.updatedAt)])
+        ]),
+        v.note ? el('div', { class: 'ver-note' }, [v.note]) : null,
+        scoreBits.length ? el('div', { class: 'ver-score' }, [scoreBits.join(' · ')]) : null,
+        el('div', { class: 'ver-ops' }, [
+          el('button', {
+            class: 'btn btn-ghost btn-sm', type: 'button',
+            title: '把这个版本载入当前档案（会先备份当前档案到回炉快照）',
+            onclick: () => loadVersion(v)
+          }, ['载入']),
+          el('button', {
+            class: 'btn btn-ghost btn-sm', type: 'button',
+            onclick: () => renameVersionDialog(v)
+          }, ['改名']),
+          el('button', {
+            class: 'btn btn-ghost btn-sm ver-del', type: 'button',
+            onclick: async () => {
+              const ok = await modalConfirm('删除版本「' + v.name + '」？',
+                '删除后无法恢复（回炉快照里可能还有当时的档案，但不保证）。', '删除');
+              if (!ok) return;
+              try {
+                await call(window.api.versions.remove(state.user.id, v.id));
+                toast('版本已删除', 'ok');
+                renderProfile();
+              } catch (err) { toast(err.message, 'err'); }
+            }
+          }, ['删除'])
+        ])
+      ]));
+    });
+  } catch (_) {
+    list.innerHTML = '';
+    list.appendChild(el('p', { style: 'font-size:12px;color:var(--ink-2);' }, ['版本读取失败']));
+  }
+}
+
+// 保存当前档案为新版本：带名称/备注，并顺带记下体检分与（若贴过）JD 覆盖率
+async function openSaveVersion() {
+  if (!state.profile) { toast('请先填写档案', 'err'); return; }
+
+  // 先算好分数存进版本，便于以后横向比较「哪版更贴这个岗位」
+  let auditScore = null, jdScore = null, jdHit = 0, jdTotal = 0;
+  try {
+    const gen = await call(window.api.resume.generate(state.profile, {}));
+    auditScore = gen && gen.audit ? gen.audit.score : null;
+  } catch (_) { /* 分数算不出来不影响保存 */ }
+  const jd = (state.jdText || '').trim();
+  if (jd) {
+    try {
+      const m = state.lastResume && state.lastResume.resume
+        ? await call(window.api.resume.matchJd(state.lastResume.resume, jd))
+        : null;
+      if (m) { jdScore = m.score; jdHit = m.hitCount; jdTotal = m.jdSkillCount; }
+    } catch (_) { /* 忽略 */ }
+  }
+
+  const d = new Date();
+  const defaultName = (state.profile.targetRole || '通用') + ' · ' + (d.getMonth() + 1) + '/' + d.getDate();
+  const form = await modalForm('存为新版本', [
+    { name: 'name', label: '版本名称', value: defaultName, placeholder: '如：字节-后端 / 国企-数据' },
+    { name: 'note', label: '备注（选填）', value: '', placeholder: '如：强调项目量化，投基础架构岗' }
+  ], '保存版本');
+  if (!form || !form.name) return;
+
+  try {
+    await call(window.api.versions.save(state.user.id, {
+      name: form.name,
+      note: form.note,
+      profile: state.profile,
+      jdText: jd,
+      targetRole: state.profile.targetRole || '',
+      template: state.template,
+      auditScore, jdScore, jdHit, jdTotal
+    }));
+    toast('已存为版本「' + form.name + '」' + (jd ? '（含当前 JD）' : ''), 'ok');
+    renderProfile();
+  } catch (err) {
+    toast('保存失败：' + err.message, 'err');
+  }
+}
+
+// 载入版本：先确保当前档案有后悔药（自动快照），再整体替换
+async function loadVersion(v) {
+  try {
+    const full = await call(window.api.versions.get(state.user.id, v.id));
+    const hasData = !isProfileEmpty(state.profile);
+    if (hasData) {
+      const ok = await modalConfirm('载入版本「' + v.name + '」？',
+        '当前档案会被这个版本替换。载入前我们会自动把当前档案备份到右侧「<b>回炉快照</b>」，可随时还原。', '载入并备份');
+      if (!ok) return;
+      try {
+        await call(window.api.snapshots.save(state.user.id, '载入版本前 · ' + fmtSnapshotTime(Date.now()), state.profile));
+      } catch (_) { /* 备份失败不阻断 */ }
+    }
+    state.profile = await call(window.api.profile.save(state.user.id, full.profile));
+    // 版本里带着它针对的 JD，一并恢复，方便继续做匹配/优化
+    if (full.jdText) {
+      state.jdText = full.jdText;
+      state.jdMatch = null;
+    }
+    if (full.template) state.template = full.template;
+    toast('已载入版本「' + v.name + '」' + (full.jdText ? '（含它针对的 JD）' : ''), 'ok');
+    renderProfile();
+  } catch (err) {
+    toast('载入失败：' + err.message, 'err');
+  }
+}
+
+async function renameVersionDialog(v) {
+  const form = await modalForm('修改版本', [
+    { name: 'name', label: '版本名称', value: v.name, placeholder: '如：字节-后端' },
+    { name: 'note', label: '备注', value: v.note || '', placeholder: '选填' }
+  ], '保存');
+  if (!form || !form.name) return;
+  try {
+    await call(window.api.versions.rename(state.user.id, v.id, form.name, form.note));
+    toast('已更新', 'ok');
+    renderProfile();
+  } catch (err) { toast(err.message, 'err'); }
+}
+
 let _interviewData = null;
 
 async function renderInterviewPage() {

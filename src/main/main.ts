@@ -233,6 +233,50 @@ ipcMain.handle('snapshots:delete', (_e, userId: string, snapshotId: string) => {
   }
 });
 
+// ---------------- 简历版本（多版本：一个岗位一版） ----------------
+ipcMain.handle('versions:list', (_e, userId: string) => {
+  try {
+    return ok(store.listVersions(userId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('versions:get', (_e, userId: string, versionId: string) => {
+  try {
+    const v = store.getVersion(userId, versionId);
+    if (!v) return fail('版本不存在或已删除');
+    return ok(v);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('versions:save', (_e, userId: string, input: Parameters<typeof store.saveVersion>[1]) => {
+  try {
+    if (!store.findUserById(userId)) return fail('用户不存在');
+    return ok(store.saveVersion(userId, input));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('versions:rename', (_e, userId: string, versionId: string, name: string, note?: string) => {
+  try {
+    return ok(store.renameVersion(userId, versionId, name, note));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('versions:delete', (_e, userId: string, versionId: string) => {
+  try {
+    return ok(store.deleteVersion(userId, versionId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
 ipcMain.handle('resume:exportPdf', async (_e, html: string, suggestedName: string) => {
   // 离屏渲染 PDF；无论成功失败都要销毁隐藏窗口，避免进程泄漏
   let data: Buffer;

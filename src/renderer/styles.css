@@ -1110,6 +1110,18 @@ em { font-style: normal; color: var(--gold); }
 .ask-list { display: flex; flex-direction: column; gap: 8px; }
 .ask-item { display: flex; gap: 10px; font-size: 12.5px; line-height: 1.7; color: var(--ink-1); }
 .ask-dot { flex: 0 0 auto; color: var(--gold); font-weight: 700; }
+/* ---------- 简历版本 ---------- */
+.ver-item { padding: 9px 0; border-bottom: 1px solid var(--line); }
+.ver-item:last-child { border-bottom: none; }
+.ver-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ver-name { font-size: 12.5px; color: var(--ink-0); font-weight: 600; }
+.ver-jd { font-size: 10px; padding: 1px 5px; border-radius: 3px; color: var(--teal); border: 1px solid rgba(62,230,200,.35); }
+.ver-time { margin-left: auto; font-size: 10.5px; color: var(--ink-2); font-family: var(--font-mono); }
+.ver-note { font-size: 11.5px; color: var(--ink-2); margin-top: 3px; line-height: 1.6; }
+.ver-score { font-size: 11px; color: var(--gold); font-family: var(--font-mono); margin-top: 4px; }
+.ver-ops { display: flex; gap: 6px; margin-top: 7px; }
+.ver-ops .btn { padding: 4px 9px; font-size: 11.5px; }
+.ver-del:hover { color: var(--danger); border-color: rgba(255,93,82,.5); }
 .furnace-dot.hot { background: var(--gold); box-shadow: 0 0 8px rgba(240,161,60,.8); animation: furnacePulse 1.2s infinite; }
 @keyframes furnacePulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
 .agent-dot.on { color: var(--teal); }

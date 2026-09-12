@@ -19,6 +19,7 @@ Everything except *semantic* rewriting works with **no model, no key, no setup**
 | De-AI-flavor audit & 0-100 scoring | ❌ none — deterministic rules |
 | JD precision matching | ❌ none — deterministic rules |
 | Application kanban | ❌ none |
+| **Resume versions** — save a named variant per job target (keeps its JD + scores) and reload it in one click | ❌ none |
 | **Interview prep** — self-intro generated from your own profile + 66-question bank + open-question templates | ❌ none — generated locally |
 | Job-hunt assistant (built-in knowledge base) | ❌ none — local, offline |
 | JD-driven optimization | ❌ none in **zero-config (rules)** mode · ✅ only if you want semantic rewriting |
@@ -56,6 +57,7 @@ Linux notes:
 - **JD precision matching** — paste a job description, see exactly which required skills your resume hits or misses
 - **Agent deep-optimization** — an LLM rewrites your bullets against a specific JD (in-app model / local Ollama / cloud BYOK — see the matrix above), but each output must pass the validation gate (cliché / lost numbers / score regression → rejected & regenerated). Human-in-the-loop: you approve every rewrite with a checkbox
 - **Application kanban** — track wish → applied → interviewing → offer, with one-click links to job platforms
+- **Resume versions** — one variant per job target. Save the current profile under a name (e.g. "ByteDance-backend"), and it stores *that version's* JD plus the audit score and JD coverage it achieved, so you can compare variants side by side and reload any of them in one click. Loading a version first backs up what you had, so nothing is ever lost.
 - **Interview prep** — your 30s/60s self-intro is **generated from your own profile** (it never invents experience or numbers you did not write), plus a 66-question bank filtered by your target role, each with what the interviewer is really testing, a structured answer frame, common pitfalls, and — for experience-based questions — a pointer to which of *your* resume items to answer with. Also: open-question templates for application forms and a list of questions to ask back.
 - **Local-first** — all data stays on your machine (scrypt-hashed credentials), works offline, zero telemetry
 - **Auto-update** — silent download via GitHub Releases, with an optional mirror prefix for users in China
