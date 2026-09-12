@@ -23,6 +23,14 @@ const state = {
   jdMatch: null
 };
 
+// 方向中文名（模块级：JD 匹配与面试准备都要用，别放进单个函数里）
+const DOMAIN_LABELS = {
+  backend: '后端', frontend: '前端', algorithm: '算法', data: '数据', llm: '大模型 / Agent',
+  finance: '金融财务', marketing: '市场运营', design: '创意设计', eng: '机械电气',
+  civil: '土木建筑', education: '教育培训', medical: '医药卫生', business: '人力行政',
+  general: '通用'
+};
+
 function blankProfile() {
   return {
     name: '', phone: '', email: '', city: '', github: '',
@@ -476,7 +484,7 @@ function navigate(route) {
   document.querySelectorAll('.nav-item').forEach((n) => {
     n.classList.toggle('active', n.dataset.route === route);
   });
-  ['profile', 'resume', 'apps'].forEach((r) => {
+  ['profile', 'resume', 'apps', 'interview'].forEach((r) => {
     document.getElementById('route-' + r).style.display = r === route ? 'block' : 'none';
   });
   if (window.Sound) window.Sound.play('click'); // 导航轻点音
@@ -488,6 +496,7 @@ function navigate(route) {
   if (route === 'profile') renderProfile();
   if (route === 'resume') renderResumePage();
   if (route === 'apps') renderApps();
+  if (route === 'interview') renderInterviewPage();
 }
 
 document.querySelectorAll('.nav-item').forEach((n) => {
@@ -1353,12 +1362,6 @@ function buildJdCard() {
   }
 
   const color = jd.score >= 60 ? 'var(--teal)' : jd.score >= 40 ? 'var(--gold)' : 'var(--danger)';
-  const DOMAIN_LABELS = {
-    backend: '后端', frontend: '前端', algorithm: '算法', data: '数据', llm: '大模型 / Agent',
-    finance: '金融财务', marketing: '市场运营', design: '创意设计', eng: '机械电气',
-    civil: '土木建筑', education: '教育培训', medical: '医药卫生', business: '人力行政',
-    general: '通用'
-  };
   const hitTags = jd.hit.length
     ? jd.hit.map((h) => el('span', { class: 'skill-hit' }, ['✓ ' + h.label]))
     : [el('span', { style: 'font-size:12.5px;color:var(--ink-2);' }, ['JD 提到的技能简历均未覆盖'])];
@@ -2461,3 +2464,193 @@ function appCard(a) {
   });
   closeBtn.addEventListener('click', () => { panel.style.display = 'none'; });
 })();
+
+// ============================================================
+//  页面 4：面试准备（全本地、零模型）
+//  自我介绍由档案确定性生成；题库按方向给；每题带考察点与回答框架，
+//  「讲自己经历」类的问题自动指向你档案里最合适的那条素材。
+// ============================================================
+let _interviewData = null;
+
+async function renderInterviewPage() {
+  const root = document.getElementById('route-interview');
+  root.innerHTML = '';
+  const ico = (n, s) => window.Icons.icon(n, s);
+
+  const head = el('div', { class: 'page-head' }, [
+    el('div', { class: 'page-kicker' }, ['STEP 04 / 面试准备']),
+    el('h1', { class: 'page-title' }, ['面试前，把这些准备好']),
+    el('p', { class: 'page-desc' }, [
+      '全部本地生成、不需要任何模型：自我介绍按你的档案自动拼稿（不会编造你没写过的经历和数字），',
+      '题库按你的目标岗位方向筛过，每道题给出考察点、回答框架，以及「用你简历里的哪条来答」。'
+    ])
+  ]);
+
+  if (!state.profile || !(state.profile.name || (state.profile.projects || []).some((x) => x.name))) {
+    root.append(head, el('div', { class: 'card' }, [
+      el('div', { style: 'padding:28px 22px;text-align:center;color:var(--ink-2);font-size:13px;' },
+        ['档案还是空的——面试素材要从你的真实经历里来。先去「信息录入」把档案填上（或载入示例看看效果）。']),
+      el('div', { style: 'text-align:center;padding-bottom:20px;' }, [
+        el('button', {
+          class: 'btn btn-primary btn-sm', type: 'button',
+          onclick: () => navigate('profile')
+        }, ['去填档案 →'])
+      ])
+    ]));
+    return;
+  }
+
+  root.append(head, el('div', { class: 'card' }, [
+    el('div', { style: 'padding:22px;text-align:center;color:var(--ink-2);font-size:13px;' }, ['正在生成面试材料…'])
+  ]));
+
+  let data = null;
+  try {
+    data = await call(window.api.interview.prep(JSON.parse(JSON.stringify(state.profile)), {}));
+  } catch (err) {
+    root.innerHTML = '';
+    root.append(head, el('div', { class: 'card' }, [
+      el('div', { style: 'padding:22px;color:var(--danger);font-size:13px;' }, ['生成失败：' + err.message])
+    ]));
+    return;
+  }
+  _interviewData = data;
+  root.innerHTML = '';
+  root.append(head, buildIntroCard(data, ico), buildQuestionCards(data, ico), buildOpenCard(data, ico), buildAskBackCard(data, ico));
+}
+
+// ---- 自我介绍：生成稿 + 一键复制 ----
+function buildIntroCard(data, ico) {
+  let secs = 30;
+  const textBox = el('div', { class: 'intro-text' });
+  const partsBox = el('div', { class: 'intro-parts' });
+  const sourcesBox = el('div', { class: 'intro-sources' });
+
+  function paint() {
+    const pick = secs === 60 ? data.intro60 : data.intro30;
+    textBox.textContent = pick.text;
+    partsBox.innerHTML = '';
+    pick.parts.forEach((p) => {
+      partsBox.appendChild(el('div', { class: 'intro-part' }, [
+        el('span', { class: 'ip-label' }, [p.label]),
+        el('span', { class: 'ip-text' }, [p.text])
+      ]));
+    });
+    sourcesBox.textContent = pick.sources.length
+      ? '取材于你档案里的：' + pick.sources.join('；')
+      : '提示：档案里补充项目和实习后，这里会自动换成更具体的经历。';
+  }
+
+  const segBtns = {
+    30: el('button', { class: 'seg-btn active', type: 'button' }, ['30 秒版']),
+    60: el('button', { class: 'seg-btn', type: 'button' }, ['60 秒版'])
+  };
+  const paintSeg = () => {
+    segBtns[30].classList.toggle('active', secs === 30);
+    segBtns[60].classList.toggle('active', secs === 60);
+    paint();
+  };
+  segBtns[30].addEventListener('click', () => { secs = 30; paintSeg(); });
+  segBtns[60].addEventListener('click', () => { secs = 60; paintSeg(); });
+  paint();
+
+  return el('div', { class: 'card' }, [
+    el('div', { class: 'card-title' }, [
+      el('h3', {}, [ico('user', 15), '自我介绍（面试第一问）']),
+      el('span', { class: 'hint' }, ['按你的档案自动生成 · 不含你没写过的内容'])
+    ]),
+    el('div', { class: 'seg seg-thin', style: 'margin-bottom:10px;' }, [segBtns[30], segBtns[60]]),
+    textBox,
+    el('div', { class: 'row', style: 'margin:10px 0 6px;' }, [
+      el('button', {
+        class: 'btn btn-ghost btn-sm', type: 'button',
+        onclick: async () => {
+          const res = await window.api.clipboard.writeText(textBox.textContent);
+          if (res && res.ok) toast('已复制，可直接背/改', 'ok');
+        }
+      }, [ico('doc', 13), '复制全文'])
+    ]),
+    partsBox,
+    sourcesBox
+  ]);
+}
+
+// ---- 题库：考察点 + 框架 + 素材指向 ----
+function questionCard(q, ico) {
+  const body = el('div', { class: 'qi-body', style: 'display:none;' }, [
+    el('div', { class: 'qi-focus' }, [el('b', {}, ['考察点：']), q.focus]),
+    el('div', { class: 'qi-frame' }, [
+      el('b', {}, ['回答框架：']),
+      el('ol', {}, q.frame.map((f) => el('li', {}, [f])))
+    ]),
+    q.pitfall ? el('div', { class: 'qi-pitfall' }, [el('b', {}, ['常见坑：']), q.pitfall]) : null,
+    q.material ? el('div', { class: 'qi-material' }, [el('b', {}, ['用你的素材答：']), q.material]) : null
+  ]);
+  const toggle = el('button', { class: 'qi-toggle', type: 'button' }, ['展开 ▾']);
+  toggle.addEventListener('click', () => {
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    toggle.textContent = open ? '展开 ▾' : '收起 ▴';
+  });
+  return el('div', { class: 'q-item' }, [
+    el('div', { class: 'q-head' }, [
+      el('span', { class: 'q-text' }, [q.q]),
+      q.material ? el('span', { class: 'q-badge' }, ['有素材']) : null,
+      toggle
+    ]),
+    body
+  ]);
+}
+
+function buildQuestionCards(data, ico) {
+  return el('div', { class: 'card' }, [
+    el('div', { class: 'card-title' }, [
+      el('h3', {}, [ico('briefcase', 15), '高频问题']),
+      el('span', { class: 'hint' }, ['按你的方向（' + (DOMAIN_LABELS[data.domain] || data.domain) + '）筛过'])
+    ]),
+    el('div', { class: 'q-group-label' }, ['方向专属 · ' + (DOMAIN_LABELS[data.domain] || data.domain)]),
+    el('div', {}, data.domainSpecific.map((q) => questionCard(q, ico))),
+    el('div', { class: 'q-group-label' }, ['通用 · 任何岗位都会问']),
+    el('div', {}, data.general.map((q) => questionCard(q, ico)))
+  ]);
+}
+
+// ---- 网申开放题模板 ----
+function buildOpenCard(data, ico) {
+  return el('div', { class: 'card' }, [
+    el('div', { class: 'card-title' }, [
+      el('h3', {}, [ico('doc', 15), '网申开放题模板']),
+      el('span', { class: 'hint' }, ['框架 + 填空句，照着写就不空'])
+    ]),
+    el('div', {}, data.openTemplates.map((t) => {
+      const body = el('div', { class: 'qi-body', style: 'display:none;' }, [
+        el('div', { class: 'qi-frame' }, [el('b', {}, ['写作框架：']), el('ol', {}, t.frame.map((f) => el('li', {}, [f])))]),
+        el('div', { class: 'qi-material' }, [el('b', {}, ['起手句（括号里换成你的事）：']), t.starter]),
+        t.pitfall ? el('div', { class: 'qi-pitfall' }, [el('b', {}, ['常见坑：']), t.pitfall]) : null
+      ]);
+      const toggle = el('button', { class: 'qi-toggle', type: 'button' }, ['展开 ▾']);
+      toggle.addEventListener('click', () => {
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : 'block';
+        toggle.textContent = open ? '展开 ▾' : '收起 ▴';
+      });
+      return el('div', { class: 'q-item' }, [
+        el('div', { class: 'q-head' }, [el('span', { class: 'q-text' }, [t.title]), toggle]),
+        body
+      ]);
+    }))
+  ]);
+}
+
+// ---- 反问清单 ----
+function buildAskBackCard(data, ico) {
+  return el('div', { class: 'card' }, [
+    el('div', { class: 'card-title' }, [
+      el('h3' , {}, [ico('spark', 15), '面试最后的反问']),
+      el('span', { class: 'hint' }, ['这一问算分 · 挑 2 个问即可'])
+    ]),
+    el('div', { class: 'ask-list' }, data.askBack.map((q) =>
+      el('div', { class: 'ask-item' }, [el('span', { class: 'ask-dot' }, ['?']), el('span', {}, [q])])
+    ))
+  ]);
+}

@@ -13,6 +13,7 @@ import * as auth from './auth';
 import * as engine from './resume-engine';
 import { createLlmClient } from './llm-client';
 import { detectLocalServices } from './local-detect';
+import * as interview from './interview';
 import * as secureStore from './secure-store';
 import type { IpcResult, Profile, LlmConfig } from './types';
 
@@ -398,6 +399,15 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
 ipcMain.handle('agent:detectLocal', async () => {
   try {
     return ok(await detectLocalServices());
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// ---------------- 面试准备（全本地、零模型） ----------------
+ipcMain.handle('interview:prep', (_e, profile: Partial<Profile>, opts?: { company?: string }) => {
+  try {
+    return ok(interview.prepareInterview(profile, opts || {}));
   } catch (err) {
     return fail((err as Error).message);
   }

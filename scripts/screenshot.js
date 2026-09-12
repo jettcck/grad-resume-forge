@@ -18,6 +18,7 @@ const engine = require(path.join(ROOT, 'dist/main/resume-engine'));
 const { createLlmClient } = require(path.join(ROOT, 'dist/main/llm-client'));
 const secure = require(path.join(ROOT, 'dist/main/secure-store'));
 const { askAssistant: askAssistantReal, hotQuestions: hotQuestionsReal } = require(path.join(ROOT, 'dist/main/assistant'));
+const interviewReal = require(path.join(ROOT, 'dist/main/interview'));
 
 const DEMO_EMAIL = 'shot@demo.local';
 const DEMO_PASSWORD = 'demo123456';
@@ -96,6 +97,8 @@ function registerIpc() {
   h('settings:save', (_k, v) => v);
   h('assistant:ask', (query, dom) => askAssistantReal(query, dom));
   h('assistant:hot', () => hotQuestionsReal());
+  // 面试准备：用真实模块（全本地、零模型）
+  h('interview:prep', (profile, opts) => interviewReal.prepareInterview(profile, opts || {}));
   // 本机模型服务探测：返回一个假服务，用于验证「一键使用」
   h('agent:detectLocal', () => ([
     { id: 'lmstudio', name: 'LM Studio', endpoint: 'http://127.0.0.1:1234/v1', models: ['qwen2.5-7b-instruct'] }
@@ -605,6 +608,75 @@ async function main() {
     return (p && p.classList.contains('active') ? '✅' : '❌') + ' 切回「流水线」同样生效（双向可选）';
   })()`));
   mockAgentAvailable = false;
+
+  // —— 面试准备（第 4 个路由，全本地零模型）——
+  // 面试素材来自项目/实习，所以先经「示例」按钮载入完整档案（顺带验证确认框链路）
+  await win.webContents.executeJavaScript(`(() => {
+    const bar = document.querySelector('.import-bar');
+    const demo = bar && Array.from(bar.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '示例');
+    if (demo) demo.click();
+    return !!demo;
+  })()`);
+  await sleep(700);
+  console.log(await verify(win, `(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    t('点「示例」先弹确认框（不直接覆盖）', !!box && /载入示例会替换当前档案/.test(box.textContent));
+    const ok = box && Array.from(box.querySelectorAll('.btn')).find((b) => /载入示例并备份/.test(b.textContent));
+    t('确认框说明会先备份到回炉快照', !!box && /回炉快照/.test(box.textContent));
+    if (ok) ok.click();
+    return out.join('\\n');
+  })()`));
+  await sleep(1400);
+
+  await win.webContents.executeJavaScript(`(() => {
+    window.__errs = [];
+    window.addEventListener('error', (e) => window.__errs.push('error: ' + e.message));
+    window.addEventListener('unhandledrejection', (e) => window.__errs.push('rejection: ' + ((e.reason && e.reason.message) || e.reason)));
+    document.querySelector('.nav-item[data-route="interview"]').click();
+    return true;
+  })()`);
+  await sleep(2200);
+  await shot(win, '07-interview');
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const root = document.getElementById('route-interview');
+    t('面试准备路由存在且已渲染', !!root && root.textContent.length > 200);
+    if (!root || root.textContent.length <= 200) {
+      out.push('   ↳ 实际内容: ' + (root ? JSON.stringify(root.textContent.slice(0, 160)) : '(no root)'));
+      out.push('   ↳ 页面错误: ' + JSON.stringify(window.__errs || []));
+      out.push('   ↳ 路由显示: ' + (root ? root.style.display : '?') + ' / api.interview=' + typeof (window.api && window.api.interview));
+    }
+    t('导航栏有「面试准备」入口', !!document.querySelector('.nav-item[data-route="interview"]'));
+    // 自我介绍：生成稿 + 两档时长
+    const intro = root.querySelector('.intro-text');
+    t('自我介绍已生成', !!intro && intro.textContent.length > 60);
+    t('自我介绍含档案里的项目名', !!intro && /简历锻造炉|分布式短链/.test(intro.textContent));
+    const segs = Array.from(root.querySelectorAll('.seg-btn')).map((b) => b.textContent.trim());
+    t('提供 30 秒 / 60 秒两档', segs.some((s) => /30 秒/.test(s)) && segs.some((s) => /60 秒/.test(s)));
+    t('标明取材来源（可核对）', /取材于你档案里的/.test(root.textContent));
+    // 题库
+    const items = root.querySelectorAll('.q-item');
+    t('题库已渲染（≥10 题）', items.length >= 10);
+    t('方向专属题分组存在', /方向专属/.test(root.textContent));
+    const badge = root.querySelector('.q-badge');
+    t('讲经历的题带「有素材」标记', !!badge && /有素材/.test(badge.textContent));
+    // 展开交互：考察点 / 框架 / 坑
+    const firstToggle = root.querySelector('.qi-toggle');
+    if (firstToggle) firstToggle.click();
+    const body = root.querySelector('.qi-body');
+    t('展开后显示考察点', !!body && /考察点/.test(body.textContent));
+    t('展开后显示回答框架', !!body && /回答框架/.test(body.textContent));
+    t('展开后显示常见坑', !!body && /常见坑/.test(body.textContent));
+    // 开放题模板 + 反问
+    t('网申开放题模板存在', /网申开放题模板/.test(root.textContent));
+    t('反问清单存在', /面试最后的反问/.test(root.textContent));
+    // 零门槛：页面上不该出现需要模型/密钥的字样
+    t('全程不要求模型或密钥', !/需要模型|API 密钥|下载模型/.test(root.textContent));
+    return out.join('\\n');
+  })()`));
 
   console.log('done. shots in', SHOTS);
   app.exit(0);

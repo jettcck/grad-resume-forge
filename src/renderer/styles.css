@@ -1085,6 +1085,31 @@ em { font-style: normal; color: var(--gold); }
 /* Agent 结果：通道标签（规则通道必须与 LLM 通道可区分） */
 .agent-mode-tag { display: inline-block; font-size: 11px; font-family: var(--font-mono); padding: 3px 8px; border-radius: 3px; margin-bottom: 4px; color: var(--ink-2); background: var(--bg-2); border: 1px solid var(--line); }
 .agent-mode-tag.rules { color: var(--gold); border-color: rgba(255,176,30,.42); background: rgba(255,176,30,.08); }
+/* ---------- 面试准备（全本地生成） ---------- */
+.intro-text { padding: 14px 16px; background: var(--bg-2); border: 1px solid var(--line); border-left: 2px solid var(--teal); border-radius: var(--radius-sm); font-size: 13.5px; line-height: 2; color: var(--ink-0); }
+.intro-parts { margin-top: 12px; }
+.intro-part { display: flex; gap: 10px; padding: 5px 0; font-size: 12.5px; line-height: 1.7; }
+.intro-part .ip-label { flex: 0 0 62px; color: var(--gold); font-family: var(--font-mono); font-size: 11px; padding-top: 2px; }
+.intro-part .ip-text { color: var(--ink-1); }
+.intro-sources { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 11.5px; color: var(--ink-2); line-height: 1.7; }
+.q-group-label { margin: 14px 0 6px; font-size: 11.5px; font-family: var(--font-mono); color: var(--teal); letter-spacing: .3px; }
+.q-item { border-bottom: 1px solid var(--line); }
+.q-item:last-child { border-bottom: none; }
+.q-head { display: flex; align-items: center; gap: 10px; padding: 11px 2px; }
+.q-text { flex: 1; font-size: 13px; color: var(--ink-0); line-height: 1.6; }
+.q-badge { flex: 0 0 auto; font-size: 10.5px; padding: 2px 7px; border-radius: 3px; color: var(--gold); border: 1px solid rgba(255,176,30,.4); background: rgba(255,176,30,.08); }
+.qi-toggle { flex: 0 0 auto; background: transparent; border: none; color: var(--ink-2); font-size: 11.5px; cursor: pointer; padding: 4px 2px; }
+.qi-toggle:hover { color: var(--gold); }
+.qi-body { padding: 2px 2px 14px; font-size: 12.5px; line-height: 1.8; color: var(--ink-1); }
+.qi-body b { color: var(--ink-0); }
+.qi-focus, .qi-pitfall, .qi-material { margin-bottom: 8px; }
+.qi-pitfall, .qi-pitfall b { color: var(--danger); }
+.qi-material, .qi-material b { color: var(--teal); }
+.qi-frame ol { margin: 6px 0 0 18px; padding: 0; }
+.qi-frame li { margin-bottom: 3px; }
+.ask-list { display: flex; flex-direction: column; gap: 8px; }
+.ask-item { display: flex; gap: 10px; font-size: 12.5px; line-height: 1.7; color: var(--ink-1); }
+.ask-dot { flex: 0 0 auto; color: var(--gold); font-weight: 700; }
 .furnace-dot.hot { background: var(--gold); box-shadow: 0 0 8px rgba(240,161,60,.8); animation: furnacePulse 1.2s infinite; }
 @keyframes furnacePulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
 .agent-dot.on { color: var(--teal); }

@@ -80,6 +80,10 @@ contextBridge.exposeInMainWorld('api', {
     ask: (query: string, domainHint?: string) => ipcRenderer.invoke('assistant:ask', query, domainHint),
     hot: () => ipcRenderer.invoke('assistant:hot')
   },
+  interview: {
+    // 面试准备（全本地、零模型）：自我介绍生成 + 方向化题库 + 开放题模板 + 反问清单
+    prep: (profile: unknown, opts?: unknown) => ipcRenderer.invoke('interview:prep', profile, opts)
+  },
   embedded: {
     // 渲染进程 → 主进程：报告 WebGPU/模型就绪状态（主进程据此决定 agent:status）
     reportStatus: (st: { webgpu: boolean; ready: boolean }) =>
