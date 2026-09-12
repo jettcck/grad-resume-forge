@@ -21,6 +21,8 @@ const { askAssistant: askAssistantReal, hotQuestions: hotQuestionsReal } = requi
 
 const DEMO_EMAIL = 'shot@demo.local';
 const DEMO_PASSWORD = 'demo123456';
+// 测试可动态切换：模拟「有可用模型」（云端/本地已配置）的场景
+let mockAgentAvailable = false;
 
 const DEMO_PROFILE = {
   name: '李明', phone: '13812345678', email: 'liming@example.com', city: '杭州',
@@ -84,11 +86,11 @@ function registerIpc() {
   h('snapshots:delete', (uid, id) => store.deleteAgentSnapshot(uid, id));
   h('resume:generate', (p, o) => engine.generate(p, o || {}));
   // 固定返回「无可用模型」：零配置通道的默认行为必须可确定地测到，
-  // 不能受开发机上是否跑着 Ollama 影响
+  // 不能受开发机上是否跑着 Ollama 影响。可用性可由测试动态切换（见下方 mockAgentAvailable）
   h('agent:status', () => ({
-    available: false, models: [], error: '',
-    config: { provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'qwen2.5:7b', temperature: 0.3 },
-    provider: 'ollama'
+    available: mockAgentAvailable, models: mockAgentAvailable ? ['deepseek-chat'] : [], error: '',
+    config: { provider: mockAgentAvailable ? 'cloud' : 'ollama', endpoint: mockAgentAvailable ? 'https://api.deepseek.com/v1' : 'http://127.0.0.1:11434', model: mockAgentAvailable ? 'deepseek-chat' : 'qwen2.5:7b', temperature: 0.3 },
+    provider: mockAgentAvailable ? 'cloud' : 'ollama'
   }));
   h('settings:get', () => null);
   h('settings:save', (_k, v) => v);
@@ -550,6 +552,59 @@ async function main() {
     return true;
   })()`);
   await sleep(300);
+
+  // —— 回归：配了可用模型时，手动切「零配置（规则）」必须真的切过去且不被覆盖 ——
+  // 曾经的 bug：自动默认每次渲染都把手动选择改回「流水线」，表现为「点了没反应」
+  mockAgentAvailable = true;
+  await win.webContents.executeJavaScript(`(() => {
+    // 打开配置并保存 → 触发重新探测（清缓存）
+    const cfg = Array.from(document.querySelectorAll('#route-resume .btn')).find((b) => b.textContent.trim() === '配置');
+    if (cfg) cfg.click();
+    return !!cfg;
+  })()`);
+  await sleep(1200);
+  await win.webContents.executeJavaScript(`(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const save = Array.from(box.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '保存');
+    if (save) save.click();
+    return !!save;
+  })()`);
+  await sleep(1800);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const btn = (txt) => segs.find((b) => new RegExp(txt).test(b.textContent));
+    t('有可用模型时默认选中「流水线」', !!btn('流水线') && btn('流水线').classList.contains('active'));
+    if (btn('零配置')) btn('零配置').click();
+    return out.join('\\n');
+  })()`));
+  await sleep(900);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const btn = (txt) => segs.find((b) => new RegExp(txt).test(b.textContent));
+    t('有可用模型时也能手动切到「零配置（规则）」', !!btn('零配置') && btn('零配置').classList.contains('active'));
+    t('切换后不被自动默认覆盖回流水线', !!btn('流水线') && !btn('流水线').classList.contains('active'));
+    const runBtn = Array.from(document.querySelectorAll('#route-resume .btn-primary')).find((b) => /对着这份 JD 跑一轮/.test(b.textContent));
+    t('运行按钮随之切换为零配置文案', !!runBtn && /零配置/.test(runBtn.textContent));
+    return out.join('\\n');
+  })()`));
+  // 切回流水线，确认双向都可选
+  await win.webContents.executeJavaScript(`(() => {
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const p = segs.find((b) => /流水线/.test(b.textContent));
+    if (p) p.click();
+    return !!p;
+  })()`);
+  await sleep(700);
+  console.log(await verify(win, `(() => {
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const p = segs.find((b) => /流水线/.test(b.textContent));
+    return (p && p.classList.contains('active') ? '✅' : '❌') + ' 切回「流水线」同样生效（双向可选）';
+  })()`));
+  mockAgentAvailable = false;
 
   console.log('done. shots in', SHOTS);
   app.exit(0);

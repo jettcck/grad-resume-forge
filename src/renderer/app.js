@@ -1420,7 +1420,8 @@ async function openJdMatch() {
 
 // ---------------- Agent 深度优化（本地 LLM · Ollama） ----------------
 let _agentStatus = null; // { available, models, config } | null=未检测
-let _agentMode = 'pipeline'; // 'pipeline' 确定性编排 | 'agentic' LLM 自主选工具
+let _agentMode = null;        // null = 用户尚未选择（用自动默认）
+let _agentModeUserSet = false; // 用户手动选过之后，自动默认不再覆盖（否则会"点不动"）
 
 async function refreshAgentStatus() {
   try {
@@ -1470,9 +1471,12 @@ function buildAgentCard() {
   }
 
   const modelReady = !!_agentStatus.available;
-  // 没配任何模型时：默认走「零配置（规则）」通道，用户无需下载模型或填密钥
-  if (!modelReady && _agentMode !== 'rules') _agentMode = 'rules';
-  if (modelReady && _agentMode === 'rules') _agentMode = 'pipeline';
+  // 自动默认只在用户还没手动选过时生效：有可用模型 → 流水线，没有 → 零配置（规则）。
+  // 用户一旦点过模式按钮，就始终尊重他的选择——否则每次重渲染都会把手动选择覆盖掉，
+  // 表现就是「点了没反应」（配了云端/本地模型时点「零配置」正是这个症状）
+  if (!_agentModeUserSet) {
+    _agentMode = modelReady ? 'pipeline' : 'rules';
+  }
 
   const runLabel = _agentMode === 'rules'
     ? '⚡ 对着这份 JD 跑一轮（零配置 · 规则引擎）'
@@ -1494,9 +1498,11 @@ function buildAgentCard() {
       title: 'LLM 通过原生 function calling 自主决定调用哪个工具、何时收工（需模型）'
     }, ['自主 Agent'])
   };
-  modeBtns.rules.addEventListener('click', () => { _agentMode = 'rules'; renderResumePage(); });
-  modeBtns.pipeline.addEventListener('click', () => { _agentMode = 'pipeline'; renderResumePage(); });
-  modeBtns.agentic.addEventListener('click', () => { _agentMode = 'agentic'; renderResumePage(); });
+  // 用户点了模式按钮 → 记为「已手动选择」，此后自动默认不再覆盖
+  const pickMode = (m) => { _agentMode = m; _agentModeUserSet = true; renderResumePage(); };
+  modeBtns.rules.addEventListener('click', () => pickMode('rules'));
+  modeBtns.pipeline.addEventListener('click', () => pickMode('pipeline'));
+  modeBtns.agentic.addEventListener('click', () => pickMode('agentic'));
 
   const modeHint = _agentMode === 'rules'
     ? '零配置模式：不下载模型、不填密钥、不联网，即时完成。规则引擎擅长删套话、强化动词、保量化、按 JD 对齐技能表述；但它无法像大模型那样按 JD 语义重组句子、生成全新表述——需要那一层时再选流水线/自主模式。'

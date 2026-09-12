@@ -70,6 +70,12 @@ assert(/downloaded:\s*'ok'/.test(appSrc) && /error:\s*'err'/.test(appSrc), '检�
 assert(cssSrc.includes('.about-status.tone-ok') && cssSrc.includes('.about-status.tone-err') && cssSrc.includes('.about-bar'),
   '样式含成功/失败配色与下载进度条');
 assert(appSrc.includes('检查超时'), '检查有超时兜底（不再让用户干等）');
+// 模式选择：自动默认不得覆盖用户的手动选择
+// （曾经的 bug：配了模型时每次渲染都把手动选的「零配置」改回「流水线」，表现为点了没反应）
+assert(appSrc.includes('_agentModeUserSet'), '优化模式记录「用户是否手动选过」，自动默认不覆盖手动选择');
+assert(!/modelReady && _agentMode === 'rules'\) _agentMode = 'pipeline'/.test(appSrc),
+  '不存在「有模型就强制改回流水线」的覆盖逻辑');
+assert(appSrc.includes('零配置（规则）'), '界面提供零配置（规则）通道');
 
 // 5) CI / 发布流水线配置存在且关键项齐全
 const ciYml = path.join(__dirname, '.github', 'workflows', 'ci.yml');
