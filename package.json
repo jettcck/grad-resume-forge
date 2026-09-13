@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "start": "tsc && electron .",
     "dev": "tsc && electron . --dev",
-    "test": "tsc && node test-engine.js && node test-importer.js && node test-agent.js && node test-e2e.js && node test-versions.js && node test-updater.js && node test-embedded.js && node test-secure-store.js && node test-interview.js && node test-assistant.js && node evals/run-evals.js",
+    "test": "tsc && node test-engine.js && node test-importer.js && node test-agent.js && node test-e2e.js && node test-versions.js && node test-contract.js && node test-updater.js && node test-embedded.js && node test-secure-store.js && node test-interview.js && node test-assistant.js && node evals/run-evals.js",
     "eval": "node evals/run-evals.js",
     "eval:llm": "node evals/run-llm-eval.js",
     "dist": "tsc && electron-builder --win --x64 --publish never",

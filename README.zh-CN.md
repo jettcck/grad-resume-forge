@@ -165,6 +165,7 @@ git config http.proxy http://127.0.0.1:7890
 | Agent 自测 | 校验门 / 重生成 / 流式 / 云端客户端（mock 全链路） | `node test-agent.js` |
 | 端到端 | 注册 → 登录 → 存档 → 生成 → 投递 → 快照回炉 | `node test-e2e.js` |
 | 更新器烟测 | publish 配置 / 镜像规则 | `node test-updater.js` |
+| 契约自测 | 渲染层 ↔ preload ↔ 主进程 IPC ↔ 截图 mock 保持一致 | `node test-contract.js` |
 | 零门槛守卫 | 应用内模型加载形态 / 国内镜像 / CSP / 文案口径 | `node test-embedded.js` |
 | 规则层评测 | 32 个 golden case 回归门禁 | `npm run eval` |
 | LLM 层评测 | 真实模型双模式对比 | `npm run eval:llm` |

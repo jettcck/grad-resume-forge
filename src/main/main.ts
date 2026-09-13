@@ -15,7 +15,7 @@ import { createLlmClient } from './llm-client';
 import { detectLocalServices } from './local-detect';
 import * as interview from './interview';
 import * as secureStore from './secure-store';
-import type { IpcResult, Profile, LlmConfig } from './types';
+import type { IpcResult, Profile, LlmConfig, Application } from './types';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -182,6 +182,25 @@ ipcMain.handle('resume:importPdf', async () => {
 ipcMain.handle('applications:list', (_e, userId: string) => {
   try {
     return ok(store.listApplications(userId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 新增/编辑投递（此前只在 preload 暴露、主进程漏注册 → 真实应用里存投递会报
+// 「No handler registered」，看板实际是只读的；截图 mock 里注册了所以测试没发现）
+ipcMain.handle('applications:save', (_e, userId: string, application: Application) => {
+  try {
+    if (!store.findUserById(userId)) return fail('用户不存在');
+    return ok(store.saveApplication(userId, application));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('applications:delete', (_e, userId: string, appId: string) => {
+  try {
+    return ok(store.deleteApplication(userId, appId));
   } catch (err) {
     return fail((err as Error).message);
   }

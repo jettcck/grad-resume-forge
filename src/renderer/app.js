@@ -1820,7 +1820,10 @@ async function openAgentRun() {
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
+  // 收集步骤轨迹：结果视图会重建 box，轨迹要保留下来（它是「这轮真的跑了什么」的证据）
+  const collectedSteps = [];
   const unsub = window.api.agent.onProgress((s) => {
+    collectedSteps.push(s);
     stepsBox.appendChild(el('div', { class: 'agent-step' + (s.ok ? '' : ' bad') }, [
       el('span', { class: 'st-ico' }, [s.ok ? '✓' : '✕']),
       el('span', { class: 'st-label' }, [s.label]),
@@ -1857,11 +1860,14 @@ async function openAgentRun() {
   }
 
   if (window.Sound) window.Sound.play(result && result.ok ? 'done' : 'err'); // Agent 收工音
-  renderAgentResult(overlay, box, result, error);
+  // 用 result.steps（权威、与结果同一次返回）而不是运行期收集的事件：
+  // 步骤走 agent:progress 事件通道、结果走 invoke 返回值，两条路径存在竞态——
+  // 规则通道只需几毫秒，响应常比事件先到，用事件拼出来的轨迹会缺步。
+  renderAgentResult(overlay, box, result, error, (result && result.steps) || collectedSteps);
 }
 
 // 运行结束：进度模态 → 结果视图（前后对比 + diff + 应用按钮）
-function renderAgentResult(overlay, box, result, error) {
+function renderAgentResult(overlay, box, result, error, steps) {
   box.innerHTML = '';
 
   if (error || !result || !result.ok) {
@@ -1895,6 +1901,31 @@ function renderAgentResult(overlay, box, result, error) {
       el('b', {}, [a + suffix + ' → ' + b + suffix + up(a, b)])
     ]);
 
+  // 步骤轨迹（可折叠）：结果视图会重建 box，这里把刚才跑过的步骤保留下来，
+  // 让「这轮到底做了什么」可核对——规则通道尤其需要它来自证可复现
+  let stepsBlock = null;
+  if (Array.isArray(steps) && steps.length) {
+    const stepList = el('div', { class: 'agent-steps', style: 'display:none;max-height:180px;overflow:auto;' },
+      steps.map((s) => el('div', { class: 'agent-step' + (s.ok ? '' : ' bad') }, [
+        el('span', { class: 'st-ico' }, [s.ok ? '✓' : '✕']),
+        el('span', { class: 'st-label' }, [s.label]),
+        el('span', { class: 'st-detail' }, [s.detail + ' · ' + s.ms + 'ms'])
+      ])));
+    const toggle = el('button', { class: 'qi-toggle', type: 'button' }, ['查看步骤轨迹 ▾']);
+    toggle.addEventListener('click', () => {
+      const open = stepList.style.display !== 'none';
+      stepList.style.display = open ? 'none' : 'block';
+      toggle.textContent = open ? '查看步骤轨迹 ▾' : '收起步骤轨迹 ▴';
+    });
+    stepsBlock = el('div', { style: 'margin:10px 0 0;' }, [
+      el('div', { style: 'display:flex;align-items:center;gap:8px;' }, [
+        el('span', { style: 'font-size:12px;color:var(--ink-2);' }, ['本轮 ' + steps.length + ' 步']),
+        toggle
+      ]),
+      stepList
+    ]);
+  }
+
   // 逐条勾选审批（human-in-the-loop）：默认全选，取消勾选的条目保留原文
   const rewriteNodes = result.accepted.map((r) =>
     el('div', { class: 'agent-rw', 'data-id': r.id }, [
@@ -1910,6 +1941,7 @@ function renderAgentResult(overlay, box, result, error) {
     el('h3', { class: 'modal-title' }, ['Agent 优化完成 · ' + result.rounds + ' 轮']),
     stat('去 AI 味体检', result.auditBefore, result.auditAfter, ' 分'),
     stat('JD 技能覆盖', result.jdBefore, result.jdAfter, '%'),
+    stepsBlock,
     result.jdMissingAfter && result.jdMissingAfter.length
       ? el('p', { style: 'font-size:12px;color:var(--ink-2);margin:6px 0 0;' },
           ['仍缺失：' + result.jdMissingAfter.slice(0, 8).join('、') + '，会的话手动补进技能或项目。'])

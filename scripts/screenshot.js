@@ -19,6 +19,7 @@ const { createLlmClient } = require(path.join(ROOT, 'dist/main/llm-client'));
 const secure = require(path.join(ROOT, 'dist/main/secure-store'));
 const { askAssistant: askAssistantReal, hotQuestions: hotQuestionsReal } = require(path.join(ROOT, 'dist/main/assistant'));
 const interviewReal = require(path.join(ROOT, 'dist/main/interview'));
+const agentReal = require(path.join(ROOT, 'dist/main/agent'));
 
 const DEMO_EMAIL = 'shot@demo.local';
 const DEMO_PASSWORD = 'demo123456';
@@ -97,6 +98,26 @@ function registerIpc() {
   h('versions:delete', (uid, id) => store.deleteVersion(uid, id));
   h('resume:matchJd', (resume, jd) => engine.matchJd(resume, jd));
   h('resume:generate', (p, o) => engine.generate(p, o || {}));
+  h('resume:exportPdf', () => ({ path: 'C:/tmp/fake.pdf' }));
+  h('resume:importPdf', () => null); // 文件选择框在截图环境里等同「用户取消」
+  h('updater:check', () => ({ started: true }));
+  h('updater:install', () => ({ installing: true }));
+  h('updater:setMirror', (m) => ({ mirror: m }));
+  // 零配置（规则）通道走真实模块：不需要任何模型，可在截图环境端到端跑通。
+  // onStep 必须像真实主进程那样转发成 agent:progress，否则界面收不到步骤轨迹
+  h('agent:run', async (profile, jd, opts) => {
+    const wins = BrowserWindow.getAllWindows();
+    const w = wins.length ? wins[0] : null;
+    const send = (s) => { if (w && !w.isDestroyed()) w.webContents.send('agent:progress', s); };
+    const mode = opts && opts.mode;
+    if (mode === 'rules') return agentReal.runAgent(profile, jd, { rulesOnly: true, onStep: send });
+    // 截图环境不接任何模型：LLM 通道如实返回失败对象（UI 应给出可读错误）
+    return {
+      ok: false, mode: 'pipeline', error: '截图环境未配置模型（预期行为）', rounds: 0,
+      accepted: [], rejected: [], auditBefore: 0, auditAfter: 0, jdBefore: 0, jdAfter: 0,
+      jdMissingAfter: [], steps: []
+    };
+  });
   // 固定返回「无可用模型」：零配置通道的默认行为必须可确定地测到，
   // 不能受开发机上是否跑着 Ollama 影响。可用性可由测试动态切换（见下方 mockAgentAvailable）
   h('agent:status', () => ({
@@ -816,6 +837,56 @@ async function main() {
     t('全程不要求模型或密钥', !/需要模型|API 密钥|下载模型/.test(root.textContent));
     return out.join('\\n');
   })()`));
+
+  // —— 零配置（规则）通道：真的点一次「跑一轮」，走完流程看到结果 ——
+  // 放在示例档案载入之后：规则改写需要有可改写的经历条目
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.nav-item[data-route="resume"]').click();
+    return true;
+  })()`);
+  await sleep(1500);
+  // 先切到零配置（规则）通道——前面的模式测试把选择留在了流水线
+  await win.webContents.executeJavaScript(`(() => {
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const rules = segs.find((b) => /零配置/.test(b.textContent));
+    if (rules) rules.click();
+    return !!rules;
+  })()`);
+  await sleep(900);
+  await win.webContents.executeJavaScript(`(() => {
+    const btn = Array.from(document.querySelectorAll('#route-resume .btn-primary')).find((b) => /对着这份 JD 跑一轮/.test(b.textContent));
+    if (btn) btn.click();
+    return !!btn;
+  })()`);
+  await sleep(900);
+  // 此前没贴过 JD → 会先弹输入框
+  await win.webContents.executeJavaScript(`(() => {
+    const ta = document.querySelector('.modal-overlay textarea');
+    if (ta) {
+      ta.value = '岗位：后端开发工程师\\n任职要求：\\n1. 必须熟练掌握 Java 与 MySQL；\\n2. 熟悉 Redis 缓存与微服务架构；\\n加分项：了解 Kafka 者优先。';
+      const box = document.querySelector('.modal-overlay .modal-box');
+      const ok = box && Array.from(box.querySelectorAll('.btn')).find((b) => /开始优化/.test(b.textContent));
+      if (ok) ok.click();
+    }
+    return !!ta;
+  })()`);
+  await sleep(2600);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const box = document.querySelector('.modal-overlay .modal-box');
+    t('规则通道跑完并给出结果弹窗', !!box && !/运行中/.test(box.textContent));
+    t('结果标注通道为「规则引擎（无模型）」', !!box && /确定性规则引擎（无模型/.test(box.textContent));
+    t('结果说明它做不到语义重组（能力边界）', !!box && /不会按 JD 语义重组句子/.test(box.textContent));
+    t('给出体检分前后对比', !!box && /体检/.test(box.textContent) && /→/.test(box.textContent));
+    t('给出 JD 覆盖率前后对比', !!box && /覆盖/.test(box.textContent));
+    t('结果含步骤轨迹', !!box && box.querySelectorAll('.agent-step').length >= 3);
+    const close = box && Array.from(box.querySelectorAll('.btn')).find((b) => /知道了|稍后|关闭/.test(b.textContent));
+    if (close) close.click();
+    else if (box) { const own = Array.from(box.querySelectorAll('.btn')).pop(); if (own) own.click(); }
+    return out.join('\\n');
+  })()`));
+  await sleep(600);
 
   console.log('done. shots in', SHOTS);
   app.exit(0);

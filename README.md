@@ -148,6 +148,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 | Agent | validation gate / regen loop / streaming / cloud client (mocked end-to-end) | `node test-agent.js` |
 | E2E | register → login → profile → generate → applications → snapshot restore | `node test-e2e.js` |
 | Updater | publish config / mirror rules / pipeline assertions | `node test-updater.js` |
+| Contract | renderer ↔ preload ↔ main IPC ↔ screenshot mock stay in sync | `node test-contract.js` |
 | Zero-barrier guard | in-app model loading shape / China mirrors / CSP / honest copy | `node test-embedded.js` |
 | Rule-layer evals | 32 golden cases as a regression gate | `npm run eval` |
 | LLM-layer evals | dual-mode comparison on a real model | `npm run eval:llm` |
