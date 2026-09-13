@@ -97,4 +97,36 @@ store.init(tmp);
 assert(backs().length === beforeBad, '库文件损坏时不备份（避免把坏内容也留档）');
 assert(fs.readdirSync(dataDir).some((f) => f.includes('.corrupt-')), '损坏的库被改名另存（不静默丢弃）');
 
+// ---------- 10) 毫秒撞车不能互相覆盖（Linux 快速 fs 上两次 init 常落在同一毫秒）----------
+// 这不是假想场景：Windows 上单文件写入 >1ms 所以侥幸不撞，Linux 的快速文件系统上会自然触发，
+// 而一旦覆盖就等于「备份功能本身在丢历史」——正是这层保险最不能出的问题。
+{
+  const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'grf-bak-ms-'));
+  const RealDate = Date;
+  const FIXED = new RealDate(2026, 8, 13, 10, 0, 0, 123).getTime();
+  global.Date = class extends RealDate {
+    constructor(...a) { if (a.length === 0) super(FIXED); else super(...a); }
+    static now() { return FIXED; }
+  };
+  try {
+    const bakDir2 = path.join(tmp2, 'grad-resume-data', 'backups');
+    const backs2 = () => (fs.existsSync(bakDir2) ? fs.readdirSync(bakDir2).filter((f) => /^db-.*\.json$/.test(f)).sort() : []);
+    store.init(tmp2);
+    const u2 = auth.register({ email: 'ms@test.local', password: 'pass123456', name: '撞车' });
+    store.saveProfile(u2.id, { name: '第一版' });
+    store.init(tmp2);
+    store.saveProfile(u2.id, { name: '第二版' });
+    store.init(tmp2);
+    const got = backs2();
+    assert(got.length === 2, '同一毫秒的两次备份都保留（实际 ' + got.length + ' 份：' + got.join(', ') + '）');
+    const gotNames = got.map((f) => JSON.parse(fs.readFileSync(path.join(bakDir2, f), 'utf-8')).profiles[u2.id].name);
+    assert(gotNames[0] === '第一版' && gotNames[1] === '第二版', '撞车后两份内容各自独立（' + gotNames.join(' | ') + '）');
+    assert(got.every((f) => /^db-\d{8}-\d{9}\.json$/.test(f)), '顺延后的文件名仍符合规范（列表与恢复都认）');
+    assert(got[0] < got[1], '顺延不破坏「字典序=时间序」');
+    assert(store.listBackups().every((b) => /^db-\d{8}-\d{9}\.json$/.test(b.name)), 'listBackups 认得出顺延后的备份');
+  } finally {
+    global.Date = RealDate; // 恢复真实时钟，避免影响其它断言
+  }
+}
+
 console.log('\n数据备份自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

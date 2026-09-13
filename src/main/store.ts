@@ -70,6 +70,17 @@ function stamp(d: Date): string {
     p(d.getHours(), 2) + p(d.getMinutes(), 2) + p(d.getSeconds(), 2) + p(d.getMilliseconds(), 3);
 }
 
+// 取一个还没被占用的备份名：毫秒级撞车时（快速文件系统上很常见）往后顺延毫秒，
+// 而不是覆盖同名文件。顺延保证字典序仍然等于时间序，也保证文件名始终符合 BACKUP_RE。
+function uniqueBackupName(dir: string): string | null {
+  const base = Date.now();
+  for (let i = 0; i < 5000; i++) {
+    const name = 'db-' + stamp(new Date(base + i)) + '.json';
+    if (!fs.existsSync(path.join(dir, name))) return name;
+  }
+  return null; // 连顺延 5 秒都被占满：宁可这次不备份，也不写一个不符合命名规范/会覆盖别人的文件
+}
+
 export function rotateBackup(): { created: string | null; kept: number } {
   const dir = backupDir();
   try {
@@ -90,7 +101,8 @@ export function rotateBackup(): { created: string | null; kept: number } {
       } catch (_) { /* 读不了就当需要重新备份 */ }
     }
 
-    const name = 'db-' + stamp(new Date()) + '.json';
+    const name = uniqueBackupName(dir);
+    if (!name) return { created: null, kept: existing.length };
     fs.writeFileSync(path.join(dir, name), raw, 'utf-8');
     const all = list();
     all.slice(0, Math.max(0, all.length - BACKUP_KEEP)).forEach((f) => {
@@ -156,7 +168,9 @@ function rotateBackupRaw(): void {
     if (raw.trim().length < 20) return;
     try { JSON.parse(raw); } catch (_) { return; }
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'db-' + stamp(new Date()) + '.json'), raw, 'utf-8');
+    const name = uniqueBackupName(dir);
+    if (!name) return;
+    fs.writeFileSync(path.join(dir, name), raw, 'utf-8');
   } catch (_) { /* 忽略 */ }
 }
 
