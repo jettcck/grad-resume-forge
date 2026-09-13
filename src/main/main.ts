@@ -252,6 +252,33 @@ ipcMain.handle('snapshots:delete', (_e, userId: string, snapshotId: string) => {
   }
 });
 
+// ---------------- 数据备份（自动轮转 + 一键恢复） ----------------
+ipcMain.handle('backups:list', () => {
+  try {
+    return ok({ items: store.listBackups(), dir: store.backupsPath() });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('backups:restore', (_e, name: string) => {
+  try {
+    return ok(store.restoreBackup(name));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('backups:reveal', () => {
+  try {
+    const dir = store.backupsPath();
+    if (dir && fs.existsSync(dir)) shell.openPath(dir);
+    return ok({ dir });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
 // ---------------- 简历版本（多版本：一个岗位一版） ----------------
 ipcMain.handle('versions:list', (_e, userId: string) => {
   try {

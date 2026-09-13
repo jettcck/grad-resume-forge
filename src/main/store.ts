@@ -38,6 +38,11 @@ const db: DbShape = {
 const MAX_SNAPSHOTS = 5;
 // 版本上限：一版一个岗位，30 份够用；每份含档案本体，容量需有界
 const MAX_VERSIONS = 30;
+// 自动备份保留份数
+const BACKUP_KEEP = 5;
+const BACKUP_DIR = 'backups';
+// 名字带毫秒：同一秒内连续两次备份也不会互相覆盖，且字典序即时间序
+const BACKUP_RE = /^db-\d{8}-\d{9}\.json$/;
 
 export function init(userDataPath: string): void {
   dataDir = path.join(userDataPath, 'grad-resume-data');
@@ -45,8 +50,114 @@ export function init(userDataPath: string): void {
     fs.mkdirSync(dataDir, { recursive: true });
   }
   dbFile = path.join(dataDir, 'db.json');
+  rotateBackup(); // 先把上一轮结束时的库留一份（万一这轮跑出问题可回滚）
   load();
   sweepExpiredSessions();
+}
+
+// ---------------- 自动轮转备份 ----------------
+// 动机：库是单文件 JSON，一次意外写入（例如旧实例用内存里的旧库覆盖）
+// 就可能丢掉整个集合，且无从找回。启动时留一份上一轮状态的副本，
+// 保留最近 BACKUP_KEEP 份，让这类意外永远可回滚。
+// 只备份「能解析且非空」的文件；内容与最近一份相同则跳过（不堆重复副本）。
+function backupDir(): string | null {
+  return dataDir ? path.join(dataDir, BACKUP_DIR) : null;
+}
+
+function stamp(d: Date): string {
+  const p = (n: number, w: number): string => String(n).padStart(w, '0');
+  return p(d.getFullYear(), 4) + p(d.getMonth() + 1, 2) + p(d.getDate(), 2) + '-' +
+    p(d.getHours(), 2) + p(d.getMinutes(), 2) + p(d.getSeconds(), 2) + p(d.getMilliseconds(), 3);
+}
+
+export function rotateBackup(): { created: string | null; kept: number } {
+  const dir = backupDir();
+  try {
+    if (!dbFile || !dir || !fs.existsSync(dbFile)) return { created: null, kept: 0 };
+    const raw = fs.readFileSync(dbFile, 'utf-8');
+    if (raw.trim().length < 20) return { created: null, kept: 0 }; // 空库/半截文件不备份
+    try { JSON.parse(raw); } catch (_) { return { created: null, kept: 0 }; } // 坏文件不备份（load 会另存 .corrupt-）
+
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const list = (): string[] => fs.readdirSync(dir).filter((f) => BACKUP_RE.test(f)).sort();
+    const existing = list();
+    const last = existing[existing.length - 1];
+    if (last) {
+      try {
+        if (fs.readFileSync(path.join(dir, last), 'utf-8') === raw) {
+          return { created: null, kept: existing.length }; // 内容没变，不重复备份
+        }
+      } catch (_) { /* 读不了就当需要重新备份 */ }
+    }
+
+    const name = 'db-' + stamp(new Date()) + '.json';
+    fs.writeFileSync(path.join(dir, name), raw, 'utf-8');
+    const all = list();
+    all.slice(0, Math.max(0, all.length - BACKUP_KEEP)).forEach((f) => {
+      try { fs.unlinkSync(path.join(dir, f)); } catch (_) { /* 忽略 */ }
+    });
+    return { created: name, kept: Math.min(all.length, BACKUP_KEEP) };
+  } catch (_) {
+    return { created: null, kept: 0 }; // 备份失败绝不能影响启动
+  }
+}
+
+export interface BackupMeta { name: string; size: number; createdAt: number }
+
+export function listBackups(): BackupMeta[] {
+  const dir = backupDir();
+  if (!dir || !fs.existsSync(dir)) return [];
+  try {
+    return fs.readdirSync(dir)
+      .filter((f) => BACKUP_RE.test(f))
+      .sort()
+      .reverse() // 最新在前
+      .map((f) => {
+        const st = fs.statSync(path.join(dir, f));
+        return { name: f, size: st.size, createdAt: st.mtimeMs };
+      });
+  } catch (_) {
+    return [];
+  }
+}
+
+export function backupsPath(): string | null {
+  return backupDir();
+}
+
+// 从备份恢复：只接受严格命名的文件（防路径穿越），且内容必须能解析
+export function restoreBackup(name: string): { restored: string } {
+  const dir = backupDir();
+  if (!dir || !BACKUP_RE.test(String(name || ''))) throw new Error('备份文件名不合法');
+  const src = path.join(dir, name);
+  if (!fs.existsSync(src)) throw new Error('备份不存在');
+  const raw = fs.readFileSync(src, 'utf-8');
+  let parsed: Partial<DbShape>;
+  try {
+    parsed = JSON.parse(raw) as Partial<DbShape>;
+  } catch (_) {
+    throw new Error('该备份已损坏，无法恢复');
+  }
+  if (!parsed || !parsed.users) throw new Error('该备份内容不完整，拒绝恢复');
+  if (!dbFile) throw new Error('存储未初始化');
+  // 覆盖前先把「当前状态」也留一份，恢复本身也可回滚
+  rotateBackupRaw();
+  fs.writeFileSync(dbFile, raw, 'utf-8');
+  load(); // 重新载入内存
+  return { restored: name };
+}
+
+// 供 restoreBackup 使用：无条件按当前内容留一份（不受「内容相同则跳过」影响）
+function rotateBackupRaw(): void {
+  const dir = backupDir();
+  try {
+    if (!dbFile || !dir || !fs.existsSync(dbFile)) return;
+    const raw = fs.readFileSync(dbFile, 'utf-8');
+    if (raw.trim().length < 20) return;
+    try { JSON.parse(raw); } catch (_) { return; }
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'db-' + stamp(new Date()) + '.json'), raw, 'utf-8');
+  } catch (_) { /* 忽略 */ }
 }
 
 // 批量清理过期会话：否则旧 token 只在恰好被访问时才清理，长期会无限累积

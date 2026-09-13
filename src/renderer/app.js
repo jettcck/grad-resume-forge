@@ -396,6 +396,52 @@ async function openAbout() {
   const curVersion = (st && st.version) || '';
   const repo = (st && st.repo) || '';
 
+  // 数据备份区：启动时自动轮转留档，这里只做「看得到 + 能恢复」
+  const backupBox = el('div', { class: 'backup-box' }, [
+    el('p', { style: 'font-size:11.5px;color:var(--ink-2);' }, ['正在读取备份…'])
+  ]);
+  (async () => {
+    let data = null;
+    try { data = await call(window.api.backups.list()); } catch (_) { data = null; }
+    backupBox.innerHTML = '';
+    if (!data || !data.items || !data.items.length) {
+      backupBox.appendChild(el('p', { style: 'font-size:11.5px;color:var(--ink-2);line-height:1.7;' },
+        ['暂无备份。应用每次启动会自动把上一轮的数据留一份副本（保留最近 5 份），下次启动后这里就会显示。']));
+      return;
+    }
+    backupBox.appendChild(el('p', { style: 'font-size:11.5px;color:var(--teal);font-weight:600;' },
+      ['已自动保留 ' + data.items.length + ' 份数据备份（每次启动留一份，滚动保留最近 5 份）：']));
+    data.items.forEach((b, i) => {
+      const d = new Date(b.createdAt);
+      const p = (n) => String(n).padStart(2, '0');
+      const label = p(d.getMonth() + 1) + '/' + p(d.getDate()) + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+      backupBox.appendChild(el('div', { class: 'backup-row' }, [
+        el('span', { class: 'bk-time' }, [label + (i === 0 ? '（最新）' : '')]),
+        el('span', { class: 'bk-size' }, [(b.size / 1024).toFixed(1) + ' KB']),
+        el('button', {
+          class: 'btn btn-ghost btn-sm', type: 'button',
+          onclick: async () => {
+            const ok = await modalConfirm('用这份备份覆盖当前数据？',
+              '会用 ' + label + ' 的备份替换现在的全部数据（档案 / 版本 / 快照 / 投递）。' +
+              '恢复前系统会先把当前状态也留一份备份，所以这一步同样可回滚。恢复后建议重启应用。', '恢复这份备份');
+            if (!ok) return;
+            try {
+              await call(window.api.backups.restore(b.name));
+              toast('已恢复到 ' + label + ' 的数据，建议重启应用', 'ok');
+              // 内存里的档案已变，重新拉一次并回档案页
+              try { state.profile = await call(window.api.profile.get(state.user.id)); } catch (_) { /* 忽略 */ }
+              renderProfile();
+            } catch (err) { toast('恢复失败：' + err.message, 'err'); }
+          }
+        }, ['恢复'])
+      ]));
+    });
+    backupBox.appendChild(el('button', {
+      class: 'btn btn-ghost btn-sm', type: 'button', style: 'margin-top:6px;',
+      onclick: () => window.api.backups.reveal()
+    }, ['打开备份文件夹']));
+  })();
+
   async function runCheck() {
     checkBtn.disabled = true;
     aboutSet('checking', '正在检查更新…');
@@ -420,6 +466,7 @@ async function openAbout() {
     el('h3', { class: 'modal-title' }, ['关于 简历锻造炉']),
     el('div', { class: 'modal-body' }, [
       el('div', { class: 'about-status-wrap' }, [statusText, bar]),
+      backupBox,
       el('label', { class: 'field' }, [
         el('span', {}, ['下载镜像（国内加速，选填）']),
         mirrorInput

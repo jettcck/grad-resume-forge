@@ -96,6 +96,16 @@ function registerIpc() {
   h('versions:save', (uid, input) => store.saveVersion(uid, input));
   h('versions:rename', (uid, id, name, note) => store.renameVersion(uid, id, name, note));
   h('versions:delete', (uid, id) => store.deleteVersion(uid, id));
+  // 数据备份 IPC
+  h('backups:list', () => ({
+    items: [
+      { name: 'db-20260913-120000100.json', size: 3120, createdAt: Date.now() },
+      { name: 'db-20260912-090000050.json', size: 2980, createdAt: Date.now() - 3600000 }
+    ],
+    dir: 'C:/tmp/backups'
+  }));
+  h('backups:restore', (name) => ({ restored: name }));
+  h('backups:reveal', () => ({ dir: 'C:/tmp/backups' }));
   h('resume:matchJd', (resume, jd) => engine.matchJd(resume, jd));
   h('resume:generate', (p, o) => engine.generate(p, o || {}));
   h('resume:exportPdf', () => ({ path: 'C:/tmp/fake.pdf' }));
@@ -448,6 +458,36 @@ async function main() {
     t('状态区有配色类(tone-*)', !!status && /tone-/.test(status.className));
     t('含下载进度条(默认隐藏)', !!box.querySelector('.about-bar') && box.querySelector('.about-bar').style.display === 'none');
     t('含内联「重启并安装」(默认隐藏)', Array.from(box.querySelectorAll('.btn')).some((b) => b.textContent.trim() === '重启并安装' && b.style.display === 'none'));
+    // 数据备份区（自动轮转留档 + 一键恢复）
+    const bk = box.querySelector('.backup-box');
+    t('关于弹窗含数据备份区', !!bk);
+    return out.join('\\n');
+  })()`));
+  await sleep(900);
+  console.log(await verify(win, `(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const bk = box.querySelector('.backup-box');
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    t('备份列表已渲染（含时间与大小）', !!bk && /\\d\\/\\d\\d \\d\\d:\\d\\d:\\d\\d/.test(bk.textContent) && /KB/.test(bk.textContent));
+    t('最新一份有标记', !!bk && /最新/.test(bk.textContent));
+    t('每份备份有「恢复」按钮', !!bk && Array.from(bk.querySelectorAll('.btn')).filter((b) => b.textContent.trim() === '恢复').length >= 2);
+    t('有「打开备份文件夹」入口', !!bk && /打开备份文件夹/.test(bk.textContent));
+    // 点恢复 → 必须先确认，且说明可回滚
+    const restore = Array.from(bk.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '恢复');
+    if (restore) restore.click();
+    return out.join('\\n');
+  })()`));
+  await sleep(700);
+  console.log(await verify(win, `(() => {
+    const boxes = Array.from(document.querySelectorAll('.modal-overlay .modal-box'));
+    const confirmBox = boxes.find((b) => /用这份备份覆盖当前数据/.test(b.textContent));
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    t('恢复前先弹确认框', !!confirmBox);
+    t('确认框说明这一步同样可回滚', !!confirmBox && /可回滚/.test(confirmBox.textContent));
+    const cancel = confirmBox && Array.from(confirmBox.querySelectorAll('.btn')).find((b) => b.textContent.trim() === '取消');
+    if (cancel) cancel.click();
     return out.join('\\n');
   })()`));
   await shot(win, '06-about');

@@ -48,6 +48,12 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('versions:rename', userId, versionId, name, note),
     remove: (userId: string, versionId: string) => ipcRenderer.invoke('versions:delete', userId, versionId)
   },
+  // 数据备份：启动时自动轮转留档（保留最近 5 份），可一键恢复或打开备份目录
+  backups: {
+    list: () => ipcRenderer.invoke('backups:list'),
+    restore: (name: string) => ipcRenderer.invoke('backups:restore', name),
+    reveal: () => ipcRenderer.invoke('backups:reveal')
+  },
   clipboard: {
     writeText: (text: string) => ipcRenderer.invoke('clipboard:writeText', text)
   },

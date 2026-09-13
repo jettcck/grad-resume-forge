@@ -21,6 +21,7 @@ Everything except *semantic* rewriting works with **no model, no key, no setup**
 | Application kanban | ❌ none |
 | **Resume versions** — save a named variant per job target (keeps its JD + scores) and reload it in one click | ❌ none |
 | **Interview prep** — self-intro generated from your own profile + 66-question bank + open-question templates | ❌ none — generated locally |
+| **Rotating data backups** — one kept per app launch, restorable in one click from the About dialog | ❌ none |
 | Job-hunt assistant (built-in knowledge base) | ❌ none — local, offline |
 | JD-driven optimization | ❌ none in **zero-config (rules)** mode · ✅ only if you want semantic rewriting |
 
@@ -60,6 +61,7 @@ Linux notes:
 - **Resume versions** — one variant per job target. Save the current profile under a name (e.g. "ByteDance-backend"), and it stores *that version's* JD plus the audit score and JD coverage it achieved, so you can compare variants side by side and reload any of them in one click. Loading a version first backs up what you had, so nothing is ever lost.
 - **Interview prep** — your 30s/60s self-intro is **generated from your own profile** (it never invents experience or numbers you did not write), plus a 66-question bank filtered by your target role, each with what the interviewer is really testing, a structured answer frame, common pitfalls, and — for experience-based questions — a pointer to which of *your* resume items to answer with. Also: open-question templates for application forms and a list of questions to ask back.
 - **Local-first** — all data stays on your machine (scrypt-hashed credentials), works offline, zero telemetry
+- **Rotating backups** — one is kept automatically at each launch (up to 5, unchanged content does not consume a slot) and restorable in one click from the About dialog; restoring first snapshots your current state, so a mis-click is recoverable too
 - **Auto-update** — silent download via GitHub Releases, with an optional mirror prefix for users in China
 
 ## 🏗️ Architecture
@@ -139,7 +141,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 
 ## 📊 Testing & Evals
 
-**240+ automated assertions**, run on every push (CI gate).
+**400+ automated assertions**, run on every push (CI gate).
 
 | Suite | Scope | Command |
 |---|---|---|
@@ -147,9 +149,14 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 | Importer | Chinese resume parsing / PDF extraction | `node test-importer.js` |
 | Agent | validation gate / regen loop / streaming / cloud client (mocked end-to-end) | `node test-agent.js` |
 | E2E | register → login → profile → generate → applications → snapshot restore | `node test-e2e.js` |
+| Versions | save / rename / load / eviction at the cap | `node test-versions.js` |
+| Backups | rotation / dedupe / keep-limit / off-pattern filename rejection / snapshot-before-restore | `node test-backup.js` |
+| Interview | self-intro generation / question-bank coverage / never invents numbers | `node test-interview.js` |
+| Assistant | knowledge-base hits / honest fallback when nothing matches | `node test-assistant.js` |
 | Updater | publish config / mirror rules / pipeline assertions | `node test-updater.js` |
 | Contract | renderer ↔ preload ↔ main IPC ↔ screenshot mock stay in sync | `node test-contract.js` |
 | Zero-barrier guard | in-app model loading shape / China mirrors / CSP / honest copy | `node test-embedded.js` |
+| Secure store | no plaintext key on disk / encrypt-decrypt round trip | `node test-secure-store.js` |
 | Rule-layer evals | 32 golden cases as a regression gate | `npm run eval` |
 | LLM-layer evals | dual-mode comparison on a real model | `npm run eval:llm` |
 
@@ -182,6 +189,7 @@ We'd rather state the ceilings up front than let you hit them:
 | **Empty adjectives are kept when they carry meaning** | “建立了**良好的**客户关系” must not become “建立了客户关系”. Adjectives before substantive heads (客户关系/业绩/经验/渠道/数据…) are preserved; only pure filler (“良好的沟通能力”) is removed. |
 | **JD matching is lexical + weighted, not semantic** | Alias-based keyword matching with must-have (3×) / nice-to-have (1×) weighting, so stuffing bonus keywords cannot inflate the score. Common rephrasings are covered by aliases; a JD describing the same skill in a completely different way can still be missed — use **Agent deep-optimization** on the same JD for a semantic pass. |
 | **The JD score is not a hiring prediction** | It measures keyword coverage of one posting. A screening aid, not a probability of getting an interview. |
+| **Auto-backup keeps only 5 rotations, taken at launch** | On each app start, if your data changed since the last backup, one is rotated out; the 5 newest are kept (roughly the last 5 edits) and restorable from the About dialog. It protects against “I broke it and want it back” — it is **not** full version history. For milestones, save a **resume version** or use “open backup folder” to copy one elsewhere. |
 | **Platform & maintenance** | Windows x64 and Linux x64 today (AppImage + deb); macOS is next. Maintained by one person. The eval suite, docs and CI exist to keep handover cost low, not to pretend otherwise. |
 | **No large-scale user validation yet** | Early-stage project with a small user base. Published numbers are **reproducible eval results**, not testimonials or large-scale A/B data — treat feature claims accordingly. |
 

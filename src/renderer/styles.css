@@ -1122,6 +1122,12 @@ em { font-style: normal; color: var(--gold); }
 .ver-ops { display: flex; gap: 6px; margin-top: 7px; }
 .ver-ops .btn { padding: 4px 9px; font-size: 11.5px; }
 .ver-del:hover { color: var(--danger); border-color: rgba(255,93,82,.5); }
+/* ---------- 数据备份 ---------- */
+.backup-box { padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.backup-row { display: flex; align-items: center; gap: 10px; padding: 4px 0; font-size: 12px; }
+.backup-row .bk-time { color: var(--ink-1); font-family: var(--font-mono); }
+.backup-row .bk-size { color: var(--ink-2); font-size: 11px; margin-left: auto; }
+.backup-row .btn { padding: 3px 9px; font-size: 11.5px; }
 .furnace-dot.hot { background: var(--gold); box-shadow: 0 0 8px rgba(240,161,60,.8); animation: furnacePulse 1.2s infinite; }
 @keyframes furnacePulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
 .agent-dot.on { color: var(--teal); }
