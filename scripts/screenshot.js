@@ -25,7 +25,11 @@ const DEMO_EMAIL = 'shot@demo.local';
 const DEMO_PASSWORD = 'demo123456';
 // 测试可动态切换：模拟「有可用模型」（云端/本地已配置）的场景
 let mockAgentAvailable = false;
-
+// 内存版设置存储（settings:get / settings:save 必须能往返，否则「偏好是否真的被记住」测不出来）。
+// 放在模块级：断言里要直接读它来验证通道选择确实写进去了。
+const savedSettings = {};
+// 置真时 settings:get 返回 null（模拟偏好读不回来）—— 用来验证「记住通道」的断言真的会红
+let mockSettingsUnreadable = false;
 const DEMO_PROFILE = {
   name: '李明', phone: '13812345678', email: 'liming@example.com', city: '杭州',
   github: 'github.com/liming', targetRole: '后端开发工程师', summary: '',
@@ -135,8 +139,13 @@ function registerIpc() {
     config: { provider: mockAgentAvailable ? 'cloud' : 'ollama', endpoint: mockAgentAvailable ? 'https://api.deepseek.com/v1' : 'http://127.0.0.1:11434', model: mockAgentAvailable ? 'deepseek-chat' : 'qwen2.5:7b', temperature: 0.3 },
     provider: mockAgentAvailable ? 'cloud' : 'ollama'
   }));
-  h('settings:get', () => null);
-  h('settings:save', (_k, v) => v);
+  // 设置要能往返：固定返回 null 会让「偏好是否真的被记住」根本测不出来（渲染层读了也白读）
+  h('settings:get', (k) => (mockSettingsUnreadable ? null : (k in savedSettings ? savedSettings[k] : null)));
+  h('settings:save', (k, v) => { savedSettings[k] = v; return v; });
+  // 渲染层 → 主进程的两个 fire-and-forget 通道。主进程用 ipcMain.on，mock 也必须用 on：
+  // 用 handle 接 send 不会报错、只会静默不执行，正是最难发现的一类 mock 失真。
+  ipcMain.on('embedded:status', () => {});
+  ipcMain.on('embedded:res', () => {});
   h('assistant:ask', (query, dom) => askAssistantReal(query, dom));
   h('assistant:hot', () => hotQuestionsReal());
   // 面试准备：用真实模块（全本地、零模型）
@@ -678,6 +687,50 @@ async function main() {
     const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
     const p = segs.find((b) => /流水线/.test(b.textContent));
     return (p && p.classList.contains('active') ? '✅' : '❌') + ' 切回「流水线」同样生效（双向可选）';
+  })()`));
+  mockAgentAvailable = false;
+
+  // —— 通道选择必须跨重启记住 ——
+  // 用户明确选「零配置（规则）」（不调用任何模型），重启后自动默认若因为探测到模型而切回
+  // 需要模型的通道，用户没注意就会把内容发给模型。这条只有真的重载一次才测得出来。
+  await win.webContents.executeJavaScript(`(() => {
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const r = segs.find((b) => /零配置/.test(b.textContent));
+    if (r) r.click();
+    return !!r;
+  })()`);
+  await sleep(900);
+  console.log((savedSettings.agent && savedSettings.agent.mode === 'rules' ? '✅' : '❌')
+    + ' 通道选择已写进设置（读到 mode=' + (savedSettings.agent && savedSettings.agent.mode) + '）');
+
+  // 模拟重启：设置里留着「规则」，同时把模型标成可用 —— 自动默认此时会想选流水线
+  mockAgentAvailable = true;
+  savedSettings.agent = { provider: 'ollama', mode: 'rules' };
+  if (process.env.GRF_BREAK_PREF === '1') mockSettingsUnreadable = true; // 负向验证：断言必须因此变红
+  win.webContents.reload();
+  await sleep(2800);
+  await win.webContents.executeJavaScript(`(() => {
+    const f = document.getElementById('auth-form');
+    if (!f) return false;
+    f.querySelector('input[name="email"]').value = '${DEMO_EMAIL}';
+    f.querySelector('input[name="password"]').value = '${DEMO_PASSWORD}';
+    f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    return true;
+  })()`);
+  await sleep(1800);
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.nav-item[data-route="resume"]').click();
+    return true;
+  })()`);
+  await sleep(2400);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const btn = (txt) => segs.find((b) => new RegExp(txt).test(b.textContent));
+    t('重启后仍选中上次的通道', !!btn('零配置') && btn('零配置').classList.contains('active'));
+    t('自动默认没有抢回选中（模型可用也不切走）', !!btn('流水线') && !btn('流水线').classList.contains('active'));
+    return out.join('\\n');
   })()`));
   mockAgentAvailable = false;
 

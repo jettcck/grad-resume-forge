@@ -15,7 +15,8 @@
     "dist:linux": "tsc && electron-builder --linux --x64 --publish never",
     "dist:local": "powershell -ExecutionPolicy Bypass -File scripts/dist-local.ps1",
     "release": "tsc && electron-builder --win --x64 --publish always",
-    "release:linux": "tsc && electron-builder --linux --x64 --publish always"
+    "release:linux": "tsc && electron-builder --linux --x64 --publish always",
+    "audit:ui": "node scripts/audit-ui.js"
   },
   "author": "",
   "license": "MIT",

@@ -25,7 +25,7 @@ Everything except *semantic* rewriting works with **no model, no key, no setup**
 | Job-hunt assistant (built-in knowledge base) | ❌ none — local, offline |
 | JD-driven optimization | ❌ none in **zero-config (rules)** mode · ✅ only if you want semantic rewriting |
 
-JD-driven optimization — four channels, pick any, switch anytime:
+JD-driven optimization — four channels, pick any, switch anytime (**your pick is remembered**: it survives a restart, and is never silently switched away just because a model was detected):
 
 1. **Zero-config (rules)** *(needs nothing)* — the deterministic engine rewrites your bullets against the JD: strips clichés, upgrades weak verbs, preserves every metric, aligns wording with the JD's skills. Instant, offline, reproducible, and every candidate still passes the same validation gate. It **cannot** semantically restructure sentences or invent new phrasing the way a model can — that is the honest limitation of this channel.
 2. **In-app model** *(zero config, one download)* — Qwen2.5-0.5B runs inside the app via WebGPU. One-time download of **~270–281 MB** through mainland-China-friendly mirrors (hf-mirror.com for weights, gh-proxy.com for the runtime lib) — **no VPN needed** — then it works fully offline. The app auto-picks the q4f16/q4f32 build for your GPU, with resumable retries on flaky networks. Needs a reasonably recent GPU (WebGPU).

@@ -1486,13 +1486,40 @@ async function openJdMatch() {
 let _agentStatus = null; // { available, models, config } | null=未检测
 let _agentMode = null;        // null = 用户尚未选择（用自动默认）
 let _agentModeUserSet = false; // 用户手动选过之后，自动默认不再覆盖（否则会"点不动"）
+let _agentPrefsLoaded = false;  // 「上次选的通道」只恢复一次，之后尊重用户本次的选择
+
+const AGENT_MODES = ['rules', 'pipeline', 'agentic'];
+
+// 为什么要记住通道：不记的话，用户明确选了「零配置（规则）」——一个不调用任何模型的通道——
+// 重启后自动默认会因为探测到可用模型而切回需要模型的通道，用户没注意就会把内容发给模型。
+// 这属于「用户表达过的意图必须被尊重」，和「零门槛」是同一件事。
+async function persistAgentMode(m) {
+  try {
+    const cfg = await call(window.api.settings.get('agent'));
+    await call(window.api.settings.save('agent', Object.assign({}, cfg || {}, { mode: m })));
+  } catch (_) { /* 偏好存不下来不影响本次选择 */ }
+}
+
+async function restoreAgentMode() {
+  if (_agentPrefsLoaded) return;
+  _agentPrefsLoaded = true;
+  try {
+    const cfg = await call(window.api.settings.get('agent'));
+    if (cfg && AGENT_MODES.indexOf(cfg.mode) >= 0 && !_agentModeUserSet) {
+      _agentMode = cfg.mode;
+      _agentModeUserSet = true; // 记忆中的选择同样不该被自动默认覆盖
+    }
+  } catch (_) { /* 读不到就用自动默认 */ }
+}
 
 async function refreshAgentStatus() {
+  const pref = restoreAgentMode(); // 与状态探测并行，稍后 await，保证首次渲染时通道已就位
   try {
     _agentStatus = await call(window.api.agent.status());
   } catch (_) {
     _agentStatus = { available: false, models: [], config: {} };
   }
+  await pref;
   // 只在仍停留在简历页时刷新（避免离开页面后无谓重渲染）
   const route = document.getElementById('route-resume');
   if (route && route.style.display !== 'none') renderResumePage();
@@ -1563,7 +1590,11 @@ function buildAgentCard() {
     }, ['自主 Agent'])
   };
   // 用户点了模式按钮 → 记为「已手动选择」，此后自动默认不再覆盖
-  const pickMode = (m) => { _agentMode = m; _agentModeUserSet = true; renderResumePage(); };
+  const pickMode = (m) => {
+    _agentMode = m; _agentModeUserSet = true;
+    renderResumePage();
+    persistAgentMode(m); // 落盘：下次启动仍然是你选的这条通道
+  };
   modeBtns.rules.addEventListener('click', () => pickMode('rules'));
   modeBtns.pipeline.addEventListener('click', () => pickMode('pipeline'));
   modeBtns.agentic.addEventListener('click', () => pickMode('agentic'));
@@ -1792,6 +1823,7 @@ function openAgentConfig() {
       }
     }
     try {
+      if (_agentMode) value.mode = _agentMode; // 保存配置不能把「记住的通道」抹掉
       await call(window.api.settings.save('agent', value));
       _agentStatus = null; // 重新探测
       close();

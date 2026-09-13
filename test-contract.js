@@ -100,4 +100,63 @@ assert(missingIds.length === 0, '查询的 ' + idsQueried.size + ' 个 id 都存
     '路由 ' + r + ' 的容器与导航项都在 index.html');
 });
 
+// ---------- 9) 通道方向必须与主进程注册方式一致 ----------
+// invoke 配 handle、send 配 on。配错了不会报错，只会「消息静默不执行」——
+// 比如渲染层 send('embedded:status') 而主进程用 handle 接，状态就永远上不去。
+const invokeChans = new Map(); // channel -> 'ns.method'
+const sendChans = new Map();
+nsBlocks.forEach((ns) => {
+  const start = preloadSrc.indexOf('  ' + ns + ': {');
+  const rest = preloadSrc.slice(start + 1);
+  const nextIdx = rest.search(/\n  \w+: \{/);
+  const block = nextIdx >= 0 ? rest.slice(0, nextIdx) : rest;
+  [...block.matchAll(/^\s{4}(\w+):\s*(?:async\s*)?\([^)]*\)\s*=>\s*ipcRenderer\.(invoke|send)\('([^']+)'/gm)]
+    .forEach((m) => {
+      const target = m[2] === 'invoke' ? invokeChans : sendChans;
+      target.set(m[3], ns + '.' + m[1]);
+    });
+});
+const mainHandled = new Set([...mainSrc.matchAll(/ipcMain\.handle\('([^']+)'/g)].map((m) => m[1]));
+const mainOn = new Set([...mainSrc.matchAll(/ipcMain\.on\('([^']+)'/g)].map((m) => m[1]));
+const dirBad = [];
+[...invokeChans].forEach(([ch, api]) => { if (!mainHandled.has(ch)) dirBad.push(api + ' 用 invoke，但主进程没 handle(' + ch + ')'); });
+[...sendChans].forEach(([ch, api]) => { if (!mainOn.has(ch)) dirBad.push(api + ' 用 send，但主进程没 on(' + ch + ')'); });
+assert(dirBad.length === 0,
+  '通道方向与主进程注册方式一致（invoke↔handle ' + invokeChans.size + ' 个 · send↔on ' + sendChans.size + ' 个；问题：' + (dirBad.join('；') || '无') + '）');
+
+// ---------- 10) 截图 mock 的注册方向也要一致 ----------
+// mock 用 handle 去接渲染层的 send，不会报错、只会静默失效，UI 测试会假装通过。
+// 只对「渲染层真的会调用」的接口要求 mock —— 没人调的接口不需要在 mock 里存在。
+const mockH = new Set([...mockSrc.matchAll(/(?:\bh\(|ipcMain\.handle\()'([^']+)'/g)].map((m) => m[1]));
+const mockOn = new Set([...mockSrc.matchAll(/ipcMain\.on\('([^']+)'/g)].map((m) => m[1]));
+const mockDirBad = [];
+[...invokeChans].forEach(([ch, api]) => { if (calls.has(api) && !mockH.has(ch)) mockDirBad.push(api + '（mock 缺 handle ' + ch + '）'); });
+[...sendChans].forEach(([ch, api]) => { if (calls.has(api) && !mockOn.has(ch)) mockDirBad.push(api + '（mock 缺 on ' + ch + '）'); });
+assert(mockDirBad.length === 0,
+  '截图 mock 的注册方向与主进程一致（问题：' + (mockDirBad.join('；') || '无') + '）');
+
+// ---------- 11) 点击处理引用的函数必须存在（点了没反应）----------
+const KEYWORDS = new Set(['async', 'await', 'function', 'return', 'if', 'else', 'for', 'while', 'new', 'typeof', 'void', 'this']);
+const definedFns = new Set();
+[...appSrc.matchAll(/^\s*(?:async\s+)?function\s+(\w+)/gm)].forEach((m) => definedFns.add(m[1]));
+[...appSrc.matchAll(/^\s*(?:const|let|var)\s+(\w+)\s*=/gm)].forEach((m) => definedFns.add(m[1]));
+[...appSrc.matchAll(/^\s*(\w+):\s*(?:async\s*)?(?:function\b|\()/gm)].forEach((m) => definedFns.add(m[1]));
+[...appSrc.matchAll(/^\s*(\w+)\s*\([^)]*\)\s*\{/gm)].forEach((m) => definedFns.add(m[1]));
+const clicked = new Set();
+[...appSrc.matchAll(/(?:onclick:\s*|addEventListener\('click',\s*)(?:\(\s*\)\s*=>\s*)?(?:async\s+)?(?!\.)([A-Za-z_$][\w$]*)\s*\(/g)]
+  .forEach((m) => clicked.add(m[1]));
+const BUILTIN = new Set(['alert', 'confirm', 'console', 'window', 'document', 'print', 'String', 'Number', 'JSON', 'parseInt', 'parseFloat', 'encodeURIComponent', 'decodeURIComponent', 'setTimeout', 'clearTimeout', 'call', 'then', 'catch']);
+const brokenClicks = [...clicked].filter((n) => !definedFns.has(n) && !BUILTIN.has(n) && !KEYWORDS.has(n));
+assert(brokenClicks.length === 0,
+  '点击处理引用的 ' + clicked.size + ' 个函数都有定义（缺：' + (brokenClicks.join(', ') || '无') + '）');
+
+// ---------- 12) 不该出现新的「暴露了却没人调用」的接口 ----------
+// 这类接口通常是「写了一半忘了接线」，会影响用户对功能是否存在的判断。
+// 允许清单里的两个是有意保留的完整实现（无 UI 入口，将来可能接上），不是半成品。
+const UNUSED_ALLOW = ['resume.audit', 'snapshots.get'];
+const usedCalls = new Set([...appSrc.matchAll(/window\.api\.(\w+)\.(\w+)/g)].map((m) => m[1] + '.' + m[2]));
+const unusedApi = [...exposed].filter((k) => !usedCalls.has(k) && !UNUSED_ALLOW.includes(k));
+assert(unusedApi.length === 0,
+  '没有新增「暴露但渲染层无人调用」的接口（新增：' + (unusedApi.join(', ') || '无') + '）');
+
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
