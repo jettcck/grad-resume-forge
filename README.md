@@ -141,24 +141,29 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 
 ## 📊 Testing & Evals
 
-**400+ automated assertions**, run on every push (CI gate).
+**490+ automated assertions**, run on every push (CI gate).
 
 | Suite | Scope | Command |
 |---|---|---|
 | Engine | rewrite / audit / matching / word-boundary regressions | `node test-engine.js` |
 | Importer | Chinese resume parsing / PDF extraction | `node test-importer.js` |
-| Agent | validation gate / regen loop / streaming / cloud client (mocked end-to-end) | `node test-agent.js` |
-| E2E | register → login → profile → generate → applications → snapshot restore | `node test-e2e.js` |
+| Agent | validation gate / regen loop / streaming / completion check / cloud client (mocked end-to-end) | `node test-agent.js` |
+| Renderer apply | unchecking a rewrite must keep the original (runs the real function sliced out of app.js) | `node test-renderer-apply.js` |
+| E2E | register → login → profile → generate → applications → snapshot restore → per-account settings isolation | `node test-e2e.js` |
 | Versions | save / rename / load / eviction at the cap | `node test-versions.js` |
 | Backups | rotation / dedupe / keep-limit / off-pattern filename rejection / snapshot-before-restore | `node test-backup.js` |
+| Streaming | no trailing newline must not drop the last chunk; multi-byte splits | `node test-stream.js` |
+| Validation | size limits / shape checks / cyclic references | `node test-validate.js` |
 | Interview | self-intro generation / question-bank coverage / never invents numbers | `node test-interview.js` |
 | Assistant | knowledge-base hits / honest fallback when nothing matches | `node test-assistant.js` |
 | Updater | publish config / mirror rules / pipeline assertions | `node test-updater.js` |
-| Contract | renderer ↔ preload ↔ main IPC ↔ screenshot mock stay in sync | `node test-contract.js` |
+| Contract | renderer ↔ preload ↔ main IPC ↔ screenshot mock stay in sync; session auth & validation coverage | `node test-contract.js` |
 | Zero-barrier guard | in-app model loading shape / China mirrors / CSP / honest copy | `node test-embedded.js` |
 | Secure store | no plaintext key on disk / encrypt-decrypt round trip | `node test-secure-store.js` |
 | Rule-layer evals | 32 golden cases as a regression gate | `npm run eval` |
 | LLM-layer evals | dual-mode comparison on a real model | `npm run eval:llm` |
+| Real-IPC smoke | boots the actual main process: unauthenticated calls rejected, no cross-account reads, key never echoed (needs Electron) | `npm run smoke:ipc` |
+| UI screenshot pipeline | 150+ DOM assertions + screenshots (needs Electron) | `npm run smoke:ui` |
 
 ### Real-model evals (deepseek-chat, Sep 2026)
 
@@ -190,6 +195,8 @@ We'd rather state the ceilings up front than let you hit them:
 | **JD matching is lexical + weighted, not semantic** | Alias-based keyword matching with must-have (3×) / nice-to-have (1×) weighting, so stuffing bonus keywords cannot inflate the score. Common rephrasings are covered by aliases; a JD describing the same skill in a completely different way can still be missed — use **Agent deep-optimization** on the same JD for a semantic pass. |
 | **The JD score is not a hiring prediction** | It measures keyword coverage of one posting. A screening aid, not a probability of getting an interview. |
 | **Auto-backup keeps only 5 rotations, taken at launch** | On each app start, if your data changed since the last backup, one is rotated out; the 5 newest are kept (roughly the last 5 edits) and restorable from the About dialog. It protects against “I broke it and want it back” — it is **not** full version history. For milestones, save a **resume version** or use “open backup folder” to copy one elsewhere. |
+| **Security boundaries (stated, not hidden)** | Every data IPC derives its `userId` from the main-process session and ignores whatever id the renderer passes (no cross-account reads); each account's Agent config and cloud API key are isolated; the key is never sent back to the renderer (only “is one saved”); if the OS keychain (`safeStorage`) is unavailable the UI **explicitly warns that the key will be stored in plaintext**; the offscreen PDF window runs with JavaScript disabled; all inputs have size limits. These are **local-app boundaries**, not a server-grade security model — on a shared machine, use OS account isolation. |
+| **Single-file JSON store** | Writes are atomic (temp file + rename), so a crash cannot leave truncated JSON, and the file carries a `schemaVersion` for future migrations. There is no multi-process write queue: **don't run two instances at once** (one reading an old copy while another writes will clobber each other) — the rotating backups are the safety net for that. |
 | **Platform & maintenance** | Windows x64 and Linux x64 today (AppImage + deb); macOS is next. Maintained by one person. The eval suite, docs and CI exist to keep handover cost low, not to pretend otherwise. |
 | **No large-scale user validation yet** | Early-stage project with a small user base. Published numbers are **reproducible eval results**, not testimonials or large-scale A/B data — treat feature claims accordingly. |
 

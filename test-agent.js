@@ -109,6 +109,19 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
   assert(result.auditAfter > result.auditBefore, '体检分提升（' + result.auditBefore + '→' + result.auditAfter + '）');
   assert(result.jdAfter > result.jdBefore, 'JD 覆盖率提升（' + result.jdBefore + '%→' + result.jdAfter + '%）');
   assert(result.jdAfter >= 0 && result.jdAfter <= 100, 'JD 覆盖率数值合法');
+
+  // 回归：复测后的「仍缺失技能」必须来自改写后的复测结果，而不是改写前的 jdBefore。
+  // GOOD_JSON 的改写把 Docker 补进了项目描述，所以这里不应再提示缺失 docker。
+  {
+    const beforeMissing = agent.TOOL_MAP.get('analyze_jd').run({
+      resume: { summary: PROFILE.summary, skills: ['Java', 'MySQL'], projects: PROFILE.projects, internships: [] },
+      jd: JD
+    }).missing.map((m) => m.label);
+    assert(beforeMissing.indexOf('docker') >= 0, '基线：改写前 docker 确实缺失');
+    assert(result.accepted.some((a) => /Docker/.test(a.text)), '基线：本次改写确实补上了 Docker');
+    assert(result.jdMissingAfter.indexOf('docker') < 0,
+      '复测后不再提示缺失 docker（实际：' + JSON.stringify(result.jdMissingAfter) + '）');
+  }
   const tools = result.steps.map((s) => s.tool);
   assert(tools.includes('analyze_jd') && tools.includes('audit_text') && tools.includes('llm_rewrite') && tools.includes('validate_rewrites'),
     '步骤轨迹覆盖全部四类工具');
@@ -426,7 +439,8 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     const llmD = { chat: async () => { const r = scriptD[Math.min(di, 1)]; di++; return { content: '', toolCalls: r.toolCalls, rawToolCalls: [] }; } };
     const resultD = await agenticLoop(PROFILE, JD, { llm: llmD, maxSteps: 6 });
     assert(resultD.steps.some((s) => !s.ok && /白名单/.test(s.detail)), '未知工具被白名单拦截并记录');
-    assert(resultD.stepsUsed === 2, '后续正常收工（第 2 步）');
+    // 收工前检查会在「什么都没做就收工」时催一次，所以这里的步数会多一步
+    assert(resultD.stepsUsed >= 2, '未知工具后仍能收工（步数 ' + resultD.stepsUsed + '）');
 
     // 14g. 空输入校验
     let errAg = null;
@@ -435,6 +449,31 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     let errAg2 = null;
     try { await agenticLoop({ summary: '', skills: '', projects: [], internships: [] }, JD, { llm: llmA }); } catch (e) { errAg2 = e; }
     assert(errAg2 && /可改写/.test(errAg2.message), 'agentic：空档案报错');
+
+    // 14h. 回归：agentic 路径的「仍缺失技能」同样要取改写后的复测结果，
+    //      不能沿用 ctx.jdAnalysis（改写前分析）。改写里补上 Docker 后就不该再提示缺失。
+    const scriptE = [
+      { toolCalls: [{ name: 'analyze_jd', args: {} }] },
+      { toolCalls: [{ name: 'rewrite_bullets', args: { rewrites: [
+        { id: 'p0-b0', text: '主导订单系统查询优化，引入 Docker 化部署，P99 从 800ms 降到 120ms' },
+        { id: 'p0-b1', text: '承担用户模块开发，支撑日活 3 万' },
+        { id: 'summary', text: '后端方向应届生，有可量化的项目经历' }
+      ] } }] },
+      { toolCalls: [{ name: 'submit_result', args: {} }] }
+    ];
+    let ei = 0;
+    const llmE = {
+      chat: async () => {
+        const r = scriptE[Math.min(ei, scriptE.length - 1)];
+        ei++;
+        return { content: '', toolCalls: r.toolCalls, rawToolCalls: [] };
+      }
+    };
+    const resultE = await agenticLoop(PROFILE, JD, { llm: llmE, maxSteps: 8 });
+    assert(resultE.accepted.length === 3, 'agentic 回归：3 条改写通过校验门');
+    assert(resultE.jdAfter > resultE.jdBefore, 'agentic 回归：JD 覆盖率提升（' + resultE.jdBefore + '→' + resultE.jdAfter + '）');
+    assert(resultE.jdMissingAfter.indexOf('docker') < 0,
+      'agentic：复测后不再提示缺失 docker（实际：' + JSON.stringify(resultE.jdMissingAfter) + '）');
   }
 
   // ============================================================
@@ -533,6 +572,109 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     const ms = Date.now() - t0;
     assert(Array.isArray(none), '未命中返回空数组（不抛错）');
     assert(ms < 3000, '探测有超时保护，不阻塞（实际 ' + ms + 'ms）');
+  }
+
+  // ============================================================
+  //  改写写回档案（applyRewritesToProfile）
+  //  动机：导入器把经历描述产出为 string[]（每条一行），而渲染层曾自己实现一套
+  //  行切分（String(数组) → 逗号拼接）——引擎按数组切、渲染层按拼接串切，
+  //  两边一旦漂移，界面上的复测分数按引擎算、存进档案的却是错行/重复的内容。
+  // ============================================================
+  {
+    const arrProfile = {
+      name: '张三', targetRole: '后端', skills: 'Java', summary: '简介一句',
+      education: [],
+      projects: [{ name: '订单系统', description: ['第一行：负责订单接口', '第二行：用 MySQL 存数据'] }],
+      internships: []
+    };
+    const accepted = [
+      { id: 'p0-b1', old: '第二行：用 MySQL 存数据', text: '第二行：用 MySQL 与 Redis 存数据' }
+    ];
+    const out = agent.applyRewritesToProfile(arrProfile, accepted);
+    const desc = out.projects[0].description;
+    assert(typeof desc === 'string', '数组描述被归一化成字符串（模板与后续处理都按字符串走）');
+    const lines = String(desc).split('\n');
+    assert(lines.length === 2, '条目数不变（2 行，实际 ' + lines.length + '）');
+    assert(lines[0] === '第一行：负责订单接口', '未改动的行逐字保持原文（' + lines[0] + '）');
+    assert(lines[1] === '第二行：用 MySQL 与 Redis 存数据', '被改写的行换成新文本');
+    assert(JSON.stringify(arrProfile.projects[0].description) === JSON.stringify(['第一行：负责订单接口', '第二行：用 MySQL 存数据']),
+      '不改动传入的原始档案（深拷贝）');
+
+    // 只应用「用户勾选」的子集：未勾选的改写不得写入
+    const twoAccepted = [
+      { id: 'p0-b0', old: '第一行：负责订单接口', text: '第一行：主导订单接口开发' },
+      { id: 'p0-b1', old: '第二行：用 MySQL 存数据', text: '第二行：用 MySQL 与 Redis 存数据' }
+    ];
+    const onlySecond = agent.applyRewritesToProfile(arrProfile, [twoAccepted[1]]);
+    const onlyLines = String(onlySecond.projects[0].description).split('\n');
+    assert(onlyLines[0] === '第一行：负责订单接口', '未勾选的条目保持原文');
+    assert(onlyLines[1] === '第二行：用 MySQL 与 Redis 存数据', '勾选的条目被应用');
+
+    // 字符串形态（手填/示例数据）：；与换行都要按引擎语义切
+    const strProfile = {
+      name: '李四', targetRole: '后端', skills: '', summary: '',
+      education: [], internships: [],
+      projects: [{ name: '缓存项目', description: '第一句；第二句；第三句' }]
+    };
+    const strOut = agent.applyRewritesToProfile(strProfile, [
+      { id: 'p0-b1', old: '第二句', text: '第二句（改）' }
+    ]);
+    const strLines = String(strOut.projects[0].description).split('\n');
+    assert(strLines.length === 3, '分号分隔的字符串按引擎语义切成 3 条');
+    assert(strLines[1] === '第二句（改）' && strLines[0] === '第一句' && strLines[2] === '第三句',
+      '只替换目标条目，其余保持原文');
+
+    // 空勾选：内容一字不动（只是形态归一化）
+    const noneOut = agent.applyRewritesToProfile(arrProfile, []);
+    assert(String(noneOut.projects[0].description).split('\n').length === 2, '没勾选任何条目时内容不变');
+  }
+
+  // ============================================================
+  //  Agentic 收工检查：不能「部分完成却显示成功」
+  //  以前 submit_result 无条件 done=true —— 一条改写都没过门、JD 都没分析也能收工，
+  //  界面会显示「优化完成」而实际上 JD 覆盖率是空的。现在：什么都没做会被催一次，
+  //  部分完成则照常收工但标注 incomplete（不丢掉已经过校验门的改写）。
+  // ============================================================
+  {
+    const { agenticLoop } = require('./dist/main/agent');
+    const call = (name, args) => ({ content: '', toolCalls: [{ name, args: args || {}, raw: { id: 'c-' + name } }], rawToolCalls: [] });
+
+    // A) 一上来就想收工：先被要求补做，最终如实标注「未完成」
+    const lazy = { chat: async () => call('submit_result', {}) };
+    const lazyRes = await agenticLoop(PROFILE, JD, { llm: lazy, maxSteps: 6 });
+    assert(lazyRes.ok === false, '什么都没做就收工 → 不算成功（ok=false）');
+    assert((lazyRes.steps || []).some((s) => /收工被要求补做/.test(s.label || '')), '先提醒模型「现在还不能收工」');
+    assert(!!lazyRes.incomplete && /analyze_jd|校验门/.test(lazyRes.incomplete), '如实标注未完成的原因（' + lazyRes.incomplete + '）');
+    assert((lazyRes.steps || []).every((s) => !(s.tool === 'submit_result' && s.label === 'Agent 判定任务完成' && s.ok)), '收工那一步不会被标成「成功」');
+
+    // B) 正常流程：分析 JD → 提交改写 → 体检 → 收工 → 成功且无 incomplete 标注
+    let step = 0;
+    const good = {
+      chat: async () => {
+        step++;
+        if (step === 1) return call('analyze_jd', {});
+        if (step === 2) return call('rewrite_bullets', { rewrites: [{ id: 'p0-b0', text: '主导订单查询优化，P99 从 800ms 降到 120ms' }] });
+        if (step === 3) return call('audit_text', {});
+        return call('submit_result', {});
+      }
+    };
+    const goodRes = await agenticLoop(PROFILE, JD, { llm: good, maxSteps: 8 });
+    assert(goodRes.ok === true, '按要求做完（分析 JD → 改写）后收工 → 成功');
+    assert(goodRes.accepted.length > 0, '收工时带着通过校验门的改写');
+    assert(!goodRes.incomplete, '完整完成时不打 incomplete 标注');
+
+    // C) 只差 JD 分析（有改写）：照常成功，但如实标注，且不丢改写
+    let step2 = 0;
+    const partial = {
+      chat: async () => {
+        step2++;
+        if (step2 === 1) return call('rewrite_bullets', { rewrites: [{ id: 'p0-b0', text: '主导订单查询优化，P99 从 800ms 降到 120ms' }] });
+        return call('submit_result', {});
+      }
+    };
+    const partialRes = await agenticLoop(PROFILE, JD, { llm: partial, maxSteps: 8 });
+    assert(partialRes.accepted.length === 1, '部分完成时已通过的改写不会被丢掉');
+    assert(!!partialRes.incomplete && /analyze_jd/.test(partialRes.incomplete), '部分完成会标注缺了什么（' + partialRes.incomplete + '）');
   }
 
   console.log('\nAgent 自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

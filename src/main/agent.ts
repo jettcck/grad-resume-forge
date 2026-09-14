@@ -13,7 +13,7 @@ import { AI_CLICHES, EMPTY_ADJECTIVES, ROLE_SKILLS } from './lexicon';
 import type {
   Profile, Resume, Domain, AgentStep, AcceptedRewrite, RejectedRewrite,
   PipelineResult, AgenticResult, LlmClient, ChatMessage,
-  ToolSpec, ProtocolTool, MatchJdResult, GeneratedItem, RawToolCall
+  ToolSpec, ProtocolTool, MatchJdResult, GeneratedItem, RawToolCall, ExperienceEntry
 } from './types';
 
 // ---------------- 档案 → 任务条目 ----------------
@@ -94,6 +94,23 @@ export function applyRewrites(profile: Partial<Profile>, accepted: AcceptedRewri
     });
   });
   return bulletMap;
+}
+
+// 把被接受的改写写回档案本身（渲染层不再自己实现一套行切分——两份实现一旦漂移，
+// 界面上的复测分数是按引擎结果算的、存进档案的却是另一套结果，用户在简历里看到的就是乱的）。
+// description 统一归一化成字符串：导入器会产出 string[]，模板与后续处理都按字符串走。
+export function applyRewritesToProfile(profile: Partial<Profile>, accepted: AcceptedRewrite[]): Partial<Profile> {
+  const map = applyRewrites(profile, accepted);
+  const out = JSON.parse(JSON.stringify(profile || {})) as Profile & { projects?: ExperienceEntry[]; internships?: ExperienceEntry[] };
+  if (map.summary != null) out.summary = map.summary as string;
+  (['projects', 'internships'] as const).forEach((kind) => {
+    const pre = kind === 'projects' ? 'p' : 'i';
+    (out[kind] || []).forEach((it, i) => {
+      const lines = map[pre + i];
+      if (lines) it.description = Array.isArray(lines) ? lines.join('\n') : String(lines);
+    });
+  });
+  return out;
 }
 
 // ---------------- 确定性校验门（核心） ----------------
@@ -495,6 +512,9 @@ export async function runAgent(profile: Partial<Profile>, jdText: string, opts: 
   // ---- 第 4 步：复测 ----
   let auditAfterScore = auditBefore.score;
   let jdAfterScore = jdBefore.score;
+  // 复测后的「仍缺失技能」必须取自改写后的 matchJd 结果：
+  // 沿用改写前的 missing 会提示用户去补一项刚刚已经补上的技能
+  let jdMissingAfter = jdBefore.missing.map((m) => m.label);
   if (accepted.length) {
     const bulletMap = applyRewrites(profile, accepted);
     const afterText = items.map((it) =>
@@ -502,8 +522,10 @@ export async function runAgent(profile: Partial<Profile>, jdText: string, opts: 
     ).join('\n');
     auditAfterScore = (await timedStep('audit_text', '复体检（改写后）', () =>
       Promise.resolve(engine.auditAiFlavor(afterText)))).score;
-    jdAfterScore = (await timedStep('analyze_jd', '复测 JD 覆盖（改写后）', () =>
-      Promise.resolve(engine.matchJd(resumeLike(profile, bulletMap), jd)))).score;
+    const afterMatch = await timedStep('analyze_jd', '复测 JD 覆盖（改写后）', () =>
+      Promise.resolve(engine.matchJd(resumeLike(profile, bulletMap), jd)));
+    jdAfterScore = afterMatch.score;
+    jdMissingAfter = afterMatch.missing.map((m) => m.label);
   }
 
   const ok = accepted.length > 0 && !llmError;
@@ -518,7 +540,7 @@ export async function runAgent(profile: Partial<Profile>, jdText: string, opts: 
     auditAfter: auditAfterScore,
     jdBefore: jdBefore.score,
     jdAfter: jdAfterScore,
-    jdMissingAfter: jdBefore.missing.map((m) => m.label),
+    jdMissingAfter,
     contextOmitted: ctx.omitted,
     contextTruncated: ctx.truncated,
     steps
@@ -536,6 +558,7 @@ export interface AgentCtx {
   accepted: Map<string, AcceptedRewrite>;
   rejected: RejectedRewrite[];
   jdAnalysis: MatchJdResult | null;
+  audited?: boolean; // 是否调用过 audit_text（收工检查用：不能让「没体检」也算完成）
 }
 
 export function buildAgentTools(ctx: AgentCtx): ToolSpec[] {
@@ -555,6 +578,7 @@ export function buildAgentTools(ctx: AgentCtx): ToolSpec[] {
       inputSchema: { type: 'object', properties: {}, required: [] },
       run: () => {
         const text = ctx.items.map((it) => it.lines.join('\n')).join('\n');
+        ctx.audited = true; // 收工检查要用：确实体检过
         return engine.auditAiFlavor(text);
       }
     },
@@ -653,6 +677,8 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
   ];
 
   let consecutiveFails = 0;
+  let nudgeCount = 0;        // 「还不能收工」的提醒次数上限，避免弱模型原地打转到步数上限
+  let incompleteReason = '';  // 收工时仍缺的关键动作
   let finished = false;
   let loopError: string | null = null;
   let stepsUsed = 0;
@@ -709,7 +735,31 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
         continue;
       }
       if (call.name === 'submit_result') {
-        pushStep({ tool: 'submit_result', label: 'Agent 判定任务完成', ok: true, ms: Date.now() - t1, detail: '第 ' + i + ' 步收工' });
+        // 收工前检查：以前无条件 done=true，于是「一条改写都没过门、JD 都没分析」也显示成功，
+        // 而这时界面上的 JD 覆盖率其实是空的 —— 部分完成不能说成完成。
+        // 处理原则：什么都没做 → 提醒一次让模型补做；部分完成 → 照常收工但如实标注 incomplete，
+        // 不把已经通过校验门的改写结果丢掉（那对用户是净损失）。
+        const missingWork: string[] = [];
+        if (!ctx.jdAnalysis) missingWork.push('还没用 analyze_jd 分析这份 JD');
+        if (ctx.accepted.size === 0) missingWork.push('还没有任何条目通过校验门');
+        const didNothing = !ctx.jdAnalysis && ctx.accepted.size === 0;
+        if (didNothing && nudgeCount < 1) {
+          nudgeCount++;
+          pushStep({ tool: 'submit_result', label: '收工被要求补做', ok: false, ms: Date.now() - t1, detail: missingWork.join('；') });
+          const msgN: ChatMessage = {
+            role: 'tool', name: 'submit_result',
+            content: JSON.stringify({ error: '现在还不能收工：' + missingWork.join('；') })
+          };
+          if (call.raw && call.raw.id) msgN.tool_call_id = call.raw.id;
+          messages.push(msgN);
+          continue;
+        }
+        if (missingWork.length) incompleteReason = missingWork.join('；');
+        pushStep({
+          tool: 'submit_result', label: 'Agent 判定任务完成', ok: missingWork.length === 0,
+          ms: Date.now() - t1,
+          detail: '第 ' + i + ' 步收工' + (missingWork.length ? '（未完成：' + missingWork.join('；') + '）' : '')
+        });
         finished = true;
         break;
       }
@@ -748,20 +798,25 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
   let auditAfter = auditBefore;
   const jdBefore = ctx.jdAnalysis ? ctx.jdAnalysis.score : 0;
   let jdAfter = jdBefore;
+  // 同 runAgent：复测后的缺失技能取改写后的 matchJd，而不是改写前的 ctx.jdAnalysis
+  let jdMissingAfter: string[] = ctx.jdAnalysis ? ctx.jdAnalysis.missing.map((m) => m.label) : [];
   if (accepted.length && ctx.jdAnalysis) {
     const bulletMap = applyRewrites(profile, accepted);
     const afterText = items.map((it) =>
       (it.id === 'summary' ? [bulletMap.summary as string] : bulletMap[it.id] as string[]).join('\n')
     ).join('\n');
     auditAfter = engine.auditAiFlavor(afterText).score;
-    jdAfter = engine.matchJd(resumeLike(profile, bulletMap), jd).score;
+    const afterMatch = engine.matchJd(resumeLike(profile, bulletMap), jd);
+    jdAfter = afterMatch.score;
+    jdMissingAfter = afterMatch.missing.map((m) => m.label);
   }
 
   const ok = accepted.length > 0 && !loopError;
   return {
     ok,
     mode: 'agentic',
-    error: loopError,
+    error: loopError || null,
+    incomplete: incompleteReason || null,
     stepsUsed,
     rounds: stepsUsed,
     accepted,
@@ -770,7 +825,7 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
     auditAfter,
     jdBefore,
     jdAfter,
-    jdMissingAfter: ctx.jdAnalysis ? ctx.jdAnalysis.missing.map((m) => m.label) : [],
+    jdMissingAfter,
     steps
   };
 }

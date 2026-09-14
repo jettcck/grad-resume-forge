@@ -15,6 +15,7 @@ import { createLlmClient } from './llm-client';
 import { detectLocalServices } from './local-detect';
 import * as interview from './interview';
 import * as secureStore from './secure-store';
+import { LIMITS, assertSize, assertPlainObject } from './validate';
 import type { IpcResult, Profile, LlmConfig, Application } from './types';
 
 let mainWindow: BrowserWindow | null = null;
@@ -82,9 +83,31 @@ function fail(message: string): IpcResult<never> {
   return { ok: false, error: message };
 }
 
+// ---------------- 会话权威（数据接口不再信任 renderer 传来的 userId） ----------------
+// 背景：档案/投递/快照/版本等接口原先直接拿 renderer 传来的 userId 去读写数据，
+// 等于「谁都能报一个别人的 id」。桌面应用里风险低于服务器，但 renderer 一旦被注入
+// 内容（例如导入的简历文本、未来多窗口）就是真实越权。这里把 userId 的来源收到主进程：
+// 只有登录/恢复会话成功的那个 webContents 才拿得到自己的 userId。
+const sessions = new Map<number, string>(); // webContents.id → userId
+
+function rememberSession(ev: Electron.IpcMainInvokeEvent, userId: unknown): void {
+  const uid = String(userId || '');
+  if (!uid) return;
+  try { sessions.set(ev.sender.id, uid); } catch (_) { /* 忽略 */ }
+}
+
+function sessionUserId(ev: Electron.IpcMainInvokeEvent): string {
+  let uid: string | undefined;
+  try { uid = sessions.get(ev.sender.id); } catch (_) { uid = undefined; }
+  if (!uid) throw new Error('未登录或会话已过期，请重新登录');
+  return uid;
+}
+
 ipcMain.handle('auth:register', (_e, payload: auth.RegisterPayload) => {
   try {
-    return ok(auth.register(payload));
+    const r = auth.register(payload);
+    rememberSession(_e, (r as { id?: string }).id);
+    return ok(r);
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -92,7 +115,9 @@ ipcMain.handle('auth:register', (_e, payload: auth.RegisterPayload) => {
 
 ipcMain.handle('auth:login', (_e, payload: auth.LoginPayload) => {
   try {
-    return ok(auth.login(payload));
+    const r = auth.login(payload);
+    rememberSession(_e, (r as { id?: string }).id);
+    return ok(r);
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -101,7 +126,9 @@ ipcMain.handle('auth:login', (_e, payload: auth.LoginPayload) => {
 // 用本地 token 恢复登录态（免重复输入）
 ipcMain.handle('auth:session', (_e, token: string) => {
   try {
-    return ok(auth.resumeSession(token));
+    const r = auth.resumeSession(token);
+    rememberSession(_e, (r as { id?: string }).id);
+    return ok(r);
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -109,6 +136,7 @@ ipcMain.handle('auth:session', (_e, token: string) => {
 
 ipcMain.handle('auth:logout', (_e, token: string) => {
   try {
+    sessions.delete(_e.sender.id);
     return ok(auth.logout(token));
   } catch (err) {
     return fail((err as Error).message);
@@ -117,6 +145,7 @@ ipcMain.handle('auth:logout', (_e, token: string) => {
 
 ipcMain.handle('profile:get', (_e, userId: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     return ok(store.getProfile(userId));
   } catch (err) {
     return fail((err as Error).message);
@@ -125,6 +154,9 @@ ipcMain.handle('profile:get', (_e, userId: string) => {
 
 ipcMain.handle('profile:save', (_e, userId: string, profile: Partial<Profile>) => {
   try {
+    assertPlainObject(profile, '档案');
+    assertSize(profile, LIMITS.profileJson, '档案');
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     return ok(store.saveProfile(userId, profile));
   } catch (err) {
     return fail((err as Error).message);
@@ -133,7 +165,21 @@ ipcMain.handle('profile:save', (_e, userId: string, profile: Partial<Profile>) =
 
 ipcMain.handle('resume:generate', (_e, profile: Profile, options: { targetRole?: string } | undefined) => {
   try {
+    assertPlainObject(profile, '档案');
+    assertSize(profile, LIMITS.profileJson, '档案');
     return ok(engine.generate(profile, options || {}));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 把用户勾选的改写写回档案：用引擎的切分语义（数组描述、；/。/换行分隔都一致），
+// 渲染层不再自己实现一套 —— 两份实现漂移过一次，结果是存进档案的内容错行、重复。
+ipcMain.handle('resume:applyRewrites', (_e, profile: Partial<Profile>, accepted: unknown) => {
+  try {
+    const list = Array.isArray(accepted) ? accepted as never[] : [];
+    assertSize(profile, LIMITS.profileJson, '档案');
+    return ok(agent.applyRewritesToProfile(profile, list));
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -172,6 +218,10 @@ ipcMain.handle('resume:importPdf', async () => {
 
     const importer = await import('./resume-importer');
     const dataRoot = path.join(__dirname, '..', '..', 'data');
+    try {
+      const st = fs.statSync(filePaths[0]);
+      if (st.size > LIMITS.importFile) throw new Error('文件过大（' + Math.round(st.size / 1024 / 1024) + 'MB，上限 ' + Math.round(LIMITS.importFile / 1024 / 1024) + 'MB）');
+    } catch (e) { if (e instanceof Error && /文件过大/.test(e.message)) throw e; }
     const result = await importer.importFromFile(filePaths[0], dataRoot);
     return ok(result);
   } catch (err) {
@@ -181,6 +231,7 @@ ipcMain.handle('resume:importPdf', async () => {
 
 ipcMain.handle('applications:list', (_e, userId: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     return ok(store.listApplications(userId));
   } catch (err) {
     return fail((err as Error).message);
@@ -191,6 +242,9 @@ ipcMain.handle('applications:list', (_e, userId: string) => {
 // 「No handler registered」，看板实际是只读的；截图 mock 里注册了所以测试没发现）
 ipcMain.handle('applications:save', (_e, userId: string, application: Application) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
+    assertPlainObject(application, '投递记录');
+    assertSize(application, LIMITS.notes, '投递记录');
     if (!store.findUserById(userId)) return fail('用户不存在');
     return ok(store.saveApplication(userId, application));
   } catch (err) {
@@ -200,6 +254,7 @@ ipcMain.handle('applications:save', (_e, userId: string, application: Applicatio
 
 ipcMain.handle('applications:delete', (_e, userId: string, appId: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     return ok(store.deleteApplication(userId, appId));
   } catch (err) {
     return fail((err as Error).message);
@@ -209,6 +264,7 @@ ipcMain.handle('applications:delete', (_e, userId: string, appId: string) => {
 // ---------------- Agent 快照 ----------------
 ipcMain.handle('snapshots:save', (_e, userId: string, label: string, profile: Partial<Profile>) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     if (!store.findUserById(userId)) return fail('用户不存在');
     return ok(store.saveAgentSnapshot(userId, label, profile));
   } catch (err) {
@@ -218,6 +274,7 @@ ipcMain.handle('snapshots:save', (_e, userId: string, label: string, profile: Pa
 
 ipcMain.handle('snapshots:list', (_e, userId: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     return ok(store.listAgentSnapshots(userId));
   } catch (err) {
     return fail((err as Error).message);
@@ -226,6 +283,7 @@ ipcMain.handle('snapshots:list', (_e, userId: string) => {
 
 ipcMain.handle('snapshots:get', (_e, userId: string, snapshotId: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     const profile = store.getAgentSnapshot(userId, snapshotId);
     if (!profile) return fail('快照不存在或已删除');
     return ok(profile);
@@ -236,6 +294,7 @@ ipcMain.handle('snapshots:get', (_e, userId: string, snapshotId: string) => {
 
 ipcMain.handle('snapshots:restore', (_e, userId: string, snapshotId: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     const profile = store.getAgentSnapshot(userId, snapshotId);
     if (!profile) return fail('快照不存在或已删除');
     return ok(store.saveProfile(userId, profile));
@@ -246,6 +305,7 @@ ipcMain.handle('snapshots:restore', (_e, userId: string, snapshotId: string) => 
 
 ipcMain.handle('snapshots:delete', (_e, userId: string, snapshotId: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     return ok(store.deleteAgentSnapshot(userId, snapshotId));
   } catch (err) {
     return fail((err as Error).message);
@@ -282,6 +342,7 @@ ipcMain.handle('backups:reveal', () => {
 // ---------------- 简历版本（多版本：一个岗位一版） ----------------
 ipcMain.handle('versions:list', (_e, userId: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     return ok(store.listVersions(userId));
   } catch (err) {
     return fail((err as Error).message);
@@ -290,6 +351,7 @@ ipcMain.handle('versions:list', (_e, userId: string) => {
 
 ipcMain.handle('versions:get', (_e, userId: string, versionId: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     const v = store.getVersion(userId, versionId);
     if (!v) return fail('版本不存在或已删除');
     return ok(v);
@@ -300,6 +362,7 @@ ipcMain.handle('versions:get', (_e, userId: string, versionId: string) => {
 
 ipcMain.handle('versions:save', (_e, userId: string, input: Parameters<typeof store.saveVersion>[1]) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     if (!store.findUserById(userId)) return fail('用户不存在');
     return ok(store.saveVersion(userId, input));
   } catch (err) {
@@ -309,6 +372,7 @@ ipcMain.handle('versions:save', (_e, userId: string, input: Parameters<typeof st
 
 ipcMain.handle('versions:rename', (_e, userId: string, versionId: string, name: string, note?: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     return ok(store.renameVersion(userId, versionId, name, note));
   } catch (err) {
     return fail((err as Error).message);
@@ -317,6 +381,7 @@ ipcMain.handle('versions:rename', (_e, userId: string, versionId: string, name: 
 
 ipcMain.handle('versions:delete', (_e, userId: string, versionId: string) => {
   try {
+    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     return ok(store.deleteVersion(userId, versionId));
   } catch (err) {
     return fail((err as Error).message);
@@ -324,11 +389,22 @@ ipcMain.handle('versions:delete', (_e, userId: string, versionId: string) => {
 });
 
 ipcMain.handle('resume:exportPdf', async (_e, html: string, suggestedName: string) => {
-  // 离屏渲染 PDF；无论成功失败都要销毁隐藏窗口，避免进程泄漏
+  if (typeof html !== 'string' || !html.trim()) return fail('没有可导出的内容');
+  try { assertSize(html, LIMITS.exportHtml, '导出内容'); } catch (err) { return fail((err as Error).message); }
+  // 离屏渲染 PDF；无论成功失败都要销毁隐藏窗口，避免进程泄漏。
+  // 这个窗口加载的是拼好的 HTML 字符串（内容来自简历文本，可能含导入 PDF 里的任意字符），
+  // 所以关掉 JS、隔离上下文并保持沙箱：它只需要排版和打印，不需要脚本。
   let data: Buffer;
   const pdfWin = new BrowserWindow({
     show: false,
-    webPreferences: { offscreen: true }
+    webPreferences: {
+      offscreen: true,
+      javascript: false,
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true
+    }
   });
   try {
     const encoded = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
@@ -458,6 +534,9 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
     const o = opts || {};
     const rulesOnly = o.mode === 'rules';
     const cfg = Object.assign({}, decryptAgentConfig(store.getSetting<LlmConfig>('agent')) || {}, o);
+    assertPlainObject(profile, '档案');
+    assertSize(profile, LIMITS.profileJson, '档案');
+    assertSize(jdText, LIMITS.jdText, '职位描述');
     // 规则通道不需要任何模型客户端
     const llm = rulesOnly
       ? undefined
@@ -541,8 +620,9 @@ function decryptAgentConfig(cfg: LlmConfig | null): LlmConfig | null {
 
 ipcMain.handle('settings:get', (_e, key: string) => {
   try {
-    const v = store.getSetting(key);
-    return ok(key === 'agent' ? decryptAgentConfig(v as LlmConfig) : v);
+    const userId = sessionUserId(_e);
+    const v = store.getSetting(key, userId);
+    return ok(key === 'agent' ? maskAgentConfig(decryptAgentConfig(v as LlmConfig)) : v);
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -550,9 +630,27 @@ ipcMain.handle('settings:get', (_e, key: string) => {
 
 ipcMain.handle('settings:save', (_e, key: string, value: unknown) => {
   try {
-    const v = key === 'agent' ? encryptAgentConfig(value as LlmConfig) : value;
-    const saved = store.setSetting(key, v);
-    return ok(key === 'agent' ? decryptAgentConfig(saved as LlmConfig) : saved);
+    const userId = sessionUserId(_e);
+    assertSize(value, LIMITS.settingJson, '设置内容');
+    if (key !== 'agent') return ok(store.setSetting(key, value)); // 设备级设置（镜像等）不按账号隔离
+    const incoming = Object.assign({}, (value || {}) as LlmConfig);
+    // 密钥不回显给渲染层，所以「留空」表示保留原密钥：这里用存着的那份补回去，
+    // 免得配置弹窗只改了个模型名就把密钥清掉。
+    if (!incoming.apiKey) {
+      const prev = decryptAgentConfig(store.getSetting<LlmConfig>('agent', userId)) as LlmConfig | null;
+      if (prev && prev.apiKey) incoming.apiKey = prev.apiKey;
+    }
+    const saved = store.setSetting('agent', encryptAgentConfig(incoming), userId);
+    return ok(maskAgentConfig(decryptAgentConfig(saved as LlmConfig)));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 系统加密是否可用：不可用时密钥只能明文落盘，必须让用户在保存前就知道
+ipcMain.handle('secure:status', () => {
+  try {
+    return ok({ available: secureStore.isAvailable() });
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -561,23 +659,44 @@ ipcMain.handle('settings:save', (_e, key: string, value: unknown) => {
 // ---------------- 自动更新 ----------------
 import { autoUpdater } from 'electron-updater';
 
+// 密钥只在主进程内使用：给渲染层返回配置时把 apiKey 抹掉，只留「是否已保存」，
+// 免得明文密钥出现在界面进程里（截屏/注入/前端漏洞都会顺手带走它）。
+function maskAgentConfig(cfg: LlmConfig | null): (LlmConfig & { hasKey: boolean }) | null {
+  if (!cfg) return null;
+  const out = Object.assign({}, cfg) as LlmConfig & { hasKey: boolean };
+  out.hasKey = !!cfg.apiKey;
+  out.apiKey = '';
+  return out;
+}
+
 function sendUpdate(ev: string, payload: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('updater:event', { ev, payload });
   }
 }
 
+let updaterBound = false;
+
 function configureUpdater(): void {
   const mirror = store.getSetting<string>('ghProxy');
+  // setFeedURL 是进程级状态：镜像被清空后必须显式切回默认的 GitHub feed，
+  // 否则本次运行会一直用着旧镜像地址（用户以为已经关了镜像，实际没关）。
   if (mirror) {
     autoUpdater.setFeedURL({
       provider: 'generic',
       url: String(mirror).replace(/\/+$/, '') + '/https://github.com/' + GH_REPO + '/releases/latest/download/'
     });
+  } else {
+    const [owner, repo] = String(GH_REPO).split('/');
+    autoUpdater.setFeedURL({ provider: 'github', owner: owner, repo: repo });
   }
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowPrerelease = false;
+
+  // 监听器只绑一次：每次手动检查都重绑会让事件重复发送、监听器无限增长
+  if (updaterBound) return;
+  updaterBound = true;
 
   autoUpdater.on('checking-for-update', () => sendUpdate('checking', {}));
   autoUpdater.on('update-available', (info) => sendUpdate('available', {

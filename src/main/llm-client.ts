@@ -104,25 +104,28 @@ export function createOllamaClient(config: Partial<LlmConfig> | undefined): LlmC
         const decoder = new TextDecoder();
         let buf = '';
         let full = '';
+        const takeLine = (line: string): void => {
+          if (!line) return;
+          try {
+            const obj = JSON.parse(line) as { message?: { content?: string } };
+            const piece = obj && obj.message && obj.message.content;
+            if (piece) {
+              full += piece;
+              onChunk(piece);
+            }
+          } catch (_) { /* 半行或心跳行，忽略 */ }
+        };
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
           buf += decoder.decode(value, { stream: true });
           let nl: number;
           while ((nl = buf.indexOf('\n')) >= 0) {
-            const line = buf.slice(0, nl).trim();
+            takeLine(buf.slice(0, nl).trim());
             buf = buf.slice(nl + 1);
-            if (!line) continue;
-            try {
-              const obj = JSON.parse(line) as { message?: { content?: string } };
-              const piece = obj && obj.message && obj.message.content;
-              if (piece) {
-                full += piece;
-                onChunk(piece);
-              }
-            } catch (_) { /* 半行或心跳行，忽略 */ }
           }
         }
+        takeTail(decoder, buf, takeLine); // 最后一段没有换行的数据也要算
         if (!full) throw new Error('模型未返回内容');
         return full;
       } finally {
@@ -130,6 +133,16 @@ export function createOllamaClient(config: Partial<LlmConfig> | undefined): LlmC
       }
     }
   };
+}
+
+// 流式收尾：flush 解码器 + 处理最后一段没有换行的数据。
+// 服务端关闭连接时最后一行常常不带换行；只解析「完整行」会把这段丢掉，
+// 表现为内容被截断、甚至误报「模型未返回内容」。
+function takeTail(decoder: { decode: () => string }, buf: string, onLine: (line: string) => void): void {
+  let rest = buf;
+  try { rest += decoder.decode(); } catch (_) { /* 忽略解码尾部异常 */ }
+  const tail = rest.trim();
+  if (tail) onLine(tail);
 }
 
 // ---------------- 云端（OpenAI 兼容） ----------------
@@ -185,27 +198,30 @@ export function createOpenAiClient(config: Partial<LlmConfig> | undefined): LlmC
       const decoder = new TextDecoder();
       let buf = '';
       let full = '';
+      const takeLine = (line: string): void => {
+        if (!line.startsWith('data:')) return;
+        const payload = line.slice(5).trim();
+        if (!payload || payload === '[DONE]') return;
+        try {
+          const obj = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> };
+          const piece = obj.choices?.[0]?.delta?.content;
+          if (piece) {
+            full += piece;
+            onChunk(piece);
+          }
+        } catch (_) { /* 不完整分片，忽略 */ }
+      };
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         buf += decoder.decode(value, { stream: true });
         let nl: number;
         while ((nl = buf.indexOf('\n')) >= 0) {
-          const line = buf.slice(0, nl).trim();
+          takeLine(buf.slice(0, nl).trim());
           buf = buf.slice(nl + 1);
-          if (!line.startsWith('data:')) continue;
-          const payload = line.slice(5).trim();
-          if (!payload || payload === '[DONE]') continue;
-          try {
-            const obj = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> };
-            const piece = obj.choices?.[0]?.delta?.content;
-            if (piece) {
-              full += piece;
-              onChunk(piece);
-            }
-          } catch (_) { /* 不完整分片，忽略 */ }
         }
       }
+      takeTail(decoder, buf, takeLine); // 最后一段没有换行的 data: 行同样不能丢
       if (!full) throw new Error('模型未返回内容');
       return full;
     } finally {

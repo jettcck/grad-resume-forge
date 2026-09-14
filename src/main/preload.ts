@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('api', {
     audit: (text: string) => ipcRenderer.invoke('resume:audit', text),
     exportPdf: (html: string, suggestedName: string) => ipcRenderer.invoke('resume:exportPdf', html, suggestedName),
     matchJd: (resume: unknown, jdText: string) => ipcRenderer.invoke('resume:matchJd', resume, jdText),
+    // 把勾选的改写写回档案：切分与回填由主进程引擎负责（渲染层不再自己实现一套）
+    applyRewrites: (profile: unknown, accepted: unknown) => ipcRenderer.invoke('resume:applyRewrites', profile, accepted),
     importResume: () => ipcRenderer.invoke('resume:importPdf')
   },
   applications: {
@@ -76,6 +78,10 @@ contextBridge.exposeInMainWorld('api', {
   settings: {
     get: (key: string) => ipcRenderer.invoke('settings:get', key),
     save: (key: string, value: unknown) => ipcRenderer.invoke('settings:save', key, value)
+  },
+  // 系统加密可用性：不可用时密钥会明文落盘，界面必须先告知用户
+  secure: {
+    status: () => ipcRenderer.invoke('secure:status')
   },
   updater: {
     status: () => ipcRenderer.invoke('updater:status'),

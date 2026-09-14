@@ -143,11 +143,26 @@ store.deleteAgentSnapshot(uid, store.listAgentSnapshots(uid)[0].id);
 assert(store.listAgentSnapshots(uid).length === 4, '删除快照成功');
 assert(store.getAgentSnapshot(uid, 'snap_不存在') === null, '读取不存在的快照返回 null');
 
-// 12) 数据真正落盘（新实例重新 load 也能读到）
+// 12) 设置按账号隔离（曾经是全局对象：多账号共用一个 Agent 配置和云端密钥）
+{
+  const a = auth.register({ email: 'setting-a@test.local', password: 'pass123456', name: '甲' });
+  const b = auth.register({ email: 'setting-b@test.local', password: 'pass123456', name: '乙' });
+  store.setSetting('agent', { provider: 'cloud', apiKey: 'enc:v1:AAA', model: 'deepseek-chat' }, a.id);
+  assert(store.getSetting('agent', a.id) !== null, '账号甲读得到自己保存的 Agent 配置');
+  assert(store.getSetting('agent', b.id) === null, '账号乙读不到账号甲的 Agent 配置（含密钥）');
+  store.setSetting('agent', { provider: 'ollama', apiKey: 'enc:v1:BBB' }, b.id);
+  const aCfg = store.getSetting('agent', a.id);
+  assert(aCfg && aCfg.apiKey === 'enc:v1:AAA', '两个账号各自的配置互不覆盖');
+  // 老库迁移：全局键只在「单账号」时被继承；这里顺带确认设备级设置不分账号
+  assert(store.getSetting('ghProxy', a.id) === store.getSetting('ghProxy', b.id), '设备级设置（镜像）不分账号');
+}
+
+// 13) 数据真正落盘（新实例重新 load 也能读到）
 const dbPath = path.join(tmpDir, 'grad-resume-data', 'db.json');
 assert(fs.existsSync(dbPath), 'db.json 已落盘');
 const rawDb = JSON.parse(fs.readFileSync(dbPath, 'utf-8'));
-assert(rawDb.users.length === 1 && rawDb.users[0].hash, '落盘数据含用户与加密 hash');
+assert(rawDb.users.length >= 1 && rawDb.users.every((u) => !!u.hash), '落盘数据含用户与加密 hash（' + rawDb.users.length + ' 个账号）');
+assert(rawDb.schemaVersion === 1, '落盘数据带 schemaVersion（将来改结构时据此迁移）');
 
 // 清理
 try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) {}

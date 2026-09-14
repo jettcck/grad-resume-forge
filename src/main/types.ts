@@ -176,6 +176,8 @@ export interface AgenticResult {
   ok: boolean;
   mode: 'agentic';
   error: string | null;
+  /** 收工时仍缺的关键动作（如没分析 JD）：有值说明这次不算完整完成，要如实告诉用户 */
+  incomplete?: string | null;
   stepsUsed: number;
   rounds: number;
   accepted: AcceptedRewrite[];

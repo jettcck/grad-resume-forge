@@ -19,7 +19,12 @@ interface DbShape {
   settings: Record<string, unknown>;
   agentSnapshots: Record<string, AgentSnapshot[]>;
   resumeVersions: Record<string, ResumeVersion[]>;
+  /** 数据格式版本：将来改结构时据此迁移，缺省视为 1（老库） */
+  schemaVersion?: number;
 }
+
+// 当前数据格式版本。改动 db 结构时 +1，并在 load() 里补迁移分支
+export const SCHEMA_VERSION = 1;
 
 let dataDir: string | null = null;
 let dbFile: string | null = null;
@@ -214,8 +219,10 @@ function load(): void {
 
 function persist(): void {
   if (!dbFile) return;
+  // 原子写：先写 .tmp 再 rename。直接覆写会在断电/崩溃时留下半截 JSON（整库读不出来）。
   const tmp = dbFile + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(db, null, 2), 'utf-8');
+  const out = Object.assign({}, db, { schemaVersion: SCHEMA_VERSION });
+  fs.writeFileSync(tmp, JSON.stringify(out, null, 2), 'utf-8');
   fs.renameSync(tmp, dbFile);
 }
 
@@ -316,14 +323,32 @@ function clearSession(token: string): { removed: string } {
 
 export { clearSession as _clearSession };
 
-// ---------------- 全局设置（跨用户，如 Agent 模型配置） ----------------
-export function getSetting<T = unknown>(key: string): T | null {
-  const v = db.settings[key];
-  return v != null ? (v as T) : null;
+// ---------------- 设置 ----------------
+// 分两类：设备级（镜像等，跟具体账号无关）与用户级（Agent 模型配置，含云端 API Key）。
+// 用户级必须按 userId 隔离：settings 曾经是全局对象，等于多账号共用一个配置和密钥。
+const USER_SCOPED_SETTINGS = new Set(['agent']);
+
+export function getSetting<T = unknown>(key: string, userId?: string): T | null {
+  const scoped = userId && USER_SCOPED_SETTINGS.has(key) ? userId + ':' + key : key;
+  const v = db.settings[scoped];
+  if (v != null) return v as T;
+  // 向前兼容：老库里的全局键在「只有一个账号」时被继承过来，并顺手搬走，
+  // 否则其它账号仍能通过回退读到同一份密钥，隔离就是假的。
+  if (scoped !== key) {
+    const legacy = db.settings[key];
+    if (legacy != null && Object.keys(db.users || {}).length <= 1) {
+      (db.settings as Record<string, unknown>)[scoped] = legacy;
+      delete (db.settings as Record<string, unknown>)[key];
+      persist();
+      return legacy as T;
+    }
+  }
+  return null;
 }
 
-export function setSetting<T>(key: string, value: T): T {
-  (db.settings as Record<string, unknown>)[key] = value;
+export function setSetting<T>(key: string, value: T, userId?: string): T {
+  const scoped = userId && USER_SCOPED_SETTINGS.has(key) ? userId + ':' + key : key;
+  (db.settings as Record<string, unknown>)[scoped] = value;
   persist();
   return value;
 }

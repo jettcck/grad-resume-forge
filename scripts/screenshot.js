@@ -20,6 +20,22 @@ const secure = require(path.join(ROOT, 'dist/main/secure-store'));
 const { askAssistant: askAssistantReal, hotQuestions: hotQuestionsReal } = require(path.join(ROOT, 'dist/main/assistant'));
 const interviewReal = require(path.join(ROOT, 'dist/main/interview'));
 const agentReal = require(path.join(ROOT, 'dist/main/agent'));
+const importerReal = require(path.join(ROOT, 'dist/main/resume-importer'));
+const IMPORT_TMP = path.join(require('os').tmpdir(), 'grf-shot-import');
+// 导入样例：含多段经历，导入器会把每条描述拆成 string[]（正是要覆盖的形态）
+const IMPORT_SAMPLE = [
+  '王小明',
+  '手机：13900000000  邮箱：wxm@example.com',
+  '求职意向：数据分析师',
+  '教育经历',
+  '2020.09-2024.06  某大学  统计学  本科',
+  '实习经历',
+  '2023.06-2023.09  某公司  数据分析实习生',
+  '负责用户增长数据分析；搭建留存看板；把周报产出时间从 2 天降到半天',
+  '项目经历',
+  '2023.10-2024.03  校园消费行为分析  负责人',
+  '清洗 12 万条问卷数据；用 Python 做聚类分群；产出 3 份结论报告'
+].join('\n');
 
 const DEMO_EMAIL = 'shot@demo.local';
 const DEMO_PASSWORD = 'demo123456';
@@ -30,6 +46,8 @@ let mockAgentAvailable = false;
 const savedSettings = {};
 // 置真时 settings:get 返回 null（模拟偏好读不回来）—— 用来验证「记住通道」的断言真的会红
 let mockSettingsUnreadable = false;
+// 系统加密是否可用（false 时界面必须提示密钥会明文保存）
+let mockSecureAvailable = true;
 const DEMO_PROFILE = {
   name: '李明', phone: '13812345678', email: 'liming@example.com', city: '杭州',
   github: 'github.com/liming', targetRole: '后端开发工程师', summary: '',
@@ -113,7 +131,17 @@ function registerIpc() {
   h('resume:matchJd', (resume, jd) => engine.matchJd(resume, jd));
   h('resume:generate', (p, o) => engine.generate(p, o || {}));
   h('resume:exportPdf', () => ({ path: 'C:/tmp/fake.pdf' }));
-  h('resume:importPdf', () => null); // 文件选择框在截图环境里等同「用户取消」
+  // 导入：返回**真实导入器**的产出（描述是 string[]，每条一行）。
+  // 以前这里固定返回 null，等于「导入这条路径零覆盖」—— 数组描述渗进表单/Agent 应用
+  // 引发的问题（表单渲染抛错、改写错行）因此一直没被测出来。
+  h('resume:importPdf', () => {
+    const tmpFile = path.join(IMPORT_TMP, 'demo-resume.txt');
+    if (!fs.existsSync(IMPORT_TMP)) fs.mkdirSync(IMPORT_TMP, { recursive: true });
+    if (!fs.existsSync(tmpFile)) fs.writeFileSync(tmpFile, IMPORT_SAMPLE, 'utf8');
+    return importerReal.importFromFile(tmpFile, path.join(ROOT, 'data'));
+  });
+  // 应用改写：与主进程一致，直接用引擎的实现（渲染层不再自己切分）
+  h('resume:applyRewrites', (profile, accepted) => agentReal.applyRewritesToProfile(profile, accepted));
   h('updater:check', () => ({ started: true }));
   h('updater:install', () => ({ installing: true }));
   h('updater:setMirror', (m) => ({ mirror: m }));
@@ -136,12 +164,24 @@ function registerIpc() {
   // 不能受开发机上是否跑着 Ollama 影响。可用性可由测试动态切换（见下方 mockAgentAvailable）
   h('agent:status', () => ({
     available: mockAgentAvailable, models: mockAgentAvailable ? ['deepseek-chat'] : [], error: '',
-    config: { provider: mockAgentAvailable ? 'cloud' : 'ollama', endpoint: mockAgentAvailable ? 'https://api.deepseek.com/v1' : 'http://127.0.0.1:11434', model: mockAgentAvailable ? 'deepseek-chat' : 'qwen2.5:7b', temperature: 0.3 },
+    // hasKey 与主进程一致：密钥不回显到渲染层，只给「是否已保存」
+    config: { provider: mockAgentAvailable ? 'cloud' : 'ollama', endpoint: mockAgentAvailable ? 'https://api.deepseek.com/v1' : 'http://127.0.0.1:11434', model: mockAgentAvailable ? 'deepseek-chat' : 'qwen2.5:7b', temperature: 0.3, hasKey: mockAgentAvailable },
     provider: mockAgentAvailable ? 'cloud' : 'ollama'
   }));
-  // 设置要能往返：固定返回 null 会让「偏好是否真的被记住」根本测不出来（渲染层读了也白读）
-  h('settings:get', (k) => (mockSettingsUnreadable ? null : (k in savedSettings ? savedSettings[k] : null)));
+  // 设置要能往返：固定返回 null 会让「偏好是否真的被记住」根本测不出来（渲染层读了也白读）。
+  // agent 配置按主进程的规则不回显密钥（只给 hasKey）。
+  h('settings:get', (k) => {
+    if (mockSettingsUnreadable) return null;
+    if (!(k in savedSettings)) return null;
+    const v = savedSettings[k];
+    if (k === 'agent' && v && typeof v === 'object') {
+      return Object.assign({}, v, { apiKey: '', hasKey: !!(v.apiKey || v.hasKey) });
+    }
+    return v;
+  });
   h('settings:save', (k, v) => { savedSettings[k] = v; return v; });
+  // 系统加密可用性：渲染层据此决定是否提示「密钥会明文落盘」
+  h('secure:status', () => ({ available: mockSecureAvailable }));
   // 渲染层 → 主进程的两个 fire-and-forget 通道。主进程用 ipcMain.on，mock 也必须用 on：
   // 用 handle 接 send 不会报错、只会静默不执行，正是最难发现的一类 mock 失真。
   ipcMain.on('embedded:status', () => {});
@@ -167,7 +207,11 @@ async function shot(win, name) {
 
 async function main() {
   fs.mkdirSync(SHOTS, { recursive: true });
-  store.init(app.getPath('userData'));
+  // 每次都用干净的数据目录：否则上一轮留下的版本/快照会让「无版本时给出引导文案」
+  // 这类断言时真时假 —— 测试之间互相污染，比不测更糟（会假装通过、也会假装失败）
+  const userData = app.getPath('userData');
+  try { fs.rmSync(path.join(userData, 'grad-resume-data'), { recursive: true, force: true }); } catch (_) { /* 忽略 */ }
+  store.init(userData);
   registerIpc();
 
   // ---- safeStorage 真实 DPAPI 往返断言（Electron 环境）----
@@ -690,49 +734,37 @@ async function main() {
   })()`));
   mockAgentAvailable = false;
 
-  // —— 通道选择必须跨重启记住 ——
-  // 用户明确选「零配置（规则）」（不调用任何模型），重启后自动默认若因为探测到模型而切回
-  // 需要模型的通道，用户没注意就会把内容发给模型。这条只有真的重载一次才测得出来。
-  await win.webContents.executeJavaScript(`(() => {
-    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
-    const r = segs.find((b) => /零配置/.test(b.textContent));
-    if (r) r.click();
-    return !!r;
-  })()`);
-  await sleep(900);
-  console.log((savedSettings.agent && savedSettings.agent.mode === 'rules' ? '✅' : '❌')
-    + ' 通道选择已写进设置（读到 mode=' + (savedSettings.agent && savedSettings.agent.mode) + '）');
-
-  // 模拟重启：设置里留着「规则」，同时把模型标成可用 —— 自动默认此时会想选流水线
-  mockAgentAvailable = true;
-  savedSettings.agent = { provider: 'ollama', mode: 'rules' };
-  if (process.env.GRF_BREAK_PREF === '1') mockSettingsUnreadable = true; // 负向验证：断言必须因此变红
-  win.webContents.reload();
-  await sleep(2800);
-  await win.webContents.executeJavaScript(`(() => {
-    const f = document.getElementById('auth-form');
-    if (!f) return false;
-    f.querySelector('input[name="email"]').value = '${DEMO_EMAIL}';
-    f.querySelector('input[name="password"]').value = '${DEMO_PASSWORD}';
-    f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-    return true;
-  })()`);
-  await sleep(1800);
-  await win.webContents.executeJavaScript(`(() => {
-    document.querySelector('.nav-item[data-route="resume"]').click();
-    return true;
-  })()`);
-  await sleep(2400);
-  console.log(await verify(win, `(() => {
-    const out = [];
-    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
-    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
-    const btn = (txt) => segs.find((b) => new RegExp(txt).test(b.textContent));
-    t('重启后仍选中上次的通道', !!btn('零配置') && btn('零配置').classList.contains('active'));
-    t('自动默认没有抢回选中（模型可用也不切走）', !!btn('流水线') && !btn('流水线').classList.contains('active'));
-    return out.join('\\n');
-  })()`));
-  mockAgentAvailable = false;
+  // —— 云端密钥：系统加密不可用时必须明确告知（不能默默明文落盘）——
+  {
+    mockSecureAvailable = false;
+    await win.webContents.executeJavaScript(`(() => {
+      const cfg = Array.from(document.querySelectorAll('#route-resume .btn')).find((b) => b.textContent.trim() === '配置');
+      if (cfg) cfg.click();
+      return !!cfg;
+    })()`);
+    await sleep(600);
+    await win.webContents.executeJavaScript(`(() => {
+      const box = document.querySelector('.modal-overlay .modal-box');
+      const cloud = box && Array.from(box.querySelectorAll('.seg-btn')).find((b) => /云端/.test(b.textContent));
+      if (cloud) cloud.click();
+      return !!cloud;
+    })()`);
+    await sleep(900);
+    console.log(await verify(win, `(() => {
+      const out = [];
+      const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+      const box = document.querySelector('.modal-overlay .modal-box');
+      const text = box ? box.textContent : '';
+      t('云端模式会填写 API 密钥', !!box && /API 密钥/.test(text));
+      t('系统加密不可用时明确提示密钥将明文保存', /明文/.test(text));
+      t('提示里给出替代做法（用本机模型 / 临时填入）', /本机模型/.test(text));
+      const close = box && Array.from(box.querySelectorAll('.btn')).find((b) => /取消/.test(b.textContent));
+      if (close) close.click();
+      return out.join('\\n');
+    })()`));
+    await sleep(500);
+    mockSecureAvailable = true;
+  }
 
   // —— 简历版本（多版本：一个岗位一版）——
   // 先切回档案页：版本卡在档案页侧栏，用户操作路径也应从这里开始
@@ -974,12 +1006,146 @@ async function main() {
     t('给出体检分前后对比', !!box && /体检/.test(box.textContent) && /→/.test(box.textContent));
     t('给出 JD 覆盖率前后对比', !!box && /覆盖/.test(box.textContent));
     t('结果含步骤轨迹', !!box && box.querySelectorAll('.agent-step').length >= 3);
-    const close = box && Array.from(box.querySelectorAll('.btn')).find((b) => /知道了|稍后|关闭/.test(b.textContent));
-    if (close) close.click();
-    else if (box) { const own = Array.from(box.querySelectorAll('.btn')).pop(); if (own) own.click(); }
     return out.join('\\n');
   })()`));
-  await sleep(600);
+
+  // —— 取消勾选的改写不得写进档案（对用户的承诺：取消勾选可保留对应原文）——
+  const planRaw = await win.webContents.executeJavaScript(`(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    if (!box) return 'no-dialog';
+    const rows = Array.from(box.querySelectorAll('.agent-rw'));
+    if (rows.length < 2) return 'need-two-rows:' + rows.length;
+    const cb = rows[0].querySelector('input[type="checkbox"]');
+    if (cb) cb.checked = false; // 取消勾选第一条
+    const pick = (r) => ({
+      id: r.dataset.id,
+      old: (r.querySelector('.rw-old') || {}).textContent || '',
+      text: (r.querySelector('.rw-new') || {}).textContent || ''
+    });
+    const payload = { unchecked: pick(rows[0]), kept: rows.slice(1).map(pick) };
+    const apply = Array.from(box.querySelectorAll('.btn')).find((b) => /应用选中的改写/.test(b.textContent));
+    if (!apply) return 'no-apply-button';
+    apply.click();
+    return JSON.stringify(payload);
+  })()`);
+  await sleep(1800);
+  {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    let payload = null;
+    try { payload = JSON.parse(planRaw); } catch (_) { /* 见下方断言 */ }
+    t('取到勾选计划并点到「应用选中的改写」', !!payload);
+    if (payload) {
+      const u = auth.login({ email: DEMO_EMAIL, password: DEMO_PASSWORD });
+      const uid = (u && (u.user ? u.user.id : u.id)) || (u && u.userId);
+      const prof = store.getProfile(uid);
+      const resolve = (p, id) => {
+        const m = /^(p|i)(\d+)-b(\d+)$/.exec(id);
+        if (m) {
+          const kind = m[1] === 'p' ? 'projects' : 'internships';
+          const it = (p[kind] || [])[Number(m[2])];
+          return it ? String(it.description || '').split('\n')[Number(m[3])] : undefined;
+        }
+        if (/^summary/.test(id)) return String(p.summary || '');
+        return undefined;
+      };
+      const keptOk = payload.kept.every((k) => (resolve(prof, k.id) || '').trim() === k.text.trim());
+      const keepOld = payload.unchecked;
+      const uncheckOk = (resolve(prof, keepOld.id) || '').trim() === keepOld.old.trim();
+      t('勾选的改写都写进了档案（' + payload.kept.length + ' 条）', keptOk);
+      t('取消勾选的那条保持原文（' + keepOld.id + '）', uncheckOk);
+      const bad = payload.kept.filter((k) => (resolve(prof, k.id) || '').trim() !== k.text.trim())
+        .map((k) => k.id + '：期望「' + k.text + '」实得「' + resolve(prof, k.id) + '」');
+      if (bad.length) out.push('   ↳ ' + bad.slice(0, 2).join(' | '));
+      if (!uncheckOk) out.push('   ↳ ' + keepOld.id + ' 期望保留「' + keepOld.old + '」实得「' + resolve(prof, keepOld.id) + '」');
+    } else {
+      out.push('   ↳ ' + String(planRaw).slice(0, 120));
+    }
+    console.log(out.join('\n'));
+  }
+
+  // —— 导入旧简历：导入器产出的描述是 string[]，这条路径此前零覆盖 ——
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.nav-item[data-route="profile"]').click();
+    return true;
+  })()`);
+  await sleep(1200);
+  await win.webContents.executeJavaScript(`(() => {
+    const btn = Array.from(document.querySelectorAll('#route-profile .btn')).find((b) => /导入旧简历/.test(b.textContent));
+    if (btn) btn.click();
+    return !!btn;
+  })()`);
+  await sleep(2000);
+  await win.webContents.executeJavaScript(`(() => {
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const b = box && Array.from(box.querySelectorAll('.btn')).find((x) => /合并导入/.test(x.textContent));
+    if (b) b.click();
+    return !!b;
+  })()`);
+  await sleep(1600);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const areas = Array.from(document.querySelectorAll('#proj-list textarea, #intern-list textarea'));
+    // 必须断言「导入的内容真的进了表单」：演示档案本来就有 textarea，
+    // 只数 textarea 个数的话，渲染中途抛错也能蒙过去（第一版断言就是这么空转的）
+    const impProject = areas.find((a) => (a.value || '').includes('校园消费行为分析'));
+    const impIntern = areas.find((a) => (a.value || '').includes('数据分析实习生'));
+    t('导入的项目出现在表单里（表单渲染没有中途抛错）', !!impProject);
+    t('导入的实习出现在表单里', !!impIntern);
+    const lines = impProject ? impProject.value.split('\\n').filter((x) => x.trim()) : [];
+    t('导入的多行描述按行展开（每行一条，实际 ' + lines.length + ' 行）', lines.length >= 2);
+    t('第一行没有被逗号拼接过（无数组残留）', lines.length > 0 && !/,$/.test(lines[0]));
+    t('描述内容与导入结果一致（含清洗 12 万条问卷数据）', !!impProject && /12 万条问卷数据/.test(impProject.value));
+    return out.join('\\n');
+  })()`));
+  await sleep(400);
+
+  // —— 通道选择必须跨重启记住 ——
+  // 用户明确选「零配置（规则）」（不调用任何模型），重启后自动默认若因为探测到模型而切回
+  // 需要模型的通道，用户没注意就会把内容发给模型。这条只有真的重载一次才测得出来。
+  // 放在整条管线的最后：reload() 之后窗口的截图面可能失效（曾导致后续截图报
+  // "display surface not available for capture"），不能再有截图排在它后面。
+  await win.webContents.executeJavaScript(`(() => {
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const r = segs.find((b) => /零配置/.test(b.textContent));
+    if (r) r.click();
+    return !!r;
+  })()`);
+  await sleep(900);
+  console.log((savedSettings.agent && savedSettings.agent.mode === 'rules' ? '✅' : '❌')
+    + ' 通道选择已写进设置（读到 mode=' + (savedSettings.agent && savedSettings.agent.mode) + '）');
+
+  // 模拟重启：设置里留着「规则」，同时把模型标成可用 —— 自动默认此时会想选流水线
+  mockAgentAvailable = true;
+  savedSettings.agent = { provider: 'ollama', mode: 'rules' };
+  if (process.env.GRF_BREAK_PREF === '1') mockSettingsUnreadable = true; // 负向验证：断言必须因此变红
+  win.webContents.reload();
+  await sleep(2800);
+  await win.webContents.executeJavaScript(`(() => {
+    const f = document.getElementById('auth-form');
+    if (!f) return false;
+    f.querySelector('input[name="email"]').value = '${DEMO_EMAIL}';
+    f.querySelector('input[name="password"]').value = '${DEMO_PASSWORD}';
+    f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    return true;
+  })()`);
+  await sleep(1800);
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.nav-item[data-route="resume"]').click();
+    return true;
+  })()`);
+  await sleep(2400);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const btn = (txt) => segs.find((b) => new RegExp(txt).test(b.textContent));
+    t('重启后仍选中上次的通道', !!btn('零配置') && btn('零配置').classList.contains('active'));
+    t('自动默认没有抢回选中（模型可用也不切走）', !!btn('流水线') && !btn('流水线').classList.contains('active'));
+    return out.join('\\n');
+  })()`));
+  mockAgentAvailable = false;
 
   console.log('done. shots in', SHOTS);
   app.exit(0);

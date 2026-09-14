@@ -558,9 +558,12 @@ function inputField(label, name, value, placeholder, type) {
   ]);
 }
 function areaField(label, name, value, placeholder) {
+  // 导入器产出的经历描述是 string[]（每条一行）。直接塞进 textarea 会 appendChild(数组) 抛错，
+  // 也会让「每行一条」的语义丢失 —— 这里统一按换行拼接。
+  const text = Array.isArray(value) ? value.join('\n') : (value == null ? '' : String(value));
   return el('label', { class: 'field' }, [
     el('span', {}, [label]),
-    el('textarea', { name, placeholder: placeholder || '' }, [value || ''])
+    el('textarea', { name, placeholder: placeholder || '' }, [text])
   ]);
 }
 
@@ -1159,7 +1162,24 @@ function showImportReview(fileName, parsed, counts, listCounts) {
 }
 
 // 应用导入结果：merge 只填空缺 + 追加；replace 全量覆盖
-function applyImport(parsed, mode) {
+// 导入器把经历描述产出为 string[]（每条一行）：在边界就归一化成字符串，
+// 免得数组渗进表单、模板、Agent 应用等下游各处（曾导致表单渲染抛错、改写错行）。
+function normalizeEntry(it) {
+  if (!it || typeof it !== 'object') return it;
+  return Object.assign({}, it, {
+    description: Array.isArray(it.description) ? it.description.join('\n') : (it.description || '')
+  });
+}
+function normalizeParsed(parsed) {
+  const p = Object.assign({}, parsed || {});
+  ['education', 'internships', 'projects'].forEach((k) => {
+    if (Array.isArray(p[k])) p[k] = p[k].map(normalizeEntry);
+  });
+  return p;
+}
+
+function applyImport(parsedRaw, mode) {
+  const parsed = normalizeParsed(parsedRaw);
   const current = collectProfile(); // 读当前表单（未保存的修改也不丢）
   const target = mode === 'replace'
     ? Object.assign(blankProfile(), parsed)
@@ -1766,16 +1786,23 @@ function openAgentConfig() {
       const md = textInput('模型名称', isCloudStored ? stored.model : '', 'deepseek-chat');
       modelInput = md.input;
       // 已保存的密钥不回显（防肩窥/截屏泄漏）；留空保存 = 保留原密钥
-      const hasKey = isCloudStored && stored.apiKey;
+      const hasKey = isCloudStored && (stored.hasKey || stored.apiKey); // 主进程只回传「是否已保存」，不回显密钥本身
       const key = textInput(
         hasKey ? 'API 密钥（已加密保存 · 留空保留原密钥）' : 'API 密钥（safeStorage 加密存储，只在本机）',
         '', hasKey ? '已保存，重填可覆盖' : 'sk-…', 'password'
       );
       keyInput = key.input;
 
+      // 系统加密不可用时，密钥只能明文落盘 —— 保存前必须让用户知道，不能默默保存
+      const plainWarn = el('p', { style: 'font-size:11.5px;color:#b45309;margin:2px 0 0;line-height:1.7;display:none;' },
+        ['⚠ 这台机器上没有可用的系统加密（safeStorage 不可用），密钥会以明文形式存放在本机数据文件中。共用电脑建议改用本机模型，或每次临时填入。']);
+      call(window.api.secure.status()).then((st) => {
+        if (st && st.available === false) plainWarn.style.display = 'block';
+      }).catch(() => { /* 探测失败就不吓唬用户 */ });
+
       fieldsBox.append(
         el('label', { class: 'field' }, [el('span', {}, ['服务商预设']), presetSelect]),
-        ep.row, md.row, key.row, temp.row
+        ep.row, md.row, key.row, plainWarn, temp.row
       );
     } else {
       const ep = textInput('Ollama 地址', !isCloudStored ? (stored.endpoint || 'http://127.0.0.1:11434') : 'http://127.0.0.1:11434');
@@ -1810,10 +1837,9 @@ function openAgentConfig() {
         const typed = (keyInput.value || '').trim();
         if (typed) {
           value.apiKey = typed; // 新填的密钥
-        } else if (isCloudStored && stored.apiKey) {
-          value.apiKey = stored.apiKey; // 留空 = 保留已保存密钥（主进程侧是解密态明文）
         }
-        if (!value.endpoint || !value.model || !value.apiKey) {
+        // 留空 = 保留已保存的密钥：密钥不回显到渲染层，由主进程在保存时补回原值
+        if (!value.endpoint || !value.model || (!value.apiKey && !hasKey)) {
           toast('云端模式需填写 API 地址、模型名称与 API 密钥', 'err');
           return;
         }
@@ -2029,6 +2055,11 @@ function renderAgentResult(overlay, box, result, error, steps) {
       ? el('p', { style: 'font-size:12px;color:var(--ink-2);margin:6px 0 0;' },
           ['另有 ' + result.contextOmitted + ' 段经历与该 JD 相关度低，未送入本轮改写。'])
       : null,
+    // Agent 提前收工时的如实标注：做了多少说多少，不让「部分完成」看起来像完成
+    result.incomplete
+      ? el('p', { style: 'font-size:12px;color:#b45309;margin:6px 0 0;line-height:1.7;' },
+          ['⚠ 这次 Agent 提前收工（' + result.incomplete + '）——上面的覆盖率对比仅供参考，建议按这份 JD 再跑一轮。'])
+      : null,
     el('p', { style: 'font-size:12.5px;color:var(--ink-1);margin:14px 0 0;font-weight:600;' },
       ['共 ' + result.accepted.length + ' 条改写通过校验，取消勾选可保留对应原文：']),
     el('div', { class: 'agent-rw-list' }, rewriteNodes),
@@ -2077,35 +2108,23 @@ async function saveSnapshotBeforeApply() {
 
 async function applyAgentResult(result, acceptedList) {
   const accepted = acceptedList || result.accepted;
-  // 行切分与主进程引擎一致
-  const splitDesc = (d) => String(d || '')
-    .split(/\r?\n|；|;|。(?!\d)/).map((s) => s.trim()).filter(Boolean);
+  if (!accepted || !accepted.length) { toast('请至少勾选一条改写', 'err'); return; }
 
-  const byItem = {};
-  result.accepted.forEach((r) => {
-    const m = r.id.match(/^(p\d+|i\d+|summary)(?:-b(\d+))?$/);
-    if (!m) return;
-    (byItem[m[1]] = byItem[m[1]] || []).push({ bullet: Number(m[2] || 0), text: r.text });
-  });
-
-  const p = JSON.parse(JSON.stringify(state.profile)); // 深拷贝再改
-  ['projects', 'internships'].forEach((kind) => {
-    (p[kind] || []).forEach((it, i) => {
-      const key = (kind === 'projects' ? 'p' : 'i') + i;
-      const patched = byItem[key];
-      if (!patched) return;
-      const lines = splitDesc(it.description);
-      patched.forEach((x) => { if (lines[x.bullet] != null) lines[x.bullet] = x.text; });
-      it.description = lines.join('\n');
-    });
-  });
-  if (byItem.summary && byItem.summary[0]) p.summary = byItem.summary[0].text;
+  // 切分与回填交给主进程引擎（applyRewrites）：导入器产出的 description 是 string[]，
+  // 渲染层再自己实现一套切分就会和引擎漂移——错行、重复、甚至把整段描述压成一行。
+  let next;
+  try {
+    next = await call(window.api.resume.applyRewrites(state.profile, accepted));
+  } catch (err) {
+    toast('应用失败：' + err.message, 'err');
+    return;
+  }
 
   // 后悔药：应用前快照当前档案（失败不阻断——用户已逐条勾选）
   const snapped = await saveSnapshotBeforeApply();
 
   try {
-    state.profile = await call(window.api.profile.save(state.user.id, p));
+    state.profile = await call(window.api.profile.save(state.user.id, next));
     toast(snapped ? '已应用并保存（改写前档案已备份，可在信息录入页回炉）' : 'Agent 优化已应用并保存', 'ok');
     renderResumePage();
   } catch (err) {

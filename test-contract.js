@@ -159,4 +159,51 @@ const unusedApi = [...exposed].filter((k) => !usedCalls.has(k) && !UNUSED_ALLOW.
 assert(unusedApi.length === 0,
   '没有新增「暴露但渲染层无人调用」的接口（新增：' + (unusedApi.join(', ') || '无') + '）');
 
+// ---------- 13) 用户数据接口必须从主进程会话取 userId ----------
+// 「信任 renderer 传来的 userId」等于谁都能报别人的 id 读数据。凡是按账号隔离的接口，
+// 都必须出现 sessionUserId(_e)，并且不再把参数直接透传给 store。
+const USER_DATA_CHANNELS = [
+  'profile:get', 'profile:save',
+  'applications:list', 'applications:save', 'applications:delete',
+  'snapshots:save', 'snapshots:list', 'snapshots:get', 'snapshots:restore', 'snapshots:delete',
+  'versions:list', 'versions:get', 'versions:save', 'versions:rename', 'versions:delete',
+  'settings:get', 'settings:save'
+];
+const authMissing = [];
+USER_DATA_CHANNELS.forEach((ch) => {
+  const at = mainSrc.indexOf("ipcMain.handle('" + ch + "'");
+  if (at < 0) { authMissing.push(ch + '（未注册）'); return; }
+  // 取到该 handler 的体（到下一个 ipcMain.handle 之前）
+  const next = mainSrc.indexOf('ipcMain.handle(', at + 10);
+  const body = mainSrc.slice(at, next < 0 ? mainSrc.length : next);
+  if (!/sessionUserId\(_e\)/.test(body)) authMissing.push(ch);
+});
+assert(authMissing.length === 0,
+  USER_DATA_CHANNELS.length + ' 个用户数据接口都从主进程会话取 userId（缺：' + (authMissing.join(', ') || '无') + '）');
+
+// ---------- 14) 高危入口必须有运行时校验（TS 类型运行时不存在）----------
+const needValidation = [
+  ["profile:save", /assertSize\(profile, LIMITS\.profileJson/],
+  ["resume:generate", /assertSize\(profile, LIMITS\.profileJson/],
+  ["agent:run", /assertSize\(jdText, LIMITS\.jdText/],
+  ["settings:save", /assertSize\(value, LIMITS\.settingJson/],
+  ["resume:exportPdf", /assertSize\(html, LIMITS\.exportHtml/],
+  ["applications:save", /assertSize\(application, LIMITS\.notes/]
+];
+const noValidation = needValidation.filter(([ch, re]) => {
+  const at = mainSrc.indexOf("ipcMain.handle('" + ch + "'");
+  const next = mainSrc.indexOf('ipcMain.handle(', at + 10);
+  const body = mainSrc.slice(at, next < 0 ? mainSrc.length : next);
+  return !re.test(body);
+}).map(([ch]) => ch);
+assert(noValidation.length === 0, '高危入口都有体积/形状校验（缺：' + (noValidation.join(', ') || '无') + '）');
+
+// ---------- 15) 密钥不得回显给渲染层 ----------
+assert(/function maskAgentConfig/.test(mainSrc) && /maskAgentConfig\(/.test(mainSrc),
+  '主进程会把 apiKey 抹掉后再返回给渲染层（只留 hasKey）');
+assert(!/return ok\(decryptAgentConfig\(/.test(mainSrc),
+  '不存在「把解密后的完整配置直接返回」的路径');
+assert(/store\.getSetting<LlmConfig>\('agent', userId\)/.test(mainSrc),
+  '保存时按账号读取原有配置，用于「留空 = 保留原密钥」');
+
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

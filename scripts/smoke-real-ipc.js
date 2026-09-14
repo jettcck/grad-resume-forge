@@ -1,0 +1,94 @@
+'use strict';
+
+// ============================================================
+//  真实主进程 IPC 冒烟：加载 dist/main/main.js（真的 startElectron 那一套），
+//  在渲染层里调真实的 window.api.*，验证：
+//    1) 会话授权：拿别人的 userId 读不到别人的档案（主进程只认会话）
+//    2) 未登录时数据接口一律拒绝
+//    3) 密钥不回显：settings.get('agent') 只给 hasKey，没有 apiKey 明文
+//    4) 主进程能正常启动、注册接口、加载窗口（改动 main.ts 后的兜底）
+//  userData 指向临时目录，绝不碰真实数据。
+//  运行：npx electron scripts/smoke-real-ipc.js --no-sandbox --disable-gpu
+// ============================================================
+const { app, BrowserWindow } = require('electron');
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grf-smoke-'));
+app.setPath('userData', tmp);
+app.commandLine.appendSwitch('no-sandbox');
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let pass = 0, failCnt = 0;
+const t = (cond, msg) => {
+  if (cond) { pass++; console.log('✅ PASS:', msg); }
+  else { failCnt++; console.log('❌ FAIL:', msg); process.exitCode = 1; }
+};
+
+// 加载真实主进程（它会自己 registerIpc + 建窗口）
+require(path.join(__dirname, '..', 'dist', 'main', 'main.js'));
+
+app.whenReady().then(async () => {
+  let win = null;
+  for (let i = 0; i < 80 && !win; i++) { win = BrowserWindow.getAllWindows()[0] || null; if (!win) await sleep(250); }
+  if (!win) { t(false, '主进程创建了窗口'); console.log('冒烟结束'); app.exit(1); return; }
+  t(true, '主进程创建了窗口（main.ts 能正常启动）');
+  try { await new Promise((r) => { if (!win.webContents.isLoading()) r(); else win.webContents.once('did-finish-load', r); }); } catch (_) { /* 忽略 */ }
+  await sleep(2500);
+
+  const before = await win.webContents.executeJavaScript(`(async () => {
+    // 未登录：数据接口必须拒绝，而不是返回空数据装作正常
+    const p = await window.api.profile.get('user_whatever');
+    const s = await window.api.settings.get('agent');
+    return { profileOk: p.ok, profileErr: p.error, settingsOk: s.ok, settingsErr: s.error };
+  })()`);
+  t(before.profileOk === false && /未登录|会话/.test(before.profileErr || ''), '未登录时档案接口被拒（' + before.profileErr + '）');
+  t(before.settingsOk === false, '未登录时设置接口被拒（' + before.settingsErr + '）');
+
+  const out = await win.webContents.executeJavaScript(`(async () => {
+    const reg = await window.api.auth.register({ email: 'smoke@test.local', password: 'pass123456', name: '冒烟' });
+    if (!reg.ok) return { error: reg.error };
+    const me = reg.data;
+    await window.api.profile.save(me.id, { name: '冒烟用户', targetRole: '后端', skills: 'Java' });
+    // 关键：拿一个别的 id 去读，主进程必须只按会话返回「我自己的」档案
+    const spoof = await window.api.profile.get('user_someone_else_999');
+    // 保存一条带密钥的配置，再看读回来有没有明文
+    const saved = await window.api.settings.save('agent', { provider: 'cloud', endpoint: 'https://api.deepseek.com/v1', model: 'deepseek-chat', apiKey: 'sk-smoke-secret-123' });
+    const back = await window.api.settings.get('agent');
+    return {
+      myId: me.id,
+      spoofOk: spoof.ok,
+      spoofName: spoof.data && spoof.data.name,
+      savedHasKey: saved.data && saved.data.hasKey,
+      savedApiKey: saved.data && saved.data.apiKey,
+      backHasKey: back.data && back.data.hasKey,
+      backApiKey: back.data && back.data.apiKey,
+      backModel: back.data && back.data.model
+    };
+  })()`);
+
+  if (out.error) {
+    t(false, '注册冒烟账号失败：' + out.error);
+  } else {
+    t(out.spoofOk === true && out.spoofName === '冒烟用户',
+      '用别人的 userId 读到的仍是自己的档案（防越权，实得：' + out.spoofName + '）');
+    t(out.savedHasKey === true, '保存后返回 hasKey=true');
+    t(!out.savedApiKey, '保存后不回显密钥明文（实得：' + JSON.stringify(out.savedApiKey) + '）');
+    t(out.backHasKey === true && !out.backApiKey, '读取时不回显密钥明文，只给 hasKey');
+    t(out.backModel === 'deepseek-chat', '非密钥字段照常回传（模型名）');
+
+    // 落盘文件里不能出现明文密钥
+    const dbFile = path.join(tmp, 'grad-resume-data', 'db.json');
+    const raw = fs.existsSync(dbFile) ? fs.readFileSync(dbFile, 'utf8') : '';
+    t(raw.length > 0 && !raw.includes('sk-smoke-secret-123'), '密钥没有以明文写进数据文件');
+    t(/enc:v1:|sk-smoke/.test(raw) === true, '数据文件里存的是（加密或至少非明文的）配置项');
+  }
+
+  try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* 忽略 */ }
+  console.log('\n真实 IPC 冒烟完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
+  app.exit(process.exitCode || 0);
+}).catch((e) => {
+  console.error('冒烟异常：', e && e.stack ? e.stack : e);
+  app.exit(1);
+});
