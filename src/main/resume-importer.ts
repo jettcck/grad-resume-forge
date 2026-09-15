@@ -209,7 +209,13 @@ function detectSectionKey(line: string): string | null {
 // 旧正则只认连着的 11 位，带分隔符的直接漏掉（用户填了手机号却导不进来）。
 const PHONE_RE = /(?<!\d)1[3-9]\d(?:[\s.\-]?\d{4}){2}(?!\d)/;
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
-const GITHUB_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/[A-Za-z0-9_-]+/i;
+// 作品集/个人主页：不只 GitHub —— 掘金、知乎、站酷、小红书、B 站、CSDN、语雀这些
+// 在国内简历里比 GitHub 更常见。以前只认 github.com，其他链接会被直接丢掉。
+const PORTFOLIO_RE = /(?:https?:\/\/)?(?:www\.)?(?:github\.com|gitee\.com|gitlab\.com|juejin\.cn|zhihu\.com|zcool\.com\.cn|bilibili\.com|b23\.tv|xiaohongshu\.com|xhslink\.com|blog\.csdn\.net|csdn\.net|cnblogs\.com|yuque\.com|notion\.site|douyin\.com|medium\.com|substack\.com)\/[A-Za-z0-9_\-./%~]+/i;
+// 也可能压根没写网址，而是写「作品集：财务分析报告 3 份」「个人主页：见面试材料」这类说明
+const PORTFOLIO_LABEL_RE = /(?:作品集|个人主页|个人网站|博客|专栏|公众号|代表作)\s*[：:]\s*[^\n]{2,60}/;
+// 兜底：不属于上面那些平台的自建站/个人域名，形如「mysite.dev/portfolio」（要求带路径）
+const GENERIC_URL_RE = /(?:https?:\/\/)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)+\/[A-Za-z0-9_\-./%~]{2,}/i;
 const PERIOD_RE = /(20\d{2})\s*[.\/年]?\s*(\d{1,2})?\s*月?\s*(?:(?:[-–—~到\s]+\s*)(?:(20\d{2})\s*[.\/年]?\s*(\d{1,2})?\s*月?|(至今))?|至今)/;
 
 // 「2021年9月-2025年6月」「2021.09 - 2025.06」「2023.07 至今」→ 统一 YYYY.MM - YYYY.MM / 至今
@@ -419,7 +425,22 @@ export function parseResumeText(text: string, ref: RefData): ParsedProfile {
   const whole = rawLines.join('\n');
   const phone = ((whole.match(PHONE_RE) || [])[0] || '').replace(/[^\d]/g, '');
   const email = (whole.match(EMAIL_RE) || [])[0] || '';
-  const github = (whole.match(GITHUB_RE) || [])[0] || '';
+  let github = (whole.match(PORTFOLIO_RE) || [])[0] || '';
+  if (!github) {
+    // 知名平台之外的个人域名：逐行找「域名 + 路径」，跳过明显不是作品集的行
+    // （官网 / 招聘页 / 课程链接会出现在简历里，但都不该填进作品集字段）
+    const lines = whole.split('\n');
+    for (const ln of lines) {
+      if (/官网|招聘|公司网站|课程|招生|报名/.test(ln)) continue;
+      const m = ln.match(GENERIC_URL_RE);
+      if (m) { github = m[0]; break; }
+    }
+  }
+  if (!github) {
+    // 没写网址但有「作品集：…」这类说明时也收进来（保留标签，渲染时原样展示）
+    const lm = whole.match(PORTFOLIO_LABEL_RE);
+    if (lm) github = lm[0].trim();
+  }
 
   let name = '';
   const nameM = whole.match(/姓名\s*[：:]\s*([^\s，,、；;（(]{1,8})/);

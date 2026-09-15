@@ -1,12 +1,86 @@
 'use strict';
 
 (function () {
+// ---------------- 作品集 / 个人主页 ----------------
+// 这个字段以前叫 GitHub，但实际不是人人都有 GitHub：掘金、知乎、站酷、小红书、
+// 公众号、个人网站都算「作品集」。这里按域名认平台并补上标签，导出成
+// 「掘金：juejin.cn/user/xxx」而不是一行光秃秃的网址。
+const PORTFOLIO_PLATFORMS = [
+  [/github\.com/i, 'GitHub'],
+  [/gitee\.com/i, 'Gitee'],
+  [/gitlab\.com/i, 'GitLab'],
+  [/juejin\.cn/i, '掘金'],
+  [/zhihu\.com/i, '知乎'],
+  [/zcool\.com\.cn/i, '站酷'],
+  [/xiaohongshu\.com|xhslink\.com/i, '小红书'],
+  [/bilibili\.com|b23\.tv/i, 'B站'],
+  [/blog\.csdn\.net|csdn\.net/i, 'CSDN'],
+  [/cnblogs\.com/i, '博客园'],
+  [/yuque\.com/i, '语雀'],
+  [/notion\.(site|so)/i, 'Notion'],
+  [/douyin\.com/i, '抖音'],
+  [/mp\.weixin\.qq\.com|weixin\.qq\.com/i, '公众号'],
+  [/substack\.com|medium\.com/i, '博客']
+];
+
+function portfolioLabel(text) {
+  for (let i = 0; i < PORTFOLIO_PLATFORMS.length; i++) {
+    if (PORTFOLIO_PLATFORMS[i][0].test(text)) return PORTFOLIO_PLATFORMS[i][1];
+  }
+  return '作品集';
+}
+
+// 判断一段文本是不是网址/域名（用于决定要不要加平台标签）
+function looksLikeLink(text) {
+  if (/^https?:\/\//i.test(text)) return true;
+  return /^[\w-]+(\.[\w-]+)+(\/\S*)?$/.test(text);
+}
+
+// 最多展示几条：联系方式那一行本来就长，多了会挤爆排版。
+// 截断时在表单提示里说明「最多展示前 3 条」，不做静默丢弃。
+const PORTFOLIO_MAX = 3;
+
+// 把用户填的内容格式化成可以放进简历的一行文本。
+// - 支持多条：用空格、逗号、顿号、分号分隔
+// - 网址 → 补平台标签并去掉 https:// 前缀（简历上更干净）
+// - 用户自己写了标签的（「作品集：财务分析报告 3 份」）→ 尊重原标题，原样保留
+// - 纯文本（没有标签也不是网址）→ 原样保留
+function portfolioLine(raw) {
+  const text = String(raw || '').trim();
+  if (!text) return '';
+  const pieces = text.split(/[\s、,，;；]+/).filter(Boolean);
+
+  const parsed = pieces.map((part) => {
+    // 先把协议头去掉再判断：否则「https://…」里的冒号会被当成「用户自己写的标签」
+    const stripped = part.replace(/^https?:\/\//i, '');
+    const isLink = looksLikeLink(stripped);
+    const colon = stripped.search(/[：:]/);
+    const slash = stripped.indexOf('/');
+    const hasOwnLabel = colon > 0 && (slash < 0 || colon < slash);
+    if (isLink && !hasOwnLabel) {
+      const clean = stripped.replace(/\/+$/, '');
+      return { text: portfolioLabel(clean) + '：' + clean, plain: false };
+    }
+    return { text: part, plain: true };
+  });
+
+  // 纯文本碎片接回去：不这样的话「作品集：财务分析报告 3 份」会被空格拆成三条
+  const merged = [];
+  parsed.forEach((p) => {
+    const last = merged[merged.length - 1];
+    if (last && last.plain && p.plain) { last.text += ' ' + p.text; return; }
+    merged.push(p);
+  });
+
+  return merged.slice(0, PORTFOLIO_MAX).map((p) => p.text).join(' | ');
+}
+
 // 把结构化 resume 渲染为纸张内部 HTML（不含 <html> 外壳，用于预览）
 function renderResumeInner(resume, tmpl) {
   const e = window.UI.esc;
   const b = resume.basics || {};
 
-  const contactBits = [b.phone, b.email, b.city, b.github].filter(Boolean)
+  const contactBits = [b.phone, b.email, b.city, portfolioLine(b.github)].filter(Boolean)
     .map((x) => '<span>' + e(x) + '</span>').join('');
 
   function itemsBlock(title, items) {
@@ -69,5 +143,5 @@ function renderResumeDocument(resume, tmpl, cssText) {
   );
 }
 
-window.Template = { renderResumeInner, renderResumeDocument };
+window.Template = { renderResumeInner, renderResumeDocument, portfolioLine, portfolioLabel };
 })();

@@ -217,12 +217,13 @@ export function generate(profile: Profile, options: { targetRole?: string } | Re
     targetRole: targetRole || '软件研发工程师'
   };
   if (!basics.phone || !basics.email) tips.push('补全手机号与邮箱，HR 才能第一时间联系你。');
-  // 技术岗推 GitHub（代码背书）；其他方向推作品集/项目展示——各给各的理由
+  // 技术岗推 GitHub（代码背书）；其他方向推作品集/项目展示——各给各的理由。
+  // 没有 GitHub 不算缺失：掘金/知乎/站酷/小红书/个人网站/作品 PDF 都算作品集。
   const isTechDomain = ['backend', 'frontend', 'algorithm', 'data', 'llm'].includes(domain);
   if (!basics.github) {
     tips.push(isTechDomain
-      ? '计算机岗建议放上 GitHub / 个人主页，代码即最好的背书。'
-      : '放上作品集 / 项目展示 / 证书链接，让成果可以被直接查看。');
+      ? '计算机岗建议放上 GitHub / Gitee 或个人主页，代码即最好的背书。'
+      : '放上作品集 / 个人主页 / 证书链接（公众号、专栏、作品 PDF 都行），让成果可以被直接查看。');
   }
 
   // 教育

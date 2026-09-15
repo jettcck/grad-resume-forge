@@ -52,9 +52,28 @@ console.log('  解析结果：', JSON.stringify(parsed, null, 1).slice(0, 900), 
 assert(parsed.name === '张三', '姓名识别（页眉首行）');
 assert(parsed.phone === '13812345678', '手机号识别');
 assert(parsed.email === 'zhangsan@example.com', '邮箱识别');
-assert(parsed.github === 'github.com/zhangsan-dev', 'GitHub 识别');
+assert(parsed.github === 'github.com/zhangsan-dev', '作品集识别（GitHub 链接）');
 assert(parsed.targetRole === '后端开发工程师', '求职意向识别');
 assert(parsed.city === '杭州', '城市识别（现居城市标注）');
+
+// 作品集不只 GitHub：国内简历里掘金/知乎/站酷/小红书更常见，以前只认 github.com，
+// 这些链接在导入时会被直接丢掉。
+{
+  const ref2 = importer.loadRefData(DATA_ROOT);
+  const cases = [
+    ['简历\n张三\n掘金：juejin.cn/user/12345', 'juejin.cn/user/12345', '掘金链接'],
+    ['简历\n张三\n知乎主页 zhihu.com/people/liming', 'zhihu.com/people/liming', '知乎链接'],
+    ['简历\n张三\n个人网站 mysite.dev/portfolio', 'mysite.dev/portfolio', '个人网站'],
+    ['简历\n张三\n小红书：xiaohongshu.com/user/profile/abc', 'xiaohongshu.com/user/profile/abc', '小红书链接']
+  ];
+  cases.forEach(([text, expect, label]) => {
+    const r = importer.parseResumeText(text, ref2);
+    assert(r.github === expect, '作品集识别（' + label + '）：' + r.github);
+  });
+  // 没写网址、只写了说明的也要收进来（渲染时原样展示）
+  const noteOnly = importer.parseResumeText('简历\n张三\n作品集：财务分析报告 3 份（面试可出示）', ref2);
+  assert(noteOnly.github === '作品集：财务分析报告 3 份（面试可出示）', '作品集识别（纯说明文字）：' + noteOnly.github);
+}
 
 assert(parsed.education.length === 1, '识别到 1 段教育经历');
 const edu = parsed.education[0] || {};

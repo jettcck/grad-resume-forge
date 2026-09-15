@@ -798,7 +798,7 @@ function renderProfile() {
     ]),
     el('div', { class: 'grid-3' }, [
       autocompleteField('城市', 'city', p.city, '输入关键词选择，如：深圳', 'city'),
-      inputField('GitHub / 作品集', 'github', p.github, 'github.com/yourname 或作品集 / 证书链接'),
+      inputField('作品集 / 个人主页', 'github', p.github, 'github.com/你的名字、掘金/知乎/站酷主页、个人网站；多条用逗号分隔（最多展示 3 条）'),
       autocompleteField('目标岗位', 'targetRole', p.targetRole, '输入关键词选择，如：后端', 'targetRole')
     ]),
     areaField('一句话自我介绍（选填，留空则自动生成）', 'summary', p.summary, '留空即可，引擎会根据你的经历自动拼一句朴实、无套话的简介')
@@ -968,7 +968,7 @@ function buildProfileStats(p) {
     { label: '教育经历 ≥ 1 段', done: (p.education || []).some((e) => e.school) },
     { label: '项目经历 ≥ 1 段', done: (p.projects || []).some((e) => e.name) },
     { label: '项目描述有量化', done: (p.projects || []).some((e) => /\d/.test(e.description || '')) },
-    { label: 'GitHub / 作品集 / 证书链接', done: !!(p.github || '').trim() }
+    { label: '作品集 / 个人主页 / 证书说明', done: !!(p.github || '').trim() }
   ];
   const done = items.filter((x) => x.done).length;
   return {
@@ -1098,7 +1098,7 @@ async function onImportResume() {
     parsed.phone ? '手机' : null,
     parsed.email ? '邮箱' : null,
     parsed.city ? '城市' : null,
-    parsed.github ? 'GitHub' : null,
+    parsed.github ? '作品集 / 个人主页' : null,
     parsed.targetRole ? '目标岗位' : null
   ].filter(Boolean);
 
@@ -2158,7 +2158,7 @@ function buildPlainText(resume) {
   const b = resume.basics || {};
   const out = [];
   out.push(b.name || '简历');
-  out.push([b.phone, b.email, b.city, b.github].filter(Boolean).join(' | '));
+  out.push([b.phone, b.email, b.city, window.Template.portfolioLine(b.github)].filter(Boolean).join(' | '));
   if (b.targetRole) out.push('求职意向：' + b.targetRole);
   if (resume.summary) {
     out.push('', '【个人简介】', resume.summary);
