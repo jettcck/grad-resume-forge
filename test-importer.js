@@ -114,6 +114,20 @@ assert((p3.notes || []).length > 0, '无分节文本给出提示');
     return;
   }
 
+  // ---------- 「本地绿、打包炸」专项（放在最前：静态检查先报，报错信息才精准）----------
+  // pdfjs-dist v4 只有 ESM。tsconfig 是 module=commonjs，tsc 会把源码里的 import()
+  // 降级成 require()，而 Electron 33 内置 Node 20.18 不支持 require(.mjs)：
+  // 打包后一导入 PDF 就报 "require() of ES Module ... not supported"。
+  // 开发机 Node ≥20.19 支持 require(ESM)，CI 的 Node 20.x 也 ≥20.19 —— 运行时根本测不出来，
+  // 所以这里直接检查编译产物：必须保留真 import，绝不能是 require('pdfjs-dist/...')。
+  {
+    const distSrc = fs.readFileSync(path.join(__dirname, 'dist', 'main', 'resume-importer.js'), 'utf8');
+    assert(!/require\(\s*['"]pdfjs-dist/.test(distSrc),
+      '编译产物没有把 ESM 依赖降级成 require()（降级后打包进 Electron 必炸）');
+    assert(/import\(specifier\)/.test(distSrc) && /dynamicImport\('pdfjs-dist/.test(distSrc),
+      '编译产物保留了真动态 import（tsc 改写不了 Function 里的 import）');
+  }
+
   // 构造最小 PDF：两行文本（Helvetica 只能放 ASCII，中文链路由上面的文本用例覆盖）
   const lines = ['Hello Resume Importer', 'Phone 13812345678'];
   let content = 'BT /F1 12 Tf 72 720 Td 16 TL\n';
@@ -147,6 +161,17 @@ assert((p3.notes || []).length > 0, '无分节文本给出提示');
     // importFromFile 全链路
     const result = await importer.importFromFile(pdfFile, DATA_ROOT);
     assert(result.parsed.phone === '13812345678', 'importFromFile 全链路解析手机号');
+
+    // ---------- 真实中文简历 PDF（仓库自带夹具，来自开源示例简历）----------
+    const fixture = path.join(__dirname, 'test-fixtures', 'resume-sample-ats-classic.pdf');
+    assert(fs.existsSync(fixture), '中文简历夹具存在');
+    if (fs.existsSync(fixture)) {
+      const rr = await importer.extractPdfText(fixture);
+      assert(rr.pages >= 1, '真实中文简历：读到 ' + rr.pages + ' 页');
+      assert(rr.lines.length > 10, '真实中文简历：拆出 ' + rr.lines.length + ' 行');
+      assert(/[\u4e00-\u9fa5]/.test(rr.text), '真实中文简历：中文正确解码（不是乱码）');
+      assert(rr.text.replace(/\s/g, '').length > 200, '真实中文简历：抽出足量正文（' + rr.text.replace(/\s/g, '').length + ' 字）');
+    }
   } catch (err) {
     assert(false, 'PDF 端到端抽取失败：' + err.message);
   } finally {

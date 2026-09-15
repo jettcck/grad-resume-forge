@@ -22,11 +22,25 @@ type ParsedProfile = Partial<Omit<Profile, 'education' | 'internships' | 'projec
 interface RefData { schools: string[]; citySet: Set<string> }
 
 // ---------- PDF 文本抽取 ----------
-let _pdfjsPromise: Promise<typeof import('pdfjs-dist/legacy/build/pdf.mjs')> | null = null;
+type PdfjsModule = typeof import('pdfjs-dist/legacy/build/pdf.mjs');
+let _pdfjsPromise: Promise<PdfjsModule> | null = null;
 
-async function getPdfjs() {
+// pdfjs-dist v4 只发布 ESM（pdf.mjs）。tsconfig 是 module=commonjs，tsc 会把源码里的
+// import() 直接降级成 require()，而 Electron 33 内置的 Node 20.18 不支持 require(.mjs)：
+// 打包后一导入 PDF 就抛「require() of ES Module ... not supported」。
+// 更阴的是开发机上 Node 24 支持 require(ESM)，所以本地测试永远绿 —— 必须用真动态 import。
+// 用 Function 构造是为了让 tsc 看不到 import() 字面量，从而原样保留。
+const dynamicImport = new Function('specifier', 'return import(specifier)') as (
+  specifier: string
+) => Promise<PdfjsModule>;
+
+async function getPdfjs(): Promise<PdfjsModule> {
   if (!_pdfjsPromise) {
-    _pdfjsPromise = import('pdfjs-dist/legacy/build/pdf.mjs');
+    _pdfjsPromise = dynamicImport('pdfjs-dist/legacy/build/pdf.mjs').catch((err: unknown) => {
+      _pdfjsPromise = null; // 失败不缓存，用户重试还能再试一次
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new Error('PDF 解析组件加载失败：' + msg + '（这是应用自身的问题，麻烦把这个信息反馈给开发者）');
+    });
   }
   return _pdfjsPromise;
 }

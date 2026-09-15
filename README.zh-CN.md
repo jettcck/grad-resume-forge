@@ -181,6 +181,7 @@ git config http.proxy http://127.0.0.1:7890
 | LLM 层评测 | 真实模型双模式对比 | `npm run eval:llm` |
 | 真实 IPC 冒烟 | 加载真主进程：未登录拒绝 / 防越权 / 密钥不回显（需 Electron） | `npm run smoke:ipc` |
 | 单实例锁冒烟 | 真实双开：第二实例退出、已有窗口收到聚焦事件（需 Electron） | `npm run smoke:si` |
+| PDF 导入冒烟 | 在 **Electron 的 Node 版本**下解析真实中文简历 PDF（专治「本地绿、打包炸」） | `npm run smoke:pdf` |
 | 界面截图管线 | 150+ 条 DOM 断言 + 截图（需 Electron） | `npm run smoke:ui` |
 
 ### 真实模型评测（deepseek-chat，2026-09）

@@ -19,7 +19,8 @@
     "audit:ui": "node scripts/audit-ui.js",
     "smoke:ipc": "electron scripts/smoke-real-ipc.js --no-sandbox --disable-gpu",
     "smoke:ui": "electron scripts/screenshot.js --no-sandbox --disable-gpu",
-    "smoke:si": "node scripts/smoke-single-instance.js"
+    "smoke:si": "node scripts/smoke-single-instance.js",
+    "smoke:pdf": "electron scripts/smoke-pdf-import.js --no-sandbox"
   },
   "author": "",
   "license": "MIT",

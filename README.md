@@ -164,6 +164,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 | LLM-layer evals | dual-mode comparison on a real model | `npm run eval:llm` |
 | Real-IPC smoke | boots the actual main process: unauthenticated calls rejected, no cross-account reads, key never echoed (needs Electron) | `npm run smoke:ipc` |
 | Single-instance smoke | real dual launch: second instance exits, existing window gets the focus event (needs Electron) | `npm run smoke:si` |
+| PDF import smoke | parses a real Chinese resume PDF under **Electron's Node runtime** (catches dev-green/packaged-broken bugs) | `npm run smoke:pdf` |
 | UI screenshot pipeline | 150+ DOM assertions + screenshots (needs Electron) | `npm run smoke:ui` |
 
 ### Real-model evals (deepseek-chat, Sep 2026)
