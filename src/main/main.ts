@@ -63,7 +63,26 @@ function createWindow(): void {
   });
 }
 
+// ---------------- 单实例锁 ----------------
+// 数据层没有多进程写队列：两个实例同时读写同一个 db.json 会互相覆盖
+// （一个拿着旧库、一个写新库，后写的赢，先写的丢）。与其靠 README 提醒
+// 「别双开」，不如从机制上杜绝：第二个实例什么都不初始化，直接退出。
+// 注意锁要在 app ready 之前、模块加载时就申请。
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+}
+
+// 第二实例尝试启动时，把已有窗口带到前台——用户多半只是没找到窗口
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
 app.whenReady().then(() => {
+  if (!gotTheLock) return; // 正在退出的第二实例：不建窗口、不动数据
   store.init(app.getPath('userData'));
   createWindow();
 
@@ -801,6 +820,7 @@ ipcMain.handle('updater:setMirror', (_e, mirror: string) => {
 
 // 启动 15 秒后静默检查一次
 app.whenReady().then(() => {
+  if (!gotTheLock) return; // 第二实例不查更新
   if (app.isPackaged) {
     setTimeout(() => {
       configureUpdater();

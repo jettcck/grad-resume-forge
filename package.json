@@ -18,7 +18,8 @@
     "release:linux": "tsc && electron-builder --linux --x64 --publish always",
     "audit:ui": "node scripts/audit-ui.js",
     "smoke:ipc": "electron scripts/smoke-real-ipc.js --no-sandbox --disable-gpu",
-    "smoke:ui": "electron scripts/screenshot.js --no-sandbox --disable-gpu"
+    "smoke:ui": "electron scripts/screenshot.js --no-sandbox --disable-gpu",
+    "smoke:si": "node scripts/smoke-single-instance.js"
   },
   "author": "",
   "license": "MIT",

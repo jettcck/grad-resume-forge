@@ -163,6 +163,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 | Rule-layer evals | 32 golden cases as a regression gate | `npm run eval` |
 | LLM-layer evals | dual-mode comparison on a real model | `npm run eval:llm` |
 | Real-IPC smoke | boots the actual main process: unauthenticated calls rejected, no cross-account reads, key never echoed (needs Electron) | `npm run smoke:ipc` |
+| Single-instance smoke | real dual launch: second instance exits, existing window gets the focus event (needs Electron) | `npm run smoke:si` |
 | UI screenshot pipeline | 150+ DOM assertions + screenshots (needs Electron) | `npm run smoke:ui` |
 
 ### Real-model evals (deepseek-chat, Sep 2026)
@@ -196,7 +197,7 @@ We'd rather state the ceilings up front than let you hit them:
 | **The JD score is not a hiring prediction** | It measures keyword coverage of one posting. A screening aid, not a probability of getting an interview. |
 | **Auto-backup keeps only 5 rotations, taken at launch** | On each app start, if your data changed since the last backup, one is rotated out; the 5 newest are kept (roughly the last 5 edits) and restorable from the About dialog. It protects against “I broke it and want it back” — it is **not** full version history. For milestones, save a **resume version** or use “open backup folder” to copy one elsewhere. |
 | **Security boundaries (stated, not hidden)** | Every data IPC derives its `userId` from the main-process session and ignores whatever id the renderer passes (no cross-account reads); each account's Agent config and cloud API key are isolated; the key is never sent back to the renderer (only “is one saved”); if the OS keychain (`safeStorage`) is unavailable the UI **explicitly warns that the key will be stored in plaintext**; the offscreen PDF window runs with JavaScript disabled; all inputs have size limits. These are **local-app boundaries**, not a server-grade security model — on a shared machine, use OS account isolation. |
-| **Single-file JSON store** | Writes are atomic (temp file + rename), so a crash cannot leave truncated JSON, and the file carries a `schemaVersion` for future migrations. There is no multi-process write queue: **don't run two instances at once** (one reading an old copy while another writes will clobber each other) — the rotating backups are the safety net for that. |
+| **Single-file JSON store** | Writes are atomic (temp file + rename), so a crash cannot leave truncated JSON, and the file carries a `schemaVersion` for future migrations. There is no multi-process write queue, but you never have to think about it: a built-in **single-instance lock** means a second launch just focuses the existing window instead of running two writers; rotating backups remain the safety net for crashes and mistakes. |
 | **Platform & maintenance** | Windows x64 and Linux x64 today (AppImage + deb); macOS is next. Maintained by one person. The eval suite, docs and CI exist to keep handover cost low, not to pretend otherwise. |
 | **No large-scale user validation yet** | Early-stage project with a small user base. Published numbers are **reproducible eval results**, not testimonials or large-scale A/B data — treat feature claims accordingly. |
 

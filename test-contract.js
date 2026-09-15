@@ -206,4 +206,13 @@ assert(!/return ok\(decryptAgentConfig\(/.test(mainSrc),
 assert(/store\.getSetting<LlmConfig>\('agent', userId\)/.test(mainSrc),
   '保存时按账号读取原有配置，用于「留空 = 保留原密钥」');
 
+// ---------- 16) 单实例锁：数据层没有多进程写队列，双开必须被机制挡住 ----------
+// 「别双开」如果只写在 README 里就是口头约定；主进程必须在启动时申请锁，
+// 第二实例不初始化任何东西就退出，且已有实例收到 second-instance 会聚焦窗口。
+const guardCount = (mainSrc.match(/if \(!gotTheLock\) return;/g) || []).length;
+assert(/app\.requestSingleInstanceLock\(\)/.test(mainSrc), '主进程启动即申请单实例锁');
+assert(/app\.on\('second-instance'/.test(mainSrc) && /mainWindow\.focus\(\)/.test(mainSrc),
+  '已有实例收到二次启动事件时会聚焦已有窗口');
+assert(guardCount >= 2, '第二实例的启动回调有守卫：不建窗口、不动数据、不查更新（实际 ' + guardCount + ' 处）');
+
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
