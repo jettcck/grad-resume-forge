@@ -245,6 +245,12 @@ export function generate(profile: Profile, options: { targetRole?: string } | Re
   const uniqueSkills = [...new Set(skills)];
   if (uniqueSkills.length < 4) tips.push('技能不足 4 项，补充语言 / 框架 / 工具让画像更完整。');
 
+  // 竞赛 / 奖项 / 证书：原样保留（这是可核实的事实，不该被改写润色）
+  const awards = (p.awards || [])
+    .map((a) => clean(a))
+    .filter(Boolean)
+    .slice(0, 12);
+
   // 项目 / 实习：逐条改写去 AI 味
   function processSection(items: ExperienceEntry[] | undefined): GeneratedItem[] {
     return (items || []).map((it, idx) => {
@@ -300,6 +306,7 @@ export function generate(profile: Profile, options: { targetRole?: string } | Re
     skills: uniqueSkills,
     projects,
     internships,
+    awards,
     domain
   };
 
@@ -314,6 +321,7 @@ export function generate(profile: Profile, options: { targetRole?: string } | Re
   const matchText = [
     summary,
     uniqueSkills.join(' '),
+    awards.join(' '),
     projects.flatMap((x) => [x.tech, x.name].concat(x.bullets)).join(' '),
     internships.flatMap((x) => [x.tech, x.name].concat(x.bullets)).join(' ')
   ].join('\n');

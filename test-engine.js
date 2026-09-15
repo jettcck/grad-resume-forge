@@ -33,12 +33,15 @@ const gen = engine.generate({
   targetRole: '后端开发', skills: 'Java, Go, MySQL, Redis, 数据结构',
   education: [{ school: '华中科技大学', major: '计算机科学与技术', period: '2021-2025', gpa: '3.8/4.0' }],
   projects: [{ name: '分布式短链', tech: 'Go/Redis', description: '负责设计短链算法，QPS 提升 5 倍\n使用缓存优化查询，P99 降到 80ms' }],
-  internships: [{ name: '字节跳动', role: '后端实习', period: '2024', tech: 'Java', description: '参与订单系统开发，支撑日活 100 万' }]
+  internships: [{ name: '字节跳动', role: '后端实习', period: '2024', tech: 'Java', description: '参与订单系统开发，支撑日活 100 万' }],
+  awards: ['全国大学生数学建模竞赛 省级二等奖 2024', '  ', 'ACM 校赛一等奖 2023']
 }, {});
 console.log('  生成简历 domain:', gen.resume.domain, '| 项目条目:', gen.resume.projects[0].bullets);
 assert(gen.resume.basics.name === '李雷', '基本信息正确');
 assert(gen.resume.projects[0].bullets.length === 2, '项目描述被拆分为条目');
 assert(gen.resume.skills.length === 5, '技能去重解析正确');
+assert(Array.isArray(gen.resume.awards) && gen.resume.awards.length === 2, '竞赛/奖项透传到简历（空白行被过滤）');
+assert(gen.resume.awards[0] === '全国大学生数学建模竞赛 省级二等奖 2024', '奖项原样保留，不做改写润色');
 assert(typeof gen.audit.score === 'number', '生成结果附带体检分数');
 assert(Array.isArray(gen.tips), '生成结果附带优化建议');
 

@@ -118,6 +118,14 @@ function renderResumeInner(resume, tmpl) {
 
   const skills = (resume.skills || []).map((s) => '<span class="r-skill">' + e(s) + '</span>').join('');
 
+  // 竞赛 / 奖项 / 荣誉：原样列出（用户咋写就咋展示，不做润色）
+  const awardLines = (resume.awards || []).filter(Boolean);
+  const awardsBlock = awardLines.length
+    ? '<div class="r-section"><div class="r-sec-title">奖项与证书</div><ul class="r-bullets">' +
+      awardLines.map((a) => '<li>' + e(a) + '</li>').join('') +
+      '</ul></div>'
+    : '';
+
   return (
     '<div class="r-name">' + e(b.name || '你的名字') + '</div>' +
     '<div class="r-contact">' + contactBits + '</div>' +
@@ -125,7 +133,8 @@ function renderResumeInner(resume, tmpl) {
     (eduRows ? '<div class="r-section"><div class="r-sec-title">教育背景</div>' + eduRows + '</div>' : '') +
     (skills ? '<div class="r-section"><div class="r-sec-title">专业技能</div><div class="r-skills">' + skills + '</div></div>' : '') +
     itemsBlock('实习经历', resume.internships) +
-    itemsBlock('项目经历', resume.projects)
+    itemsBlock('项目经历', resume.projects) +
+    awardsBlock
   );
 }
 

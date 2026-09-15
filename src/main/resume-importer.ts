@@ -492,6 +492,11 @@ export function parseResumeText(text: string, ref: RefData): ParsedProfile {
   const education = parseEducation(sections.education!, ref);
   const internships = parseExperiences(sections.internships!, ref);
   const projects = parseExperiences(sections.projects!, ref);
+  // 竞赛 / 奖项 / 荣誉 / 证书：每行一条，去掉项目符号但保留用户原话
+  const awards = (sections.awards || [])
+    .map((line) => line.replace(BULLET_RE, '').trim())
+    .filter((line) => line.length >= 2)
+    .slice(0, 20);
 
   let skills = '';
   if (sections.skills!.length) {
@@ -502,14 +507,14 @@ export function parseResumeText(text: string, ref: RefData): ParsedProfile {
   if (!education.length && sections.education!.length) {
     notes.push('识别到「教育背景」分节，但未匹配到学校名称，请手动补全。');
   }
-  // 奖项/证书单独切出来，别再混进「技能」里（以前会连标题带内容一起塞进技能字段）
-  if (sections.awards!.length) {
-    notes.push('识别到「奖项 / 荣誉 / 证书」分节（' + sections.awards.length + ' 行），档案里没有对应字段，已跳过，需要的话请手动补进简介或技能。');
+  // 奖项/证书单独切出来（以前会连标题带内容一起塞进「技能」字段），现在导入到独立的竞赛/奖项字段
+  if (sections.awards!.length && !awards.length) {
+    notes.push('识别到「奖项 / 荣誉 / 证书」分节，但没读到可用内容，请手动补。');
   }
 
   return {
     name, phone, email, city, github, targetRole, summary, skills,
-    education, internships, projects,
+    education, internships, projects, awards,
     notes
   };
 }

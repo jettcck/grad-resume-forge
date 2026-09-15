@@ -76,4 +76,14 @@ assert(!html.includes('>juejin.cn/user/12345<'), '不再是光秃秃的裸网址
 const emptyHtml = render(Object.assign({}, resume, { basics: Object.assign({}, resume.basics, { github: '' }) }), 'classic');
 assert(!/作品集：|GitHub：/.test(emptyHtml), '留空时联系方式行不出现任何作品集标签');
 
+// ---------- 6) 竞赛 / 奖项渲染（同一份模板代码，顺带守住） ----------
+const withAwards = Object.assign({}, resume, {
+  awards: ['全国大学生数学建模竞赛 省级二等奖 2024', '校级三好学生 2023']
+});
+const awardsHtml = render(withAwards, 'classic');
+assert(awardsHtml.includes('奖项与证书'), '简历渲染出「奖项与证书」分节');
+assert(awardsHtml.includes('全国大学生数学建模竞赛 省级二等奖 2024'), '奖项逐条渲染（原样，不润色）');
+assert(awardsHtml.includes('校级三好学生 2023'), '多条奖项都渲染');
+assert(!render(resume, 'classic').includes('奖项与证书'), '没有奖项时不渲染空分节（不留空标题）');
+
 console.log('\n作品集字段自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

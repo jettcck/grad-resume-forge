@@ -40,6 +40,8 @@ export interface Profile {
   education: EducationEntry[];
   internships: ExperienceEntry[];
   projects: ExperienceEntry[];
+  /** 竞赛 / 奖项 / 荣誉 / 证书：每行一条，原样保留用户写法（如「省级国画大赛三等奖 2008」） */
+  awards: string[];
 }
 
 // ---------- 生成结果 ----------
@@ -67,6 +69,7 @@ export interface Resume {
   skills: string[];
   projects: GeneratedItem[];
   internships: GeneratedItem[];
+  awards: string[];
   domain: Domain;
 }
 

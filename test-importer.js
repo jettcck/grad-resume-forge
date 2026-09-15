@@ -225,9 +225,11 @@ assert((p3.notes || []).length > 0, '无分节文本给出提示');
         '真实简历：项目名与角色没被切碎（实际 ' + JSON.stringify({ name: pr0.name, role: pr0.role }) + '）');
       assert((pr0.description || []).length === 3, '真实简历：3 行项目描述全部归到同一条目（实际 ' + (pr0.description || []).length + '）');
 
-      // 奖项以前被当成技能内容一起塞进「技能」字段
+      // 奖项以前被当成技能内容一起塞进「技能」字段；现在有独立的竞赛/奖项字段
       assert(!/书法|国画|钢琴/.test(p.skills || ''), '真实简历：奖项/证书不再混进技能字段');
-      assert((p.notes || []).some((n) => /奖项/.test(n)), '真实简历：明确告知奖项分节被跳过（不假装导入）');
+      assert(Array.isArray(p.awards) && p.awards.length === 3, '真实简历：导入 3 条竞赛/奖项（实际 ' + (p.awards || []).length + '）');
+      assert((p.awards || [])[0] === '校级书法大赛一等奖 2006', '真实简历：奖项整行保留用户写法（' + (p.awards || [])[0] + '）');
+      assert(!(p.notes || []).some((n) => /奖项/.test(n)), '真实简历：奖项已导入，不再提示「已跳过」');
     }
   } catch (err) {
     assert(false, 'PDF 端到端抽取失败：' + err.message);

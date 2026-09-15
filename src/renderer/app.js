@@ -34,7 +34,7 @@ const DOMAIN_LABELS = {
 function blankProfile() {
   return {
     name: '', phone: '', email: '', city: '', github: '',
-    targetRole: '', summary: '', skills: '',
+    targetRole: '', summary: '', skills: '', awards: [],
     education: [{ school: '', major: '', degree: '本科', period: '', gpa: '', courses: '' }],
     internships: [],
     projects: [{ name: '', role: '', period: '', tech: '', description: '' }]
@@ -845,6 +845,13 @@ function renderProfile() {
     } }, [ico('plus', 13), '+ 添加项目经历'])
   ]);
 
+  // 竞赛 / 奖项 / 荣誉（每行一条：竞赛名、奖项、证书都放这里）
+  const awardsCard = el('div', { class: 'card', id: 'card-awards' }, [
+    cardTitle('cap', '竞赛 / 奖项荣誉', '每行一条 · 没有可留空'),
+    areaField('竞赛 / 奖项 / 证书', 'awards', (p.awards || []).join('\n'),
+      '一行一条，例：\n全国大学生数学建模竞赛 省级二等奖 2024\n校级书法大赛一等奖 2006\n钢琴十级 2009')
+  ]);
+
   // ---- 右列：锻造侧栏（环形完成度仪表 + 档案统计 + 快照）----
   const stats = buildProfileStats(p);
   const scoreColor = stats.score >= 80 ? 'var(--teal)' : stats.score >= 50 ? 'var(--gold)' : 'var(--danger)';
@@ -950,7 +957,7 @@ function renderProfile() {
   ]);
 
   const twoCols = el('div', { class: 'profile-layout' }, [
-    el('div', { class: 'profile-main' }, [basicsCard, skillsCard, eduCard, internCard, projCard]),
+    el('div', { class: 'profile-main' }, [basicsCard, skillsCard, eduCard, internCard, projCard, awardsCard]),
     sideCol
   ]);
 
@@ -958,12 +965,13 @@ function renderProfile() {
   root.append(...[head, onboarding, importBar, twoCols, saveBar].filter(Boolean));
 }
 
-// 档案完成度：8 项检查（用于录入页侧栏仪表 + 保存条）
+// 档案完成度：只统计「该有就必须有」的项。
+// 一句话自我介绍不在这里：它标注为选填且留空会自动生成，把它算作未完成
+// 等于「一边说可以留空、一边扣你的分」，自相矛盾（用户明确反馈过）。
 function buildProfileStats(p) {
   const items = [
     { label: '基本信息（姓名/手机/邮箱）', done: !!(p.name && p.phone && p.email) },
     { label: '城市与目标岗位', done: !!(p.city && p.targetRole) },
-    { label: '一句话自我介绍', done: !!((p.summary || '').trim()) },
     { label: '技能 ≥ 4 项', done: (p.skills || '').split(/[,，、;；\n]/).filter((s) => s.trim()).length >= 4 },
     { label: '教育经历 ≥ 1 段', done: (p.education || []).some((e) => e.school) },
     { label: '项目经历 ≥ 1 段', done: (p.projects || []).some((e) => e.name) },
@@ -1023,7 +1031,8 @@ const DEMO_PROFILES = {
     projects: [
       { name: '分布式短链服务', role: '核心开发', period: '2024.01 - 2024.05', tech: 'Go / Redis / Kafka', description: '设计短链算法，QPS 提升 5 倍\n使用多级缓存优化查询，P99 降到 80ms' },
       { name: '高并发秒杀系统', role: '独立开发', period: '2023.09 - 2023.12', tech: 'Java / Spring Cloud', description: '实现库存预扣与异步下单，支撑 5000 QPS\n用压测定位瓶颈，吞吐提升 3 倍' }
-    ]
+    ],
+    awards: ['全国大学生计算机设计大赛 省级二等奖 2024', '校级一等奖学金 2023']
   },
   finance: {
     name: '王雨晴', phone: '13987654321', email: 'wangyuqing@example.com', city: '上海',
@@ -1034,7 +1043,8 @@ const DEMO_PROFILES = {
     projects: [
       { name: '财务共享中心流程优化', role: '小组负责人', period: '2023.09 - 2024.01', tech: '用友 U8 / Excel', description: '梳理 12 家子公司报销流程，制作对账模板，月结周期缩短 2 天\n输出费用分析报告 4 份，被课程评为优秀案例' },
       { name: '上市公司报表分析（课程设计）', role: '独立完成', period: '2023.03 - 2023.06', tech: 'Excel / Wind', description: '拆解贵州茅台 5 年三大报表，搭建 DCF 估值模型\n小组答辩成绩 95 / 100' }
-    ]
+    ],
+    awards: ['全国大学生会计技能大赛 省级三等奖 2024', '校级优秀学生干部 2023']
   }
 };
 
@@ -1106,6 +1116,7 @@ async function onImportResume() {
     (parsed.education || []).length ? '教育 ' + parsed.education.length + ' 段' : null,
     (parsed.internships || []).length ? '实习 ' + parsed.internships.length + ' 段' : null,
     (parsed.projects || []).length ? '项目 ' + parsed.projects.length + ' 段' : null,
+    (parsed.awards || []).length ? '竞赛/奖项 ' + parsed.awards.length + ' 条' : null,
     parsed.skills ? '技能 ' + parsed.skills.split(/[,，、;；]/).filter(Boolean).length + ' 项' : null,
     parsed.summary ? '自我介绍' : null
   ].filter(Boolean);
@@ -1211,6 +1222,16 @@ function mergeProfiles(current, parsed) {
   out.education = (out.education || []).concat(parsed.education || []);
   out.internships = (out.internships || []).concat(parsed.internships || []);
   out.projects = (out.projects || []).concat(parsed.projects || []);
+  // 竞赛/奖项：按整行去重后追加（同名奖项重复导入不该出现两遍）
+  {
+    const seen = new Set((out.awards || []).map((a) => String(a).replace(/\s+/g, '')));
+    const merged = (out.awards || []).slice();
+    (parsed.awards || []).forEach((a) => {
+      const key = String(a).replace(/\s+/g, '');
+      if (key && !seen.has(key)) { merged.push(a); seen.add(key); }
+    });
+    out.awards = merged;
+  }
   return out;
 }
 
@@ -1221,6 +1242,10 @@ function collectProfile() {
   }
   const basics = document.getElementById('card-basics');
   const skills = document.getElementById('card-skills');
+  const awardsCard = document.getElementById('card-awards');
+  // 竞赛/奖项：每行一条
+  const awards = (awardsCard ? val(awardsCard, 'awards') : '')
+    .split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
 
   // 全空条目不入档：避免「移除失败 / 误加的空白经历」随保存越积越多
   const education = [...document.querySelectorAll('#edu-list .entry')].map((s) => ({
@@ -1240,7 +1265,7 @@ function collectProfile() {
     name: val(basics, 'name'), phone: val(basics, 'phone'), email: val(basics, 'email'),
     city: val(basics, 'city'), github: val(basics, 'github'), targetRole: val(basics, 'targetRole'),
     summary: val(basics, 'summary'), skills: val(skills, 'skills'),
-    education, internships, projects
+    education, internships, projects, awards
   };
 }
 
@@ -2184,6 +2209,10 @@ function buildPlainText(resume) {
       out.push('');
     });
   });
+  if (resume.awards && resume.awards.length) {
+    out.push('', '【奖项与证书】');
+    resume.awards.forEach((a) => out.push('- ' + a));
+  }
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 

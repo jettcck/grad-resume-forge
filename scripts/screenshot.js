@@ -34,7 +34,10 @@ const IMPORT_SAMPLE = [
   '负责用户增长数据分析；搭建留存看板；把周报产出时间从 2 天降到半天',
   '项目经历',
   '2023.10-2024.03  校园消费行为分析  负责人',
-  '清洗 12 万条问卷数据；用 Python 做聚类分群；产出 3 份结论报告'
+  '清洗 12 万条问卷数据；用 Python 做聚类分群；产出 3 份结论报告',
+  '奖项与证书',
+  '全国大学生数学建模竞赛 省级二等奖 2024',
+  '校级三好学生 2023'
 ].join('\n');
 
 const DEMO_EMAIL = 'shot@demo.local';
@@ -137,7 +140,9 @@ function registerIpc() {
   h('resume:importPdf', () => {
     const tmpFile = path.join(IMPORT_TMP, 'demo-resume.txt');
     if (!fs.existsSync(IMPORT_TMP)) fs.mkdirSync(IMPORT_TMP, { recursive: true });
-    if (!fs.existsSync(tmpFile)) fs.writeFileSync(tmpFile, IMPORT_SAMPLE, 'utf8');
+    // 每次都要重写：固定路径上的旧样例会让断言测的是「上一版内容」
+    // （加奖项分节时就是这么被坑的 —— 预览里迟迟看不到竞赛，其实是文件没更新）
+    fs.writeFileSync(tmpFile, IMPORT_SAMPLE, 'utf8');
     return importerReal.importFromFile(tmpFile, path.join(ROOT, 'data'));
   });
   // 应用改写：与主进程一致，直接用引擎的实现（渲染层不再自己切分）
@@ -455,7 +460,7 @@ async function main() {
     t('双栏布局(grid)', !!document.querySelector('.profile-layout') && gs(document.querySelector('.profile-layout')).display === 'grid');
     t('侧栏存在', !!document.querySelector('.profile-side'));
     t('完成度仪表卡', !!document.querySelector('.completeness .score-num'));
-    t('检查清单≥8项', document.querySelectorAll('.check-item').length >= 8);
+    t('检查清单≥7项（自我介绍已移出清单，不再用留空项扣分）', document.querySelectorAll('.check-item').length >= 7);
     t('速览统计行', document.querySelectorAll('.stat-row').length >= 4);
     t('悬浮保存条', !!document.querySelector('.save-bar .btn-primary'));
     t('导入条', !!document.querySelector('.import-bar'));
@@ -1076,6 +1081,16 @@ async function main() {
     return !!btn;
   })()`);
   await sleep(2000);
+  // 导入预览：竞赛/奖项现在有独立字段，预览要如实报出条数（以前是「已跳过」）
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const box = document.querySelector('.modal-overlay .modal-box');
+    const text = box ? box.textContent : '';
+    t('导入预览列出竞赛/奖项条数', /竞赛\\/奖项 2 条/.test(text));
+    t('导入预览不再提示奖项被跳过', !/奖项.*跳过/.test(text));
+    return out.join('\\n');
+  })()`));
   await win.webContents.executeJavaScript(`(() => {
     const box = document.querySelector('.modal-overlay .modal-box');
     const b = box && Array.from(box.querySelectorAll('.btn')).find((x) => /合并导入/.test(x.textContent));
@@ -1097,6 +1112,22 @@ async function main() {
     t('导入的多行描述按行展开（每行一条，实际 ' + lines.length + ' 行）', lines.length >= 2);
     t('第一行没有被逗号拼接过（无数组残留）', lines.length > 0 && !/,$/.test(lines[0]));
     t('描述内容与导入结果一致（含清洗 12 万条问卷数据）', !!impProject && /12 万条问卷数据/.test(impProject.value));
+    // 竞赛/奖项：以前导入时被整段丢弃（档案里没有对应字段），现在有独立字段。
+    // 这里不写死条数：示例档案自己也有奖项，合并导入后是「原有 + 导入」，
+    // 写死数字会变成「测示例数据」而不是测行为。真正该守的是「导入内容在」+「无重复行」。
+    const awardArea = document.querySelector('textarea[name="awards"]');
+    const awardLines = awardArea ? awardArea.value.split('\\n').filter((x) => x.trim()) : [];
+    t('竞赛/奖项字段出现在表单里', !!awardArea);
+    t('导入的竞赛/奖项进了表单（' + awardLines.length + ' 条）',
+      awardLines.some((x) => /数学建模竞赛 省级二等奖 2024/.test(x)) && awardLines.some((x) => /校级三好学生 2023/.test(x)));
+    t('奖项整行保留用户写法', awardLines.some((x) => /数学建模竞赛 省级二等奖 2024/.test(x)));
+    t('奖项没有重复行（合并按整行去重）', awardLines.every((x, i) => awardLines.indexOf(x) === i));
+    // 完善度清单：自我介绍标着「选填，留空自动生成」，就不该再作为「未完成」扣分
+    const meter = document.querySelector('.completeness');
+    const meterText = meter ? meter.textContent : '';
+    const checkItems = meter ? meter.querySelectorAll('.check-item') : [];
+    t('完善度清单不再出现「自我介绍」', !!meter && !/自我介绍/.test(meterText));
+    t('完善度清单为 7 项（实际 ' + checkItems.length + '）', checkItems.length === 7);
     return out.join('\\n');
   })()`));
   await sleep(400);
