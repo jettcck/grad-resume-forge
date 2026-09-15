@@ -21,6 +21,37 @@ type ParsedProfile = Partial<Omit<Profile, 'education' | 'internships' | 'projec
 
 interface RefData { schools: string[]; citySet: Set<string> }
 
+// ---------- 字符归一化（中文 PDF 的常见坑）----------
+// PDF 内嵌中文字体常把字形映射到「康熙部首」(U+2F00–U+2FD5) 或「CJK 部首补充」(U+2E80–U+2EF3)
+// 码位：它们长得和正文汉字一模一样，但不是同一个字符。实测一份真实简历里
+// 「北京语言大学」被抽成「北京语⾔⼤学」、「项目经历」被抽成「项⽬经历」，
+// 于是学校词表反查、分节标题匹配全线失配 —— 用户看到的就是「明明有内容却识别不出来」。
+// 这几段（含 CJK 兼容汉字 U+F900–U+FAFF）都有 NFKC 兼容分解，逐字归一化即可。
+// 之所以逐字而不是整串 NFKC：整串 NFKC 会把中文全角标点也改掉（「，」→「,」），
+// 那会动到用户正文的观感，没必要。
+const RADICAL_MAP: Record<string, string> = (() => {
+  const map: Record<string, string> = {};
+  const ranges: ReadonlyArray<readonly [number, number]> = [
+    [0x2e80, 0x2ef3],
+    [0x2f00, 0x2fd5],
+    [0xf900, 0xfaff]
+  ];
+  ranges.forEach(([start, end]) => {
+    for (let cp = start; cp <= end; cp++) {
+      const ch = String.fromCodePoint(cp);
+      const norm = ch.normalize('NFKC');
+      if (norm !== ch && norm.length === 1) map[ch] = norm;
+    }
+  });
+  return map;
+})();
+const RADICAL_RE = /[\u2E80-\u2EF3\u2F00-\u2FD5\uF900-\uFAFF]/g;
+
+export function normalizeExtractedText(s: string): string {
+  if (!s) return s;
+  return s.replace(RADICAL_RE, (c) => RADICAL_MAP[c] || c);
+}
+
 // ---------- PDF 文本抽取 ----------
 type PdfjsModule = typeof import('pdfjs-dist/legacy/build/pdf.mjs');
 let _pdfjsPromise: Promise<PdfjsModule> | null = null;
@@ -78,12 +109,12 @@ async function extractPdfText(filePath: string): Promise<{ text: string; lines: 
         if (typeof (it as { str?: unknown }).str !== 'string') return;
         buf += (it as { str: string }).str;
         if ((it as { hasEOL?: boolean }).hasEOL) {
-          const t = buf.trim();
+          const t = normalizeExtractedText(buf).trim();
           if (t) lines.push(t);
           buf = '';
         }
       });
-      if (buf.trim()) lines.push(buf.trim());
+      if (buf.trim()) lines.push(normalizeExtractedText(buf).trim());
     }
   } finally {
     try { await doc.destroy(); } catch (_) { /* 忽略 */ }
@@ -138,11 +169,12 @@ function loadRefData(dataRoot: string): RefData {
 }
 
 // ---------- 分节 ----------
-const SECTION_DEFS: ReadonlyArray<readonly [keyof ParsedProfile | 'education' | 'internships' | 'projects' | 'skills' | 'summary', RegExp]> = [
+const SECTION_DEFS: ReadonlyArray<readonly [keyof ParsedProfile | 'education' | 'internships' | 'projects' | 'skills' | 'awards' | 'summary', RegExp]> = [
   ['education', /^(教育背景|教育经历|教育|学历)$/],
-  ['internships', /^(实习经历|实习经验|实习)$/],
+  ['internships', /^(实习经历|实习经验|实习与实践|实习实践|实习及实践|实习经历与实践|实践经历|实践经验|实习)$/],
   ['projects', /^(项目经历|项目经验|项目|实践经历|实践经验)$/],
   ['skills', /^(专业技能|技能特长|技能清单|技能|技术栈|技术能力|技术)$/],
+  ['awards', /^(奖项|获奖|获奖情况|荣誉|荣誉奖项|奖项荣誉|奖项与证书|获奖与证书|证书|资格证书|技能证书)$/],
   ['summary', /^(自我评价|个人简介|自我介绍|个人优势|个人总结)$/]
 ];
 const SECTION_EN: ReadonlyArray<readonly [string, RegExp]> = [
@@ -173,7 +205,9 @@ function detectSectionKey(line: string): string | null {
 }
 
 // ---------- 通用抽取 ----------
-const PHONE_RE = /(?<!\d)1[3-9]\d{9}(?!\d)/;
+// 手机号在简历里常写成 138-0000-0000 / 138 0000 0000 / 138.0000.0000：
+// 旧正则只认连着的 11 位，带分隔符的直接漏掉（用户填了手机号却导不进来）。
+const PHONE_RE = /(?<!\d)1[3-9]\d(?:[\s.\-]?\d{4}){2}(?!\d)/;
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/;
 const GITHUB_RE = /(?:https?:\/\/)?(?:www\.)?github\.com\/[A-Za-z0-9_-]+/i;
 const PERIOD_RE = /(20\d{2})\s*[.\/年]?\s*(\d{1,2})?\s*月?\s*(?:(?:[-–—~到\s]+\s*)(?:(20\d{2})\s*[.\/年]?\s*(\d{1,2})?\s*月?|(至今))?|至今)/;
@@ -223,6 +257,12 @@ function parseEducation(lines: string[], ref: RefData): EducationEntry[] {
     if (!cur) return;
 
     if (period) cur.period = period;
+    // 教育经历常只写一个毕业年份（「北京大学 2010」），matchPeriod 要求成对或「至今」，
+    // 所以这里补一个「孤立年份」兜底，否则时间段永远是空的。
+    if (!cur.period) {
+      const loneYear = line.match(/(?<!\d)(?:19|20)\d{2}(?!\d)/);
+      if (loneYear) cur.period = loneYear[0];
+    }
     if (gpaM) cur.gpa = gpaM[1]!.replace(/\s+/g, '');
     if (degreeM) cur.degree = degreeM[1] === '研究生' ? '硕士' : degreeM[1]!;
 
@@ -239,6 +279,14 @@ function parseEducation(lines: string[], ref: RefData): EducationEntry[] {
       const bits = rest.match(/[\u4e00-\u9fa5]{2,20}/g) || [];
       const majorLike = bits.find((b) => !/大学|学院|学校|课程/.test(b));
       if (majorLike && !cur.major) cur.major = majorLike;
+    } else if (!cur.major && (degreeM || /在读|全日制|毕业/.test(line))) {
+      // 专业常常另起一行（「硕士在读 · 对外汉语」）：这行没有学校名，
+      // 上面那条分支走不到，于是专业一直是空的。
+      const bits = (line
+        .replace(/(博士|硕士|研究生|本科|大专|专科|在读|全日制|毕业|学位)/g, ' ')
+        .match(/[\u4e00-\u9fa5]{2,20}/g) || [])
+        .filter((b) => !/大学|学院|学校|课程|专业/.test(b));
+      if (bits.length) cur.major = bits[0]!;
     }
 
     const courseM = line.match(/(?:主修课程|核心课程|主修|课程)\s*[：:]\s*(.+)$/);
@@ -254,6 +302,11 @@ const TITLE_HINT_RE = /(公司|集团|科技|信息技术|网络|实验室|工�
 
 function looksLikeTitle(line: string): boolean {
   if (BULLET_RE.test(line)) return false;
+  // 句子不是标题：以句号/问号/叹号收尾，或带中文逗号顿号分号的，都是在描述事情。
+  // （实测「曾在上海东方卫视新闻教育组实习，并担任北京大学中文系团委秘书。」因为含「实习」
+  //   被当成了新条目名，结果整段项目经历被切碎。）
+  if (/[。！？!?]$/.test(line)) return false;
+  if (/[，,、；;]/.test(line)) return false;
   if (matchPeriod(line)) return true;
   if (line.length <= 34 && TITLE_HINT_RE.test(line)) return true;
   return false;
@@ -263,13 +316,34 @@ interface ParsedExperience extends Omit<ExperienceEntry, 'description'> {
   description: string[];
 }
 
-function parseExperiences(lines: string[]): ExperienceEntry[] {
+function parseExperiences(lines: string[], ref?: RefData): ExperienceEntry[] {
   const entries: ParsedExperience[] = [];
   let cur: ParsedExperience | null = null;
 
+  const isSentence = (s: string): boolean => /[。！？!?]$/.test(s) || /[，,、；;]/.test(s);
+  // 角色行：「机构/项目名」后面紧跟的短行，如「对外汉语大班教师」「学生骨干 / 实习生」。
+  // 排除看起来像机构/学校名的短行，免得把下一个条目的名字当成上一个的角色。
+  const looksLikeOrg = (s: string): boolean =>
+    /(大学|学院|学校|公司|集团|银行|实验室|工作室|中心|项目|科技|有限|事务所|研究院)/.test(s) || (!!ref && ref.schools.includes(s));
+  const isRoleLine = (s: string): boolean => s.length <= 16 && !isSentence(s) && !matchPeriod(s) && !looksLikeOrg(s);
+
   lines.forEach((line) => {
     const isBullet = BULLET_RE.test(line);
-    if (!isBullet && looksLikeTitle(line)) {
+    // 角色行优先判断：它常含有「实习/项目/中心」等关键词（如「学生骨干 / 实习生」），
+    // 若先跑标题判定就会被当成新条目，把一段经历切成两半。
+    if (cur && cur.name && !cur.role && !isBullet && isRoleLine(line)) {
+      cur.role = line.trim().slice(0, 40);
+      return;
+    }
+    // 「名称单独一行、时间单独一行」的排版：把孤立的时间行补进当前条目
+    if (cur && !cur.period && !isBullet && /^[\s\d.\/年月日\-–—~至到]+$/.test(line)) {
+      const p = matchPeriod(line);
+      if (p) { cur.period = p; return; }
+    }
+    // 分节里的第一行（且非项目符号）一律当作条目名：中文简历里它必然是
+    // 机构名/项目名（如「校园组织与媒体实践」），而它往往不含任何触发关键词。
+    const firstLineOfSection = !cur && entries.length === 0;
+    if (!isBullet && (looksLikeTitle(line) || firstLineOfSection)) {
       cur = { name: '', role: '', period: '', tech: '', description: [] };
       entries.push(cur);
 
@@ -285,8 +359,12 @@ function parseExperiences(lines: string[]): ExperienceEntry[] {
         cur.period = period;
         rest = rest.replace(/20\d{2}\s*[.\/年]?\s*\d{0,2}\s*[-–—~至到\s].*/g, '');
       }
+      // 剥掉时间段后可能留下孤零零的开括号（「复旦大学中文系（2007–2009）」→「复旦大学中文系（」），
+      // 连括号一起收尾，别把残缺括号留给用户看
+      rest = rest.replace(/[（(【\[]\s*$/, '').trim();
       const roleM = rest.match(/[(（]([^()（）]{2,12})[)）]/);
-      if (roleM) {
+      // 括号里是城市（如「美国暑期中文项目（北京）」）时不当角色，那只是地点
+      if (roleM && !(ref && ref.citySet.has(roleM[1]!.trim()))) {
         cur.role = roleM[1]!;
         rest = rest.replace(roleM[0], '');
       }
@@ -294,6 +372,7 @@ function parseExperiences(lines: string[]): ExperienceEntry[] {
       return;
     }
 
+    // 紧跟条目名之后的短行 = 角色（已在上方优先处理）
     const content = line.replace(BULLET_RE, '').trim();
     if (!content) return;
     if (cur) {
@@ -314,14 +393,16 @@ function parseExperiences(lines: string[]): ExperienceEntry[] {
 
 // ---------- 主入口：结构化解析 ----------
 export function parseResumeText(text: string, ref: RefData): ParsedProfile {
-  const rawLines = String(text || '')
+  // 归一化放在入口：PDF 抽取路径已经归一化过一次（幂等），但从别处粘贴进来的文本
+  // （很多人是从 PDF 阅读器里复制的）同样会带康熙部首码位，这里兜住。
+  const rawLines = normalizeExtractedText(String(text || ''))
     .split(/\r?\n/)
     .map((s) => s.trim())
     .filter(Boolean);
   const notes: string[] = [];
 
   // 1) 分节
-  const sections: Record<string, string[]> = { header: [], education: [], internships: [], projects: [], skills: [], summary: [] };
+  const sections: Record<string, string[]> = { header: [], education: [], internships: [], projects: [], skills: [], awards: [], summary: [] };
   let current = 'header';
   rawLines.forEach((line) => {
     const key = detectSectionKey(line);
@@ -336,7 +417,7 @@ export function parseResumeText(text: string, ref: RefData): ParsedProfile {
 
   // 2) 基本信息：全篇正则扫描
   const whole = rawLines.join('\n');
-  const phone = (whole.match(PHONE_RE) || [])[0] || '';
+  const phone = ((whole.match(PHONE_RE) || [])[0] || '').replace(/[^\d]/g, '');
   const email = (whole.match(EMAIL_RE) || [])[0] || '';
   const github = (whole.match(GITHUB_RE) || [])[0] || '';
 
@@ -359,6 +440,21 @@ export function parseResumeText(text: string, ref: RefData): ParsedProfile {
   let targetRole = '';
   const roleM = whole.match(/(?:求职意向|期望职位|目标岗位|应聘岗位|意向岗位)\s*[：:]\s*([^\n，,、;；]{2,24})/);
   if (roleM) targetRole = roleM[1]!.trim();
+  if (!targetRole) {
+    // 抬头常有一句职位标语：「对外汉语教师｜课程设计 · 语法教学 · 跨文化课堂」。
+    // 没有「求职意向：」这类显式字段时，取竖线/间隔号前的那一段当目标岗位。
+    // 限制得比较死（不含联系方式、长度 2–12、必须是中文/字母），免得把姓名或联系方式吃进来。
+    for (const line of sections.header!.slice(0, 4)) {
+      if (!/[｜|]/.test(line)) continue;
+      if (/[@\d]/.test(line)) continue;
+      if (line === name) continue;
+      const head = line.split(/[｜|]/)[0]!.trim();
+      if (head.length >= 2 && head.length <= 12 && /^[\u4e00-\u9fa5A-Za-z·\/\s]+$/.test(head)) {
+        targetRole = head;
+        break;
+      }
+    }
+  }
 
   let city = '';
   const cityM = whole.match(/(?:期望|意向|所在|现居|工作)城市?\s*[：:]\s*([^\s，,、；;]{2,12})/);
@@ -373,8 +469,8 @@ export function parseResumeText(text: string, ref: RefData): ParsedProfile {
 
   // 3) 各分节解析
   const education = parseEducation(sections.education!, ref);
-  const internships = parseExperiences(sections.internships!);
-  const projects = parseExperiences(sections.projects!);
+  const internships = parseExperiences(sections.internships!, ref);
+  const projects = parseExperiences(sections.projects!, ref);
 
   let skills = '';
   if (sections.skills!.length) {
@@ -384,6 +480,10 @@ export function parseResumeText(text: string, ref: RefData): ParsedProfile {
 
   if (!education.length && sections.education!.length) {
     notes.push('识别到「教育背景」分节，但未匹配到学校名称，请手动补全。');
+  }
+  // 奖项/证书单独切出来，别再混进「技能」里（以前会连标题带内容一起塞进技能字段）
+  if (sections.awards!.length) {
+    notes.push('识别到「奖项 / 荣誉 / 证书」分节（' + sections.awards.length + ' 行），档案里没有对应字段，已跳过，需要的话请手动补进简介或技能。');
   }
 
   return {

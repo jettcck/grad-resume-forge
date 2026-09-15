@@ -171,6 +171,44 @@ assert((p3.notes || []).length > 0, '无分节文本给出提示');
       assert(rr.lines.length > 10, '真实中文简历：拆出 ' + rr.lines.length + ' 行');
       assert(/[\u4e00-\u9fa5]/.test(rr.text), '真实中文简历：中文正确解码（不是乱码）');
       assert(rr.text.replace(/\s/g, '').length > 200, '真实中文简历：抽出足量正文（' + rr.text.replace(/\s/g, '').length + ' 字）');
+
+      // 康熙部首归一化：这份 PDF 的字体把「言/大/目」等映射成了 U+2F00–U+2FD5 码位，
+      // 归一化之前「北京语言大学」实际是「北京语⾔⼤学」，学校词表全都匹配不上。
+      assert(!/[\u2E80-\u2EF3\u2F00-\u2FD5]/.test(rr.text), '康熙部首码位已归一化成正常汉字');
+      assert(rr.text.includes('北京语言大学'), '归一化后能读到完整的「北京语言大学」');
+
+      // 整份导入链路（PDF → 分节 → 词表反查 → 档案片段）
+      const full = await importer.importFromFile(fixture, DATA_ROOT);
+      const p = full.parsed;
+      assert(p.name === '张三', '真实简历：姓名（' + p.name + '）');
+      assert(p.phone === '13800000000', '真实简历：带连字符的手机号归一化成纯数字（' + p.phone + '）');
+      assert(p.targetRole === '对外汉语教师', '真实简历：抬头职位标语 → 求职意向（' + p.targetRole + '）');
+
+      assert(p.education.length === 3, '真实简历：识别出 3 段教育经历（实际 ' + p.education.length + '）');
+      const edu0 = p.education[0] || {};
+      assert(edu0.school === '北京语言大学' && edu0.major === '对外汉语' && edu0.degree === '硕士' && edu0.period === '2012',
+        '真实简历：教育条目（学校/专业/学历/年份）=' + JSON.stringify(edu0));
+
+      // 这一节标题是「实习与实践」——旧的关键词表只有「实习经历/实习经验/实习」，
+      // 认不出来就把整段实习塞进了教育经历，用户看到的现象是「有实习却导不进来」。
+      assert(p.internships.length === 4, '真实简历：识别出 4 段实习/实践（实际 ' + p.internships.length + '）');
+      const i0 = p.internships[0] || {};
+      assert(i0.name === '北京语言大学' && i0.role === '对外汉语大班教师' && i0.period === '2011.09 - 至今',
+        '真实简历：实习条目（机构/角色/时间段）=' + JSON.stringify(i0));
+      assert((i0.description || []).length === 2, '真实简历：实习描述按行归属（实际 ' + (i0.description || []).length + ' 条）');
+      const i3 = p.internships[3] || {};
+      assert(i3.name === '复旦大学中文系' && i3.period === '2007.01 - 2009.06',
+        '真实简历：剥掉时间段后不留残缺括号（实际 ' + JSON.stringify(i3.name) + '）');
+
+      assert(p.projects.length === 1, '真实简历：识别出 1 段项目经历（实际 ' + p.projects.length + '）');
+      const pr0 = p.projects[0] || {};
+      assert(pr0.name === '校园组织与媒体实践' && pr0.role === '学生骨干 / 实习生',
+        '真实简历：项目名与角色没被切碎（实际 ' + JSON.stringify({ name: pr0.name, role: pr0.role }) + '）');
+      assert((pr0.description || []).length === 3, '真实简历：3 行项目描述全部归到同一条目（实际 ' + (pr0.description || []).length + '）');
+
+      // 奖项以前被当成技能内容一起塞进「技能」字段
+      assert(!/书法|国画|钢琴/.test(p.skills || ''), '真实简历：奖项/证书不再混进技能字段');
+      assert((p.notes || []).some((n) => /奖项/.test(n)), '真实简历：明确告知奖项分节被跳过（不假装导入）');
     }
   } catch (err) {
     assert(false, 'PDF 端到端抽取失败：' + err.message);

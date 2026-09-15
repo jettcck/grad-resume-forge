@@ -47,6 +47,26 @@ app.whenReady().then(async () => {
     // 简历里必然出现的字段，抽不到说明编码/字体映射有问题（中文 CID 字体是常见坑）
     t(/[\u4e00-\u9fa5]/.test(text), '中文能正确解码（不是乱码或空）');
     t(/教育|学校|大学|本科|硕士|学历/.test(text), '能认出教育经历相关字样');
+    // 康熙部首（PDF 字体常把「言/大/目」映射到 U+2F00–U+2FD5）必须已归一化，
+    // 否则学校词表、分节标题全部匹配不上（用户看到的就是「有内容却识别不出来」）
+    t(!/[\u2E80-\u2EF3\u2F00-\u2FD5]/.test(text), '康熙部首码位已归一化');
+
+    // 完整链路：PDF → 分节 → 学校/城市词表反查 → 档案片段（也验证打包后 data/ 能读到）
+    const dataRoot = path.join(__dirname, '..', 'data');
+    let full = null, fullErr = null;
+    try {
+      full = await importer.importFromFile(file, dataRoot);
+    } catch (e) {
+      fullErr = e;
+    }
+    t(!fullErr, '完整导入链路可跑通' + (fullErr ? ' → ' + fullErr.message : ''));
+    if (full) {
+      const p = full.parsed;
+      t(p.name === '张三' && p.phone === '13800000000', '基本信息：' + p.name + ' / ' + p.phone);
+      t(p.education.length === 3, '教育经历 ' + p.education.length + ' 段（学校词表反查生效）');
+      t(p.internships.length === 4, '实习/实践 ' + p.internships.length + ' 段');
+      t(p.projects.length === 1, '项目经历 ' + p.projects.length + ' 段');
+    }
   }
 
   console.log('\nPDF 导入冒烟完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
