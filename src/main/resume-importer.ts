@@ -46,10 +46,18 @@ const RADICAL_MAP: Record<string, string> = (() => {
   return map;
 })();
 const RADICAL_RE = /[\u2E80-\u2EF3\u2F00-\u2FD5\uF900-\uFAFF]/g;
+// 图标字体（FontAwesome / MarVoSym 等）在 PDF 里是私用区码位，抽出来就是乱码字符：
+// 实测一份北航简历的分节标题是「U+F19D + 空格 + 教育背景」，装饰符白名单认不出 U+F19D，
+// 于是「教育背景」整行匹配失败 → 教育/项目/实习全部落回页眉，导入结果是空的。
+// 私用区在正文里没有标准含义，直接删掉最省事，也顺带清掉了正文里的乱码图标。
+const PUA_RE = /[\uE000-\uF8FF\uFFFD]|[\u{F0000}-\u{FFFFD}]|[\u{100000}-\u{10FFFD}]/gu;
 
 export function normalizeExtractedText(s: string): string {
   if (!s) return s;
-  return s.replace(RADICAL_RE, (c) => RADICAL_MAP[c] || c);
+  return s
+    .replace(PUA_RE, '')
+    .replace(RADICAL_RE, (c) => RADICAL_MAP[c] || c)
+    .replace(/[ \t]{2,}/g, ' ');
 }
 
 // ---------- PDF 文本抽取 ----------
@@ -254,9 +262,14 @@ function parseEducation(lines: string[], ref: RefData): EducationEntry[] {
     const school = findSchool(line, ref);
     const period = matchPeriod(line);
     const gpaM = line.match(/(?:GPA|绩点|平均分)\s*[：:]?\s*([\d.]+\s*\/\s*[\d.]+|\d+(?:\.\d+)?)/i);
-    const degreeM = line.match(/(博士|硕士|研究生|本科|大专|专科)/);
+    const degreeM = line.match(/(博士|硕士|研究生|本科|大专|专科|学士)/);
 
-    if (school && (!cur || cur.school !== school)) {
+    // 同一个学校名重复出现时，通常是「一条经历的第二行」（保持同一条），
+    // 但「硕博连读 / 同校两个学位」是三条不同经历 —— 用时间段是否不同来区分：
+    // 本条已有时间段，新行又带自己的、且不一样的时间段 → 算新条目。
+    const sameSchoolNewPeriod = !!(school && cur && cur.school === school &&
+      period && cur.period && period !== cur.period);
+    if (school && (!cur || cur.school !== school || sameSchoolNewPeriod)) {
       cur = { school, major: '', degree: '', period: '', gpa: '', courses: '' };
       entries.push(cur);
     }
@@ -285,13 +298,16 @@ function parseEducation(lines: string[], ref: RefData): EducationEntry[] {
       const bits = rest.match(/[\u4e00-\u9fa5]{2,20}/g) || [];
       const majorLike = bits.find((b) => !/大学|学院|学校|课程/.test(b));
       if (majorLike && !cur.major) cur.major = majorLike;
-    } else if (!cur.major && (degreeM || /在读|全日制|毕业/.test(line))) {
+    } else if (!cur.major && (degreeM || /在读|全日制|毕业|学位/.test(line))) {
       // 专业常常另起一行（「硕士在读 · 对外汉语」）：这行没有学校名，
       // 上面那条分支走不到，于是专业一直是空的。
+      // 还要滤掉「理学 / 工学 / 第二」这类前缀词，否则「理学学士第二学位 应用数学」
+      // 会把「理学」当成专业（真专业在最后面）。
       const bits = (line
-        .replace(/(博士|硕士|研究生|本科|大专|专科|在读|全日制|毕业|学位)/g, ' ')
+        .replace(/(博士|硕士|研究生|本科|大专|专科|学士|在读|全日制|毕业|学位)/g, ' ')
         .match(/[\u4e00-\u9fa5]{2,20}/g) || [])
-        .filter((b) => !/大学|学院|学校|课程|专业/.test(b));
+        .filter((b) => !/大学|学院|学校|课程|专业/.test(b))
+        .filter((b) => !/^(理学|工学|文学|管理学|经济学|法学|医学|教育学|艺术学|农学|军事学|第一|第二|双)$/.test(b));
       if (bits.length) cur.major = bits[0]!;
     }
 

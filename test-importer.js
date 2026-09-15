@@ -235,6 +235,30 @@ assert((p3.notes || []).length > 0, '无分节文本给出提示');
       assert((p.awards || [])[0] === '校级书法大赛一等奖 2006', '真实简历：奖项整行保留用户写法（' + (p.awards || [])[0] + '）');
       assert(!(p.notes || []).some((n) => /奖项/.test(n)), '真实简历：奖项已导入，不再提示「已跳过」');
     }
+
+    // ---------- 理工科简历夹具（北航，图标字体的 LaTeX 模板）----------
+    // 这份 PDF 的分节标题前面带着 FontAwesome 私用区字符（U+F19D + 空格 + 教育背景），
+    // 旧代码认不出那个码位 → 整个「教育背景」匹配失败 → 教育/项目全落回页眉，导入是空的。
+    const stem = path.join(__dirname, 'test-fixtures', 'resume-sample-stem.pdf');
+    assert(fs.existsSync(stem), '理工科简历夹具存在');
+    if (fs.existsSync(stem)) {
+      assert(importer.normalizeExtractedText('\uF19D 教育背景').trim() === '教育背景',
+        '私用区图标字符被清掉（「U+F19D + 空格 + 教育背景」→「' + importer.normalizeExtractedText('\uF19D 教育背景').trim() + '」）');
+
+      const stemText = await importer.extractPdfText(stem);
+      assert(!/[\uE000-\uF8FF]/.test(stemText.text), '正文里不再残留私用区乱码字符');
+
+      const stemParsed = (await importer.importFromFile(stem, DATA_ROOT)).parsed;
+      assert(stemParsed.name.length > 0 && stemParsed.phone === '15888888888', '理工科简历：基本信息（' + stemParsed.name + ' / ' + stemParsed.phone + '）');
+      assert(stemParsed.education.length === 3, '理工科简历：同校三个学位拆成 3 段（实际 ' + stemParsed.education.length + '）');
+      const e0 = stemParsed.education[0] || {};
+      assert(e0.school === '北京航空航天大学' && e0.degree === '博士' && e0.major === '飞行器设计',
+        '理工科简历：博士条目（' + JSON.stringify(e0) + '）');
+      const e1 = stemParsed.education[1] || {};
+      assert(e1.degree === '学士' && e1.major === '应用数学',
+        '理工科简历：「理学学士第二学位 应用数学」能取到学位与专业（' + JSON.stringify(e1) + '）');
+      assert(stemParsed.projects.length >= 3, '理工科简历：项目经历 ' + stemParsed.projects.length + ' 段');
+    }
   } catch (err) {
     assert(false, 'PDF 端到端抽取失败：' + err.message);
   } finally {
