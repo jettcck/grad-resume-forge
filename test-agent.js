@@ -543,7 +543,10 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
         res.end(JSON.stringify({ data: [{ id: 'local-test-model' }] }));
       } else { res.writeHead(404); res.end(); }
     });
-    await new Promise((res) => fake.listen(18080, '127.0.0.1', res));
+    // 用临时端口（listen 0）而不是写死端口：CI runner 上固定端口可能被别人占着，
+    // listen 会 EADDRINUSE 抛错，整个套件就偶发变红（v1.9.8 的 CI 就是这么红的）。
+    // 这两处都不需要特定端口：上面只断言「不抛错」，下面只验证 /models 协议假设。
+    await new Promise((res) => fake.listen(0, '127.0.0.1', res));
     try {
       const found = await detectLocalServices(600);
       assert(Array.isArray(found), '探测返回数组（未命中时为空数组，不抛错）');
@@ -558,9 +561,10 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
         res.end(JSON.stringify({ data: [{ id: 'm-a' }, { id: 'm-b' }] }));
       } else { res.writeHead(404); res.end(); }
     });
-    await new Promise((res) => fake2.listen(18081, '127.0.0.1', res));
+    await new Promise((res) => fake2.listen(0, '127.0.0.1', res));
     try {
-      const r2 = await fetch('http://127.0.0.1:18081/models').then((x) => x.json());
+      const p2 = fake2.address().port;
+      const r2 = await fetch('http://127.0.0.1:' + p2 + '/models').then((x) => x.json());
       assert(Array.isArray(r2.data) && r2.data.length === 2, '探测协议假设成立（OpenAI 兼容 /models）');
     } finally {
       await new Promise((res) => fake2.close(res));
