@@ -808,7 +808,7 @@ function renderProfile() {
     cardTitle('wrench', '专业技能', '逗号 / 顿号分隔'),
     areaField('技能清单', 'skills', p.skills, '技能 / 工具 / 证书都可以：Python, Excel, SQL, 文案策划, 教师资格证…'),
     (p.skills || '').trim() ? el('div', { class: 'skill-chip-row' },
-      p.skills.split(/[,，、;；\n]/).map((s) => s.trim()).filter(Boolean).slice(0, 24)
+      p.skills.split(SKILL_SEP_RE).map((s) => s.trim()).filter(Boolean).slice(0, 24)
         .map((s, i) => el('span', { class: 'r-skill', style: '--i:' + i }, [s]))
     ) : null
   ]);
@@ -965,6 +965,16 @@ function renderProfile() {
   root.append(...[head, onboarding, importBar, twoCols, saveBar].filter(Boolean));
 }
 
+// 技能分隔符必须与引擎、与导入产出一致。
+// 踩过的坑：导入器把技能分节各行用「、」拼起来，而行内是「·」与空格分隔的
+// （「教学 语法教学 · 教案设计 · …」），只认逗号/顿号时整串只数出 2 项，
+// 于是「技能 ≥ 4 项」明明够了却一直显示未完成（用户实测反馈）。
+// 特意不加空格与斜杠：那会把「Machine Learning」「CI/CD」切成两半。
+const SKILL_SEP_RE = /[,，、;；·|｜\n]+/;
+function splitSkills(raw) {
+  return String(raw || '').split(SKILL_SEP_RE).map((s) => s.trim()).filter(Boolean);
+}
+
 // 档案完成度：只统计「该有就必须有」的项。
 // 一句话自我介绍不在这里：它标注为选填且留空会自动生成，把它算作未完成
 // 等于「一边说可以留空、一边扣你的分」，自相矛盾（用户明确反馈过）。
@@ -972,10 +982,12 @@ function buildProfileStats(p) {
   const items = [
     { label: '基本信息（姓名/手机/邮箱）', done: !!(p.name && p.phone && p.email) },
     { label: '城市与目标岗位', done: !!(p.city && p.targetRole) },
-    { label: '技能 ≥ 4 项', done: (p.skills || '').split(/[,，、;；\n]/).filter((s) => s.trim()).length >= 4 },
+    { label: '技能 ≥ 4 项', done: splitSkills(p.skills).length >= 4 },
     { label: '教育经历 ≥ 1 段', done: (p.education || []).some((e) => e.school) },
     { label: '项目经历 ≥ 1 段', done: (p.projects || []).some((e) => e.name) },
-    { label: '项目描述有量化', done: (p.projects || []).some((e) => /\d/.test(e.description || '')) },
+    // 以前只查「项目」且标签叫「项目描述有量化」，用户看不懂在说什么；
+    // 现在实习/实践也一起算（很多人的成果写在实习里），标签写清楚要什么样的数字。
+    { label: '描述里有具体数字（规模 / 提升幅度）', done: (p.projects || []).concat(p.internships || []).some((e) => /\d/.test(e.description || '')) },
     { label: '作品集 / 个人主页 / 证书说明', done: !!(p.github || '').trim() }
   ];
   const done = items.filter((x) => x.done).length;
@@ -985,7 +997,7 @@ function buildProfileStats(p) {
     countEdu: (p.education || []).filter((e) => e.school).length,
     countIntern: (p.internships || []).filter((e) => e.name).length,
     countProj: (p.projects || []).filter((e) => e.name).length,
-    countSkill: (p.skills || '').split(/[,，、;；\n]/).filter((s) => s.trim()).length
+    countSkill: splitSkills(p.skills).length
   };
 }
 
@@ -1117,7 +1129,7 @@ async function onImportResume() {
     (parsed.internships || []).length ? '实习 ' + parsed.internships.length + ' 段' : null,
     (parsed.projects || []).length ? '项目 ' + parsed.projects.length + ' 段' : null,
     (parsed.awards || []).length ? '竞赛/奖项 ' + parsed.awards.length + ' 条' : null,
-    parsed.skills ? '技能 ' + parsed.skills.split(/[,，、;；]/).filter(Boolean).length + ' 项' : null,
+    parsed.skills ? '技能 ' + splitSkills(parsed.skills).length + ' 项' : null,
     parsed.summary ? '自我介绍' : null
   ].filter(Boolean);
 
@@ -1207,13 +1219,11 @@ function mergeProfiles(current, parsed) {
   ['name', 'phone', 'email', 'city', 'github', 'targetRole', 'summary'].forEach((k) => {
     if (!out[k] && parsed[k]) out[k] = parsed[k];
   });
-  // 技能：合并去重（按逗号类分隔符切开）
+  // 技能：合并去重（分隔符与显示、计数保持一致，否则会出现「看起来 10 项、算出来 2 项」）
   if (parsed.skills) {
-    const parts = String(out.skills || '')
-      .split(/[,，、;；\n]/).map((s) => s.trim()).filter(Boolean);
+    const parts = splitSkills(out.skills);
     const seen = new Set(parts.map((s) => s.toLowerCase()));
-    String(parsed.skills).split(/[,，、;；\n]/).forEach((s) => {
-      const t = s.trim();
+    splitSkills(parsed.skills).forEach((t) => {
       if (t && !seen.has(t.toLowerCase())) { parts.push(t); seen.add(t.toLowerCase()); }
     });
     out.skills = parts.join(', ');

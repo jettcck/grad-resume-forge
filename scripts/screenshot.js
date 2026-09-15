@@ -37,7 +37,10 @@ const IMPORT_SAMPLE = [
   '清洗 12 万条问卷数据；用 Python 做聚类分群；产出 3 份结论报告',
   '奖项与证书',
   '全国大学生数学建模竞赛 省级二等奖 2024',
-  '校级三好学生 2023'
+  '校级三好学生 2023',
+  '专业技能',
+  '教学 语法教学 · 教案设计 · 作业反馈 · 课堂观察 · 课外文化活动',
+  '内容与表达 音视频剪辑 · 活动主持'
 ].join('\n');
 
 const DEMO_EMAIL = 'shot@demo.local';
@@ -1122,12 +1125,27 @@ async function main() {
       awardLines.some((x) => /数学建模竞赛 省级二等奖 2024/.test(x)) && awardLines.some((x) => /校级三好学生 2023/.test(x)));
     t('奖项整行保留用户写法', awardLines.some((x) => /数学建模竞赛 省级二等奖 2024/.test(x)));
     t('奖项没有重复行（合并按整行去重）', awardLines.every((x, i) => awardLines.indexOf(x) === i));
+    // 技能计数：导入的技能行内是「·」分隔的，以前只认逗号/顿号 → 整串只算 2 项，
+    // 于是「技能 ≥ 4 项」明明够了却一直显示未完成（用户实测反馈）。
+    const skillArea = document.querySelector('#card-skills textarea');
+    const skillValue = skillArea ? skillArea.value : '';
+    const skillItems = skillValue.split(/[,，、;；·|｜\\n]+/).map((x) => x.trim()).filter(Boolean);
+    t('导入的技能已归一成顿号列表', !!skillValue && !/[·｜|]/.test(skillValue));
+    t('技能切分后 ≥ 4 项（实际 ' + skillItems.length + ' 项）', skillItems.length >= 4);
+    const skillChipCount = document.querySelectorAll('#card-skills .r-skill').length;
+    t('技能芯片数量与计数一致（' + skillChipCount + ' 个）', skillChipCount === skillItems.length);
+    // 清单里那一项必须真的显示为已完成（不是靠文案糊过去的）
+    const skillItem = Array.from(document.querySelectorAll('.completeness .check-item'))
+      .find((n) => /技能 ≥ 4 项/.test(n.textContent));
+    t('清单「技能 ≥ 4 项」显示为已完成', !!skillItem && skillItem.classList.contains('done'));
     // 完善度清单：自我介绍标着「选填，留空自动生成」，就不该再作为「未完成」扣分
     const meter = document.querySelector('.completeness');
     const meterText = meter ? meter.textContent : '';
     const checkItems = meter ? meter.querySelectorAll('.check-item') : [];
     t('完善度清单不再出现「自我介绍」', !!meter && !/自我介绍/.test(meterText));
     t('完善度清单为 7 项（实际 ' + checkItems.length + '）', checkItems.length === 7);
+    // 量化项的标签以前叫「项目描述有量化」，用户看不懂；现在写清楚要什么数字，且实习也算
+    t('量化项标签写清楚要什么数字', /描述里有具体数字/.test(meterText));
     return out.join('\\n');
   })()`));
   await sleep(400);

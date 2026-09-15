@@ -227,6 +227,10 @@ assert((p3.notes || []).length > 0, '无分节文本给出提示');
 
       // 奖项以前被当成技能内容一起塞进「技能」字段；现在有独立的竞赛/奖项字段
       assert(!/书法|国画|钢琴/.test(p.skills || ''), '真实简历：奖项/证书不再混进技能字段');
+      // 技能行内是「·」分隔的，导入时要归一成顿号，否则按逗号/顿号切只能数出 2 项
+      assert(!/[·｜|]/.test(p.skills || ''), '真实简历：技能里的「·」已归一成顿号（' + p.skills + '）');
+      const skillCount = (p.skills || '').split(/[,，、;；\n]+/).filter((s) => s.trim()).length;
+      assert(skillCount >= 4, '真实简历：技能按顿号切出 ' + skillCount + ' 项（≥4，清单不该再报未完成）');
       assert(Array.isArray(p.awards) && p.awards.length === 3, '真实简历：导入 3 条竞赛/奖项（实际 ' + (p.awards || []).length + '）');
       assert((p.awards || [])[0] === '校级书法大赛一等奖 2006', '真实简历：奖项整行保留用户写法（' + (p.awards || [])[0] + '）');
       assert(!(p.notes || []).some((n) => /奖项/.test(n)), '真实简历：奖项已导入，不再提示「已跳过」');

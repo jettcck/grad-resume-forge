@@ -500,7 +500,16 @@ export function parseResumeText(text: string, ref: RefData): ParsedProfile {
 
   let skills = '';
   if (sections.skills!.length) {
-    skills = sections.skills!.join('、').replace(/\s+/g, ' ').trim().slice(0, 400);
+    // 分节内各行用「、」拼接；行内的「·」「|」也统一成「、」，
+    // 这样存进档案的技能就是一个规范的顿号列表（表单/计数/导出都按这个切）
+    skills = sections.skills!
+      .join('、')
+      .replace(/[·|｜]/g, '、')
+      .replace(/\s*、\s*/g, '、')   // 原文是「 · 」形态，去掉顿号两侧空格
+      .replace(/、{2,}/g, '、')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 400);
   }
   const summary = sections.summary!.join('').replace(/\s+/g, ' ').trim().slice(0, 300);
 

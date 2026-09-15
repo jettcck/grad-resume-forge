@@ -238,8 +238,10 @@ export function generate(profile: Profile, options: { targetRole?: string } | Re
   if (education.length === 0) tips.push('至少填写一段教育经历（学校 / 专业 / 时间）。');
 
   // 技能：去重、分组
+  // 分隔符要和渲染层、导入器保持一致（含「·」「|」）：导入的技能行内是「·」分隔的，
+  // 只认逗号/顿号时会把整串当成 1-2 项，导出的技能区也跟着残缺。
   const skills = clean(p.skills)
-    .split(/[,，、;；\n]/)
+    .split(/[,，、;；·|｜\n]+/)
     .map((s) => s.trim())
     .filter(Boolean);
   const uniqueSkills = [...new Set(skills)];

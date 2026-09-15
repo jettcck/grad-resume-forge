@@ -215,4 +215,39 @@ assert(/app\.on\('second-instance'/.test(mainSrc) && /mainWindow\.focus\(\)/.tes
   '已有实例收到二次启动事件时会聚焦已有窗口');
 assert(guardCount >= 2, '第二实例的启动回调有守卫：不建窗口、不动数据、不查更新（实际 ' + guardCount + ' 处）');
 
+// ---------- 17) 技能分隔符：渲染层的计数与引擎的解析必须一致 ----------
+// 踩过的坑：导入器把技能分节各行用「、」拼起来，行内却是「·」和空格分隔的
+// （「教学 语法教学 · 教案设计 · …」）。渲染层只认逗号/顿号 → 数出 2 项，
+// 于是「技能 ≥ 4 项」明明够了却一直显示未完成；引擎也按同一套错误规则切，
+// 导出的技能区跟着残缺。两处逻辑漂移过一次的东西，就要用测试钉住。
+{
+  const appSrc2 = fs.readFileSync(path.join(__dirname, 'src', 'renderer', 'app.js'), 'utf8');
+  const sepLine = appSrc2.match(/const SKILL_SEP_RE = .*;/);
+  const fnSrc = appSrc2.match(/function splitSkills\(raw\) \{[\s\S]*?\n\}/);
+  assert(!!sepLine && !!fnSrc, '渲染层存在统一的技能分隔符与 splitSkills()');
+  if (sepLine && fnSrc) {
+    const vm = require('vm');
+    const box = { globalThis: {} };
+    vm.createContext(box);
+    vm.runInContext(sepLine[0] + '\n' + fnSrc[0] + '\nglobalThis.__split = splitSkills;', box);
+    const rendererSplit = box.globalThis.__split;
+    const engine = require('./dist/main/resume-engine');
+    const samples = [
+      '教学 语法教学 · 教案设计 · 作业反馈 · 课堂观察 · 课外文化活动',
+      'Java, Go, MySQL, Redis',
+      'Excel（数据透视 / 函数）、用友 U8、CPA',
+      'Machine Learning, CI/CD, Go',
+      'Python；SQL｜Tableau\n沟通'
+    ];
+    const mismatch = samples.filter((s) => {
+      const res = engine.generate({ name: 'x', skills: s, education: [{ school: '某大学', major: 'x' }], projects: [], internships: [] }, {});
+      return (res.resume.skills || []).length !== rendererSplit(s).length;
+    });
+    assert(mismatch.length === 0,
+      '5 组技能串在渲染层与引擎中切分一致（不一致：' + JSON.stringify(mismatch) + '）');
+    assert(rendererSplit('教学 语法教学 · 教案设计 · 作业反馈 · 课堂观察').length === 4,
+      '带「·」的技能串按 4 项计（不再整串算 1 项）');
+  }
+}
+
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
