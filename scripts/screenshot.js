@@ -1150,6 +1150,51 @@ async function main() {
   })()`));
   await sleep(400);
 
+  // —— 输入即刷新：改表单时侧栏完成度/速览必须当场变，不用等保存或重进页面 ——
+  // 用户实测反馈：填了城市，右边「城市与目标岗位」还是未完成；改了档案，简历预览页的
+  // 岗位匹配度还显示旧岗位。根因是表单没有任何 input 监听，侧栏只在整页渲染时算一次，
+  // 且未保存的改动不进 state.profile。
+  await win.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('[name="targetRole"]');
+    if (!input) return false;
+    input.value = '';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(700);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const item = Array.from(document.querySelectorAll('.completeness .check-item'))
+      .find((n) => /城市与目标岗位/.test(n.textContent));
+    t('清空目标岗位后清单当场变为未完成（输入即刷新）', !!item && !item.classList.contains('done'));
+    const stat = document.querySelector('.save-bar .sb-stat');
+    t('保存条提示「有改动未保存」', !!stat && /未保存/.test(stat.textContent));
+    t('保存条完成度同步下降（' + (stat ? stat.textContent : '') + '）', !!stat && !/\\b100%/.test(stat.textContent));
+    return out.join('\\n');
+  })()`));
+  // 填回去：应立刻恢复完成，并且未保存的改动要进 state.profile（预览页据此重新生成）
+  await win.webContents.executeJavaScript(`(() => {
+    const input = document.querySelector('[name="targetRole"]');
+    if (!input) return false;
+    input.value = '后端开发工程师';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    return true;
+  })()`);
+  await sleep(700);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const item = Array.from(document.querySelectorAll('.completeness .check-item'))
+      .find((n) => /城市与目标岗位/.test(n.textContent));
+    t('填回后清单当场恢复完成', !!item && item.classList.contains('done'));
+    // 未保存的改动必须进内存档案：简历预览页是拿 state.profile 重新生成的，
+    // 以前不进内存 → 切过去看到的还是旧岗位（用户实测反馈「匹配度还是显示之前的专业」）
+    t('未保存的改动已进内存档案（预览页据此重新生成）',
+      typeof state !== 'undefined' && state.profile && state.profile.targetRole === '后端开发工程师');
+    return out.join('\\n');
+  })()`));
+
   // —— 通道选择必须跨重启记住 ——
   // 用户明确选「零配置（规则）」（不调用任何模型），重启后自动默认若因为探测到模型而切回
   // 需要模型的通道，用户没注意就会把内容发给模型。这条只有真的重载一次才测得出来。

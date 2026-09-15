@@ -19,6 +19,7 @@ const state = {
   applications: [],
   template: 'classic',
   lastResume: null,
+  profileDirty: false,
   jdText: '',
   jdMatch: null
 };
@@ -855,6 +856,29 @@ function renderProfile() {
   // ---- 右列：锻造侧栏（环形完成度仪表 + 档案统计 + 快照）----
   const stats = buildProfileStats(p);
   const scoreColor = stats.score >= 80 ? 'var(--teal)' : stats.score >= 50 ? 'var(--gold)' : 'var(--danger)';
+  // 完成度与速览两张卡抽成函数：输入时要在原地重建（见 refreshProfileSide），
+  // 只重建侧栏、不动表单，否则会打断用户正在输入的光标。
+  const completenessCard = () => el('div', { class: 'card side-card completeness', id: 'card-completeness' }, [
+    cardTitle('gauge', '档案完成度'),
+    ringGauge(stats.score, scoreColor),
+    el('div', { class: 'check-list' }, stats.items.map((it) =>
+      el('div', { class: 'check-item' + (it.done ? ' done' : '') }, [
+        el('span', { class: 'ci-ico' }, [it.done ? '✓' : '○']),
+        el('span', { class: 'ci-label' }, [it.label])
+      ])
+    ))
+  ]);
+  const overviewCard = () => el('div', { class: 'card side-card', id: 'card-overview' }, [
+    cardTitle('doc', '档案速览'),
+    el('div', { class: 'stat-rows' }, [
+      ['教育', stats.countEdu + ' 段', 'cap'],
+      ['实习', stats.countIntern + ' 段', 'briefcase'],
+      ['项目', stats.countProj + ' 段', 'code'],
+      ['技能', stats.countSkill + ' 项', 'wrench']
+    ].map(([k, v, ic]) =>
+      el('div', { class: 'stat-row' }, [ico(ic, 15), el('span', { class: 'sk' }, [k]), el('b', {}, [v])])
+    ))
+  ]);
   // 回炉快照卡：先持有元素引用，异步填充紧跟其后。
   // 此前用 document.getElementById 查询，而该卡此刻还没被 append 进 DOM（append 在函数末尾），
   // 查不到就直接 return —— 卡片永久停在「读取中…」，「回炉」按钮永远不出现，于是无法还原。
@@ -872,31 +896,55 @@ function renderProfile() {
     }, ['＋ 把当前档案存为新版本'])
   ]);
   const sideCol = el('div', { class: 'profile-side' }, [
-    el('div', { class: 'card side-card completeness' }, [
-      cardTitle('gauge', '档案完成度'),
-      ringGauge(stats.score, scoreColor),
-      el('div', { class: 'check-list' }, stats.items.map((it) =>
-        el('div', { class: 'check-item' + (it.done ? ' done' : '') }, [
-          el('span', { class: 'ci-ico' }, [it.done ? '✓' : '○']),
-          el('span', { class: 'ci-label' }, [it.label])
-        ])
-      ))
-    ]),
-    el('div', { class: 'card side-card' }, [
-      cardTitle('doc', '档案速览'),
-      el('div', { class: 'stat-rows' }, [
-        ['教育', stats.countEdu + ' 段', 'cap'],
-        ['实习', stats.countIntern + ' 段', 'briefcase'],
-        ['项目', stats.countProj + ' 段', 'code'],
-        ['技能', stats.countSkill + ' 项', 'wrench']
-      ].map(([k, v, ic]) =>
-        el('div', { class: 'stat-row' }, [ico(ic, 15), el('span', { class: 'sk' }, [k]), el('b', {}, [v])])
-      ))
-    ]),
+    completenessCard(),
+    overviewCard(),
     // 简历版本在回炉快照之前：前者是用户主动管理的功能，后者是自动备份（少有人翻）
     verCard,
     snapCard
   ]);
+
+  // 输入时实时刷新侧栏（完成度/速览），并把当前表单收进 state.profile。
+  // 以前没有这个监听：侧栏只在整页渲染时算一次，于是「填了城市但清单还是未完成」，
+  // 而且未保存的改动不进内存，切到简历预览页看到的还是旧档案（匹配度显示旧岗位）。
+  const refreshSide = debounce(() => {
+    if (!document.getElementById('card-completeness')) return; // 已离开录入页
+    state.profile = collectProfile();
+    state.profileDirty = true;
+    const fresh = buildProfileStats(state.profile);
+    const color = fresh.score >= 80 ? 'var(--teal)' : fresh.score >= 50 ? 'var(--gold)' : 'var(--danger)';
+    const cBox = document.getElementById('card-completeness');
+    const oBox = document.getElementById('card-overview');
+    if (cBox) {
+      cBox.innerHTML = '';
+      cBox.append(
+        cardTitle('gauge', '档案完成度'),
+        ringGauge(fresh.score, color),
+        el('div', { class: 'check-list' }, fresh.items.map((it) =>
+          el('div', { class: 'check-item' + (it.done ? ' done' : '') }, [
+            el('span', { class: 'ci-ico' }, [it.done ? '✓' : '○']),
+            el('span', { class: 'ci-label' }, [it.label])
+          ])
+        ))
+      );
+    }
+    if (oBox) {
+      oBox.innerHTML = '';
+      oBox.append(
+        cardTitle('doc', '档案速览'),
+        el('div', { class: 'stat-rows' }, [
+          ['教育', fresh.countEdu + ' 段', 'cap'],
+          ['实习', fresh.countIntern + ' 段', 'briefcase'],
+          ['项目', fresh.countProj + ' 段', 'code'],
+          ['技能', fresh.countSkill + ' 项', 'wrench']
+        ].map(([k, v, ic]) =>
+          el('div', { class: 'stat-row' }, [ico(ic, 15), el('span', { class: 'sk' }, [k]), el('b', {}, [v])])
+        ))
+      );
+    }
+    markSaveBarDirty();
+  });
+  root.addEventListener('input', refreshSide);
+  root.addEventListener('change', refreshSide);
 
   // 版本列表异步填充（与快照同样在 append 之后才查 DOM，但这里用直接引用，不依赖时机）
   fillVersionList(verCard);
@@ -955,6 +1003,7 @@ function renderProfile() {
     el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: onSaveProfile }, ['保存信息']),
     el('button', { class: 'btn btn-primary btn-sm', type: 'button', onclick: async () => { await onSaveProfile(true); navigate('resume'); } }, ['保存并生成简历 →'])
   ]);
+  saveBarRef = saveBar;
 
   const twoCols = el('div', { class: 'profile-layout' }, [
     el('div', { class: 'profile-main' }, [basicsCard, skillsCard, eduCard, internCard, projCard, awardsCard]),
@@ -963,6 +1012,35 @@ function renderProfile() {
 
   // append 遇 null 会渲染成文本「null」，这里过滤掉空节点
   root.append(...[head, onboarding, importBar, twoCols, saveBar].filter(Boolean));
+}
+
+// 保存条引用与「有改动未保存」提示：输入时实时更新完成度，并让用户看得见还没保存
+let saveBarRef = null;
+function markSaveBarDirty() {
+  if (!saveBarRef) return;
+  const stat = saveBarRef.querySelector('.sb-stat');
+  if (!stat) return;
+  const p = state.profile || {};
+  const score = buildProfileStats(p).score;
+  stat.textContent = '档案完成度 ' + score + '% · 有改动未保存 · Ctrl+S 保存';
+  stat.classList.add('dirty');
+}
+function clearSaveBarDirty() {
+  if (!saveBarRef) return;
+  const stat = saveBarRef.querySelector('.sb-stat');
+  if (!stat) return;
+  const p = state.profile || {};
+  stat.textContent = '档案完成度 ' + buildProfileStats(p).score + '% · 已保存 · Ctrl+S 保存';
+  stat.classList.remove('dirty');
+}
+// 输入防抖：连打字时不必每个字符都重建侧栏
+function debounce(fn, ms) {
+  let timer = null;
+  return function debounced() {
+    const args = arguments;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => { timer = null; fn.apply(null, args); }, ms == null ? 250 : ms);
+  };
 }
 
 // 技能分隔符必须与引擎、与导入产出一致。
@@ -1291,6 +1369,8 @@ async function onSaveProfile(silent) {
   busy(true);
   try {
     state.profile = await call(window.api.profile.save(state.user.id, profile));
+    state.profileDirty = false;
+    clearSaveBarDirty();
     if (!silent) toast('信息已保存到本地', 'ok');
   } catch (err) {
     toast(err.message, 'err');
