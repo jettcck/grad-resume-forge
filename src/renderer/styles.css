@@ -1051,9 +1051,11 @@ em { font-style: normal; color: var(--gold); }
 }
 .skill-miss:hover { color: var(--ink-1); border-color: var(--gold); }
 
-.template-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 网格而不是 flex-wrap：flex 的 26% 基准在窄侧栏里会算出放不下的宽度而溢出，
+   固定三列（与既有视觉一致），宽度永远由容器决定。 */
+.template-picker { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .tmpl-btn {
-  flex: 1 1 26%; min-width: 56px; padding: 9px; border: 1px solid var(--line);
+  min-width: 0; padding: 9px; border: 1px solid var(--line);
   border-radius: var(--radius-sm); background: var(--bg-2); color: var(--ink-2);
   font-size: 12.5px; font-weight: 600; transition: .2s;
 }
@@ -1292,51 +1294,149 @@ em { font-style: normal; color: var(--gold); }
 .empty::before { content: "// "; color: var(--line-2); }
 
 /* ============================================================
-   简历纸张内部排版（模板）—— 保持原样（PDF 输出不变）
+   简历纸张排版（5 套模板）
+   设计原则：
+   1) A4 打印安全：只用系统字体与纯 CSS，不依赖网络字体 / 背景图
+   2) 层级靠字号、字重、间距、细线拉开，不靠花哨装饰
+   3) 每套模板有明确性格（衬线 / 极限留白 / 等宽科技感 / 通栏深蓝 / 暖色卡片），
+      而不是同一种排版换个颜色
+   结构（template.js 产出）：
+     .r-head > .r-name / .r-contact
+     .r-summary
+     .r-section > .r-sec-title  ( + .r-skills > .r-skill 或 .r-item… 或 .r-bullets )
+     .r-item > .r-item-head > .r-item-title / .r-item-sub / .r-item-period ; .r-tech
    ============================================================ */
-.r-name { font-size: 26px; font-weight: 800; letter-spacing: .5px; }
-.r-contact { color: #566; font-size: 12px; margin-top: 6px; display: flex; flex-wrap: wrap; gap: 12px; }
-.r-summary { margin-top: 14px; color: #2c3644; line-height: 1.7; }
-.r-section { margin-top: 22px; }
-.r-sec-title { font-size: 14px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; padding-bottom: 6px; margin-bottom: 12px; }
-.r-item { margin-bottom: 14px; }
-.r-item-head { display: flex; justify-content: space-between; align-items: baseline; }
+.r-name { font-size: 27px; font-weight: 800; letter-spacing: .6px; line-height: 1.25; }
+.r-contact { color: #55606e; font-size: 12px; margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.r-contact span { position: relative; }
+/* 联系方式之间用小圆点分隔，比纯空格整齐 */
+.r-contact span + span::before {
+  content: ""; position: absolute; left: -8px; top: 50%; width: 3px; height: 3px;
+  border-radius: 50%; background: currentColor; opacity: .45; transform: translateY(-50%);
+}
+.r-summary { margin-top: 14px; color: #2c3644; line-height: 1.75; }
+.r-section { margin-top: 20px; }
+.r-sec-title {
+  font-size: 13px; font-weight: 800; letter-spacing: 2px;
+  padding-bottom: 7px; margin-bottom: 12px; position: relative;
+}
+.r-item { margin-bottom: 13px; }
+.r-item-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
 .r-item-title { font-weight: 700; font-size: 14px; }
-.r-item-sub { color: #667; font-size: 12.5px; }
-.r-item-period { color: #889; font-size: 12px; font-variant-numeric: tabular-nums; }
-.r-bullets { margin: 7px 0 0 0; padding-left: 18px; }
-.r-bullets li { margin-bottom: 4px; color: #2c3644; }
-.r-skills { display: flex; flex-wrap: wrap; gap: 8px; }
-.r-skill { background: #eef1f5; color: #33404f; padding: 4px 11px; border-radius: 6px; font-size: 12.5px; }
-.r-tech { font-size: 12px; color: #778; margin-top: 3px; font-style: italic; }
+.r-item-sub { color: #5d6b7a; font-size: 12.5px; font-weight: 500; }
+.r-item-period { color: #8b97a5; font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.r-bullets { margin: 7px 0 0 0; padding-left: 17px; }
+.r-bullets li { margin-bottom: 3px; color: #2c3644; line-height: 1.65; }
+.r-bullets li::marker { font-size: .9em; }
+.r-skills { display: flex; flex-wrap: wrap; gap: 7px; }
+.r-skill { background: #eff2f6; color: #33404f; padding: 4px 11px; border-radius: 5px; font-size: 12.5px; }
+.r-tech { font-size: 12px; color: #6b7787; margin-top: 3px; }
 
-/* 模板：经典（金衬线） */
-.tmpl-classic .r-sec-title { color: #b47a37; border-bottom: 2px solid #e6c79c; }
-.tmpl-classic .r-name { font-family: var(--font-display); }
-/* 模板：极简（黑白线） */
-.tmpl-minimal .r-sec-title { color: #1c2430; border-bottom: 1px solid #1c2430; }
-.tmpl-minimal .r-skill { background: transparent; border: 1px solid #ccd3db; }
-/* 模板：科技（青蓝块） */
-.tmpl-tech .r-sec-title { color: #1f8f7f; border-bottom: 2px solid #bfe8e1; }
-.tmpl-tech .r-name { color: #12463f; }
-.tmpl-tech .r-skill { background: #e2f4f1; color: #1f6f63; }
+/* ---------- ① 经典：衬线标题 + 金色细线，适合传统行业 / 国企 ---------- */
+.tmpl-classic .r-name {
+  font-family: var(--font-display); font-size: 29px; letter-spacing: 3px; color: #1b1b1b;
+}
+.tmpl-classic .r-head { border-bottom: 1px solid #e3d6bf; padding-bottom: 14px; }
+.tmpl-classic .r-head::after {
+  content: ""; display: block; width: 62px; height: 3px; margin-top: 13px;
+  background: linear-gradient(90deg, #b47a37, #e0bb85);
+}
+.tmpl-classic .r-sec-title {
+  font-family: var(--font-display); color: #8a6a2f; border-bottom: 1px solid #ecdfc8;
+}
+.tmpl-classic .r-sec-title::after {
+  content: ""; position: absolute; left: 0; bottom: -1px; width: 34px; height: 2px; background: #b47a37;
+}
+.tmpl-classic .r-item-title { color: #23282e; }
+.tmpl-classic .r-bullets li::marker { color: #b47a37; }
+.tmpl-classic .r-skill { background: #faf6ef; color: #7a5c2e; border: 1px solid #eadfc9; }
 
-/* 模板：商务（深蓝左标题栏，稳重） */
-.tmpl-deep .r-name { color: #16305c; font-family: var(--font-display); font-size: 28px; }
-.tmpl-deep .r-contact { color: #4a5a72; }
-.tmpl-deep .r-sec-title { color: #16305c; border: none; padding-left: 11px; border-left: 4px solid #16305c; letter-spacing: 1.5px; }
-.tmpl-deep .r-summary { border-left: 3px solid #dbe3ef; padding-left: 13px; color: #2b3648; }
+/* ---------- ② 极简：无彩色，靠留白与细线说话，适合投递任何岗位 ---------- */
+.tmpl-minimal { padding: 62px 66px; }
+.tmpl-minimal .r-name { font-size: 24px; font-weight: 700; letter-spacing: 4px; }
+.tmpl-minimal .r-head { padding-bottom: 12px; }
+.tmpl-minimal .r-contact { color: #6b7280; font-size: 11.5px; margin-top: 8px; }
+.tmpl-minimal .r-summary { color: #374151; margin-top: 18px; }
+.tmpl-minimal .r-section { margin-top: 26px; }
+.tmpl-minimal .r-sec-title {
+  color: #111827; font-size: 11px; font-weight: 700; letter-spacing: 3px;
+  border-top: 1px solid #111827; padding-top: 8px; padding-bottom: 0; margin-bottom: 14px;
+}
+.tmpl-minimal .r-item-title { font-weight: 600; }
+.tmpl-minimal .r-item-period { color: #9ca3af; }
+.tmpl-minimal .r-skill { background: transparent; border: 1px solid #d1d5db; color: #374151; border-radius: 3px; }
+.tmpl-minimal .r-bullets { padding-left: 15px; }
+.tmpl-minimal .r-bullets li::marker { color: #9ca3af; }
+
+/* ---------- ③ 科技：等宽字点缀 + 侧边色条，适合研发 / 数据岗 ---------- */
+.tmpl-tech { position: relative; }
+.tmpl-tech::before {
+  content: ""; position: absolute; left: 0; top: 0; width: 100%; height: 6px;
+  background: linear-gradient(90deg, #0f766e, #22d3ee 55%, #a5f3fc);
+}
+.tmpl-tech .r-name { color: #0b3f3a; font-size: 28px; letter-spacing: 1px; }
+.tmpl-tech .r-contact {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11.5px; color: #14514a; margin-top: 9px;
+}
+.tmpl-tech .r-head { border-bottom: 1px dashed #bfe8e1; padding-bottom: 13px; }
+.tmpl-tech .r-sec-title {
+  color: #0f766e; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px; letter-spacing: 1.5px; border-left: 4px solid #14b8a6;
+  padding: 1px 0 1px 10px; border-bottom: 1px solid #d8f0ec; padding-bottom: 6px;
+}
+.tmpl-tech .r-item-title { color: #0b3f3a; }
+.tmpl-tech .r-tech {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-style: normal; color: #0f766e; background: #f0fdfa; border-radius: 4px;
+  padding: 2px 8px; display: inline-block; margin-top: 5px;
+}
+.tmpl-tech .r-skill {
+  background: #ecfdf9; color: #0f6f63; border: 1px solid #a7e8dd; border-radius: 999px; font-size: 12px;
+}
+.tmpl-tech .r-bullets li::marker { color: #14b8a6; }
+
+/* ---------- ④ 商务：通栏深蓝页眉 + 左侧粗线小节，稳重 ---------- */
+.tmpl-deep .r-head {
+  margin: -54px -58px 0; padding: 34px 58px 26px;
+  background: linear-gradient(135deg, #16305c 0%, #1f4b8f 100%); color: #fff;
+}
+.tmpl-deep .r-name { color: #fff; font-family: var(--font-display); font-size: 29px; letter-spacing: 2px; }
+.tmpl-deep .r-contact { color: #c9d8f2; margin-top: 10px; }
+.tmpl-deep .r-contact span + span::before { background: #8fb0e0; opacity: .8; }
+.tmpl-deep .r-summary { margin-top: 22px; color: #2b3648; border-left: 3px solid #dbe3ef; padding-left: 13px; }
+.tmpl-deep .r-sec-title {
+  color: #16305c; border-left: 4px solid #16305c; padding: 2px 0 8px 11px;
+  border-bottom: 1px solid #e2e8f2; letter-spacing: 1.6px;
+}
 .tmpl-deep .r-item-title { color: #16305c; }
 .tmpl-deep .r-skill { background: #eef2f9; color: #24406e; border: 1px solid #d8e0ee; }
 .tmpl-deep .r-bullets li::marker { color: #16305c; }
+.tmpl-deep .r-tech { color: #4a5a72; }
 
-/* 模板：活力（暖橙居中标题，适合应届 / 创意岗） */
-.tmpl-warm { padding-top: 46px; }
-.tmpl-warm .r-name { color: #c2410c; font-family: var(--font-display); font-size: 30px; text-align: center; }
-.tmpl-warm .r-contact { justify-content: center; color: #8a5a3c; }
-.tmpl-warm .r-summary { text-align: center; color: #43352c; max-width: 90%; margin-left: auto; margin-right: auto; }
-.tmpl-warm .r-sec-title { color: #c2410c; text-align: center; border: none; position: relative; padding-bottom: 10px; }
-.tmpl-warm .r-sec-title::after { content: ""; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%); width: 34px; height: 3px; border-radius: 3px; background: linear-gradient(90deg, #f97316, #fb923c); }
+/* ---------- ⑤ 活力：暖色页眉带 + 卡片式条目，适合应届 / 创意岗 ---------- */
+.tmpl-warm .r-head {
+  margin: -54px -58px 0; padding: 32px 58px 24px 54px; text-align: center;
+  background: linear-gradient(120deg, #fff4ec 0%, #ffeadb 55%, #ffe3d0 100%);
+  border-bottom: 3px solid #fb923c;
+}
+.tmpl-warm .r-name { color: #b3400c; font-family: var(--font-display); font-size: 30px; letter-spacing: 2px; }
+.tmpl-warm .r-contact { justify-content: center; color: #8a5236; }
+.tmpl-warm .r-contact span + span::before { background: #d08a5f; }
+.tmpl-warm .r-summary {
+  text-align: center; color: #43352c; max-width: 92%; margin: 18px auto 0;
+}
+.tmpl-warm .r-sec-title { color: #b3400c; text-align: center; padding-bottom: 10px; }
+.tmpl-warm .r-sec-title::after {
+  content: ""; position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+  width: 36px; height: 3px; border-radius: 3px; background: linear-gradient(90deg, #f97316, #fb923c);
+}
+.tmpl-warm .r-item {
+  background: #fffaf6; border-left: 3px solid #fdba74; border-radius: 0 6px 6px 0;
+  padding: 10px 14px 11px;
+}
 .tmpl-warm .r-item-title { color: #9a3412; }
+.tmpl-warm .r-item-period { color: #a8876f; }
 .tmpl-warm .r-skill { background: #fff1e7; color: #c2410c; border: 1px solid #fcd9bd; }
+.tmpl-warm .r-tech { color: #9a6b4a; }
 .tmpl-warm .r-bullets li::marker { color: #f97316; }

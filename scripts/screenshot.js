@@ -392,6 +392,23 @@ async function main() {
     return out.join('\\n');
   })()`));
 
+  // 5 套模板各截一张：换版式时必须能一眼看出每套长什么样（也留档在 shots/ 里）
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.nav-item[data-route="resume"]').click();
+    return true;
+  })()`);
+  await sleep(1800);
+  for (const key of ['classic', 'minimal', 'tech', 'deep', 'warm']) {
+    await win.webContents.executeJavaScript(`(() => {
+      const btns = Array.from(document.querySelectorAll('#route-resume .tmpl-btn'));
+      const b = btns.find((x) => x.textContent.trim() === ${JSON.stringify({ classic: '经典', minimal: '极简', tech: '科技', deep: '商务', warm: '活力' }[key])});
+      if (b) b.click();
+      return !!b;
+    })()`);
+    await sleep(1200);
+    await shot(win, '03-tmpl-' + key);
+  }
+
   for (const [route, name] of [['resume', '03-resume'], ['apps', '04-apps']]) {
     await win.webContents.executeJavaScript(`(() => {
       document.querySelector('.nav-item[data-route="${route}"]').click();

@@ -127,8 +127,12 @@ function renderResumeInner(resume, tmpl) {
     : '';
 
   return (
-    '<div class="r-name">' + e(b.name || '你的名字') + '</div>' +
-    '<div class="r-contact">' + contactBits + '</div>' +
+    // r-head 包一层：模板要做「通栏页眉」（商务的深蓝带、活力的暖色带）必须有个容器，
+    // 靠负外边距顶到纸张边缘；没有它就只能给姓名/联系方式单独上色，做不出层次
+    '<div class="r-head">' +
+      '<div class="r-name">' + e(b.name || '你的名字') + '</div>' +
+      '<div class="r-contact">' + contactBits + '</div>' +
+    '</div>' +
     (resume.summary ? '<div class="r-summary">' + e(resume.summary) + '</div>' : '') +
     (eduRows ? '<div class="r-section"><div class="r-sec-title">教育背景</div>' + eduRows + '</div>' : '') +
     (skills ? '<div class="r-section"><div class="r-sec-title">专业技能</div><div class="r-skills">' + skills + '</div></div>' : '') +
