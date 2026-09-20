@@ -156,8 +156,9 @@ CLI 之所以成立，是因为 `agent-core` 不认识 Electron、`src/main/agen
 
 ## 八、还没做的（不假装已完成）
 
-- `llm-adapters` 目前仍是 `src/main/llm-client.ts`，CLI 通过 require 复用；**没有**单独拆成包。
-  拆它只是为了目录好看，而 core 与 Electron 的解耦已经达成 —— 所以放在「按需再做」。
+- ~~`llm-adapters` 没有单独拆包~~ → **已补齐**（v1.10.1）：`packages/llm-adapters` 拥有 LLM 客户端与
+  它自己的类型，`src/main/types.ts` 从该包再导出，应用/CLI/评测/测试统一从
+  `packages/llm-adapters/dist` 取客户端，避免「类型一样但各自演化」的漂移。
 - 运行记录按 50 条上限轮转，没有做按时间的保留策略与压缩。
 - 真实模型的评测只采样少数几次、不做多次取区间；要写进简历前应当固定模型与参数多跑几轮。
 - 人工审批目前是「Agent 只产出候选，用户在界面点应用」这一层；没有做审批队列与超时处理。
