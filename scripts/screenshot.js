@@ -50,6 +50,13 @@ let mockAgentAvailable = false;
 // 内存版设置存储（settings:get / settings:save 必须能往返，否则「偏好是否真的被记住」测不出来）。
 // 放在模块级：断言里要直接读它来验证通道选择确实写进去了。
 const savedSettings = {};
+// 运行记录 mock（界面「最近一次运行」与「清理运行记录」用它）
+const mockRuns = [{
+  runId: 'run_mock1', taskId: 'resume-optimize', status: 'COMPLETED', currentStep: 'completed',
+  startedAt: Date.now() - 60000, finishedAt: Date.now() - 58000, error: null, cancelReason: null,
+  usage: { steps: 4, toolCalls: 3, retries: 0, ms: 2100, tokens: 0 }, traceCount: 4,
+  inputSnapshot: { profileName: '李明', itemCount: 3, sections: { projects: 1 }, jdLength: 120, jdDigest: 'abc12345:120', profileDigest: 'def67890:400' }
+}];
 // 置真时 settings:get 返回 null（模拟偏好读不回来）—— 用来验证「记住通道」的断言真的会红
 let mockSettingsUnreadable = false;
 // 系统加密是否可用（false 时界面必须提示密钥会明文保存）
@@ -150,6 +157,12 @@ function registerIpc() {
   });
   // 应用改写：与主进程一致，直接用引擎的实现（渲染层不再自己切分）
   h('resume:applyRewrites', (profile, accepted) => agentReal.applyRewritesToProfile(profile, accepted));
+  // Agent 运行控制（第二阶段：取消 / 记录 / 清理 / 回放），方向必须与主进程一致
+  h('agent:cancel', () => ({ cancelled: true }));
+  h('agent:runs', () => mockRuns);
+  h('agent:run:get', (id) => mockRuns.find((r) => r.runId === id) || null);
+  h('agent:clearRuns', () => { const n = mockRuns.length; mockRuns.length = 0; return { cleared: n }; });
+  h('agent:replay', (id) => ({ runId: 'replay_' + id, steps: [], okCount: 0, errorCount: 0 }));
   h('updater:check', () => ({ started: true }));
   h('updater:install', () => ({ installing: true }));
   h('updater:setMirror', (m) => ({ mirror: m }));

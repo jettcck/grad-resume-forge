@@ -271,6 +271,47 @@ tryResumeSession();
   } catch (_) {} // eslint-disable-line no-empty
 })();
 
+// 运行详情：把一条运行记录的逐步 trace 摊开（第几步、调了什么工具、多久、重试几次、错在哪）
+// 这是「可观测性」在界面上的落点：不用翻日志也能回答「这次为什么失败 / 慢在哪」。
+async function showRunDetail(runId) {
+  let rec = null;
+  try {
+    rec = await call(window.api.agent.getRun(runId));
+  } catch (err) {
+    toast(err.message, 'err');
+    return;
+  }
+  const overlay = el('div', { class: 'modal-overlay' });
+  const steps = el('div', { class: 'snap-list' }, (rec.trace || []).map((t) => el('div', {
+    class: 'agent-step' + (t.errorType ? ' bad' : '')
+  }, [
+    el('span', { class: 'st-ico' }, [t.errorType ? '✕' : '✓']),
+    el('span', { class: 'st-label' }, ['第 ' + t.stepId + ' 步 · ' + t.tool]),
+    el('span', { class: 'st-detail' }, [
+      t.outputSummary + ' · ' + t.latencyMs + 'ms' +
+      (t.retryCount ? ' · 重试 ' + t.retryCount + ' 次' : '') +
+      (t.errorType ? ' · ' + t.errorType : '')
+    ])
+  ])));
+  const box = el('div', { class: 'modal-box modal-box-wide' }, [
+    el('h3', { class: 'modal-title' }, ['运行详情 · ' + rec.runId]),
+    el('p', { style: 'font-size:12px;color:var(--ink-2);margin-bottom:10px;line-height:1.7;' }, [
+      '状态 ' + rec.status + ' · 步数 ' + rec.usage.steps + ' · 工具 ' + rec.usage.toolCalls + ' 次' +
+      (rec.usage.retries ? ' · 重试 ' + rec.usage.retries : '') +
+      ' · 耗时 ' + Math.round(rec.usage.ms / 100) / 10 + 's' +
+      (rec.usage.tokens ? ' · token ' + rec.usage.tokens : '') + '\n' +
+      '输入指纹：JD ' + rec.inputSnapshot.jdLength + ' 字/' + rec.inputSnapshot.jdDigest +
+      '，档案 ' + rec.inputSnapshot.profileDigest + '（记录里不保存正文）'
+    ]),
+    steps,
+    el('div', { class: 'modal-actions' }, [
+      el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: () => overlay.remove() }, ['关闭'])
+    ])
+  ]);
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+}
+
 // ---------------- 关于 / 自动更新 ----------------
 let _updState = { status: null, downloaded: null, target: null }; // 更新运行时状态（供横幅）
 // 「关于」弹窗打开时的实时状态绑定：检查结果就地显示，
@@ -463,11 +504,76 @@ async function openAbout() {
   }
   checkBtn.addEventListener('click', runCheck);
 
+  // 运行记录（第二阶段）：让「Agent 到底跑了什么」可查、可清理、可回放。
+  // 记录里不含简历正文与 JD 原文（只存长度与指纹），所以可以放心列在这里。
+  const runsBox = el('div', { class: 'snap-list' }, [
+    el('p', { style: 'font-size:12px;color:var(--ink-2);padding:4px 0;' }, ['读取中…'])
+  ]);
+  async function fillRuns() {
+    runsBox.innerHTML = '';
+    let list = [];
+    try {
+      list = await call(window.api.agent.runs(5));
+    } catch (err) {
+      runsBox.appendChild(el('p', { style: 'font-size:12px;color:var(--ink-2);padding:4px 0;' }, ['读取运行记录失败：' + err.message]));
+      return;
+    }
+    if (!list.length) {
+      runsBox.appendChild(el('p', { style: 'font-size:12px;color:var(--ink-2);padding:4px 0;' },
+        ['还没有运行记录。跑一次 Agent 优化后，这里会留下它的状态、耗时与工具调用次数。']));
+      return;
+    }
+    list.forEach((r) => {
+      const statusText = { COMPLETED: '完成', FAILED: '失败', CANCELLED: '已取消' }[r.status] || r.status;
+      const ms = r.usage && r.usage.ms ? Math.round(r.usage.ms / 100) / 10 + 's' : '-';
+      runsBox.appendChild(el('div', { class: 'snap-item' }, [
+        el('div', { class: 'snap-meta' }, [
+          el('span', { class: 'snap-label' }, [statusText + ' · ' + (r.cancelReason || r.error || r.currentStep)]),
+          el('span', { class: 'snap-time' }, [timeAgo(r.startedAt)])
+        ]),
+        el('div', { class: 'snap-ops' }, [
+          el('span', { style: 'font-size:11px;color:var(--ink-2);margin-right:auto;' },
+            ['工具 ' + (r.usage ? r.usage.toolCalls : 0) + ' 次 · ' + ms + (r.usage && r.usage.retries ? ' · 重试 ' + r.usage.retries : '')]),
+          el('button', {
+            class: 'btn btn-ghost btn-sm', type: 'button',
+            onclick: () => showRunDetail(r.runId)
+          }, ['详情']),
+          el('button', {
+            class: 'btn btn-ghost btn-sm', type: 'button',
+            onclick: async () => {
+              try {
+                const res = await call(window.api.agent.replay(r.runId, state.profile, state.jdText || ''));
+                toast('已用当前校验逻辑回放：工具成功 ' + res.okCount + ' 次、失败 ' + res.errorCount + ' 次（未调用模型）', 'ok');
+              } catch (err) { toast(err.message, 'err'); }
+            }
+          }, ['回放'])
+        ])
+      ]));
+    });
+  }
+  fillRuns();
+
   const box = el('div', { class: 'modal-box' }, [
     el('h3', { class: 'modal-title' }, ['关于 简历锻造炉']),
     el('div', { class: 'modal-body' }, [
       el('div', { class: 'about-status-wrap' }, [statusText, bar]),
       backupBox,
+      el('div', { style: 'margin-top:14px;' }, [
+        el('div', { style: 'display:flex;align-items:center;gap:8px;' }, [
+          el('span', { style: 'font-size:12.5px;font-weight:600;' }, ['最近运行记录']),
+          el('button', {
+            class: 'btn btn-ghost btn-sm', type: 'button', style: 'margin-left:auto;',
+            onclick: async () => {
+              try {
+                const res = await call(window.api.agent.clearRuns());
+                toast('已清理 ' + res.cleared + ' 条运行记录', 'ok');
+                fillRuns();
+              } catch (err) { toast(err.message, 'err'); }
+            }
+          }, ['清理运行记录'])
+        ]),
+        runsBox
+      ]),
       el('label', { class: 'field' }, [
         el('span', {}, ['下载镜像（国内加速，选填）']),
         mirrorInput
@@ -2040,6 +2146,26 @@ async function openAgentRun() {
   overlay.appendChild(box);
   document.body.appendChild(overlay);
 
+  // runId 由渲染层生成并传给主进程：用户点「取消」时主进程能立刻定位到这次运行。
+  // 取消是「在安全点退出」，已完成的改写会保留（不是白跑）。
+  const runId = 'run_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
+  const cancelBtn = el('button', {
+    class: 'btn btn-ghost btn-sm', type: 'button', style: 'margin-right:auto;',
+    onclick: async () => {
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = '正在取消…';
+      try {
+        await call(window.api.agent.cancel(runId));
+      } catch (err) {
+        toast(err.message, 'err');
+        cancelBtn.disabled = false;
+        cancelBtn.textContent = '取消这次运行';
+      }
+    }
+  }, ['取消这次运行']);
+  const actions = box.querySelector('.modal-actions');
+  if (actions && !rulesMode) actions.appendChild(cancelBtn);
+
   // 收集步骤轨迹：结果视图会重建 box，轨迹要保留下来（它是「这轮真的跑了什么」的证据）
   const collectedSteps = [];
   const unsub = window.api.agent.onProgress((s) => {
@@ -2047,7 +2173,7 @@ async function openAgentRun() {
     stepsBox.appendChild(el('div', { class: 'agent-step' + (s.ok ? '' : ' bad') }, [
       el('span', { class: 'st-ico' }, [s.ok ? '✓' : '✕']),
       el('span', { class: 'st-label' }, [s.label]),
-      el('span', { class: 'st-detail' }, [s.detail + ' · ' + s.ms + 'ms'])
+      el('span', { class: 'st-detail' }, [s.detail + ' · ' + s.ms + 'ms' + (s.retryCount ? ' · 重试 ' + s.retryCount + ' 次' : '')])
     ]));
     stepsBox.scrollTop = stepsBox.scrollHeight;
   });
@@ -2071,7 +2197,7 @@ async function openAgentRun() {
   let result = null;
   let error = null;
   try {
-    result = await call(window.api.agent.run(state.profile, jd, { mode: _agentMode }));
+    result = await call(window.api.agent.run(state.profile, jd, { mode: _agentMode, runId }));
   } catch (err) {
     error = err.message;
   } finally {

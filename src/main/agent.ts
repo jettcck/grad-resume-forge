@@ -15,6 +15,19 @@ import type {
   PipelineResult, AgenticResult, LlmClient, ChatMessage,
   ToolSpec, ProtocolTool, MatchJdResult, GeneratedItem, RawToolCall, ExperienceEntry
 } from './types';
+// 可控 Agent Runtime：状态机 / 运行记录 / 工具注册层 / 预算 / trace 都在 agent-core 里，
+// 这一层只负责「简历领域」的适配（工具实现、完成度口径、收尾复测）。
+import {
+  runAgentRuntime,
+  buildInputSnapshot
+} from '../../packages/agent-core/dist/index';
+import type {
+  RuntimeAdapter,
+  ToolSpec as CoreToolSpec,
+  JsonSchemaLite as CoreJsonSchema,
+  RunStore,
+  CompletionCheck
+} from '../../packages/agent-core/dist/index';
 
 // ---------------- 档案 → 任务条目 ----------------
 export interface TaskItem {
@@ -577,6 +590,8 @@ export interface AgentCtx {
   rejected: RejectedRewrite[];
   jdAnalysis: MatchJdResult | null;
   audited?: boolean; // 是否调用过 audit_text（收工检查用：不能让「没体检」也算完成）
+  /** 每个条目被提交过几次改写：判断「被拒之后有没有再试」（收工校验的 advisory 项要用） */
+  attempts: Map<string, number>;
 }
 
 export function buildAgentTools(ctx: AgentCtx): ToolSpec[] {
@@ -621,13 +636,42 @@ export function buildAgentTools(ctx: AgentCtx): ToolSpec[] {
         required: ['rewrites']
       },
       run: (args) => {
-        const v = validateRewrites(ctx.items, ((args as { rewrites?: Array<{ id?: unknown; text?: unknown }> }).rewrites) || []);
-        v.accepted.forEach((a) => ctx.accepted.set(a.id, a));
-        v.rejected.forEach((r) => ctx.rejected.push(r));
+        const list = ((args as { rewrites?: Array<{ id?: unknown; text?: unknown }> }).rewrites) || [];
+        // 手工构造的 ctx（测试与脚本里很常见）可能没有 attempts：补上而不是崩掉
+        if (!ctx.attempts) ctx.attempts = new Map();
+        // 记录尝试次数（收工校验要看「被拒之后有没有再试」）。
+        // 用归一化后的 id 计数：'summary' 在条目注册表里是 'summary-b0'。
+        list.forEach((r) => {
+          const raw = r && typeof r.id === 'string' ? engine._clean(r.id) : '';
+          const key = raw === 'summary' ? 'summary' : raw;
+          if (key) ctx.attempts.set(key, (ctx.attempts.get(key) || 0) + 1);
+        });
+        const v = validateRewrites(ctx.items, list);
+        // 防幻觉（证据约束）：改写里出现「JD 明确要求、但档案里完全没有」的技能时拒收。
+        // 这是「为了匹配 JD 而编造技能」的典型形态，也是最严重的失真。
+        // 拒收而不是静默通过，等于把它交回人工确认：用户确实会的话，把技能写进档案再跑一次即可。
+        const missing = ctx.jdAnalysis ? ctx.jdAnalysis.missing.map((m) => m.label).filter(Boolean) : [];
+        const profileText = JSON.stringify(ctx.profile || {});
+        const fabricated: RejectedRewrite[] = [];
+        const acceptedNow = v.accepted.filter((a) => {
+          const bad = missing.find((skill) => a.text.includes(skill) && !profileText.includes(skill));
+          if (bad) {
+            fabricated.push({
+              id: a.id,
+              reason: '疑似编造技能「' + bad + '」：JD 要求但你的档案里没有（确实会的话请先把技能加进档案）'
+            });
+            return false;
+          }
+          return true;
+        });
+        acceptedNow.forEach((a) => ctx.accepted.set(a.id, a));
+        v.rejected.concat(fabricated).forEach((r) => ctx.rejected.push(r));
         return {
-          accepted: v.accepted.length,
-          rejected: v.rejected.map((r) => ({ id: r.id, reason: r.reason })),
-          hint: v.rejected.length ? '被拒收的条目请按 reason 修正后重新调用本工具' : '全部通过，可以提交结果'
+          accepted: acceptedNow.length,
+          rejected: v.rejected.concat(fabricated).map((r) => ({ id: r.id, reason: r.reason })),
+          hint: (v.rejected.length || fabricated.length)
+            ? '被拒收的条目请按 reason 修正后重新调用本工具'
+            : '全部通过，可以提交结果'
         };
       }
     },
@@ -664,9 +708,11 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
   const items = buildTaskItems(profile);
   if (!items.length) throw new Error('档案中没有可改写的经历条目');
 
-  const ctx: AgentCtx = { profile, jd, items, accepted: new Map(), rejected: [], jdAnalysis: null };
+  const ctx: AgentCtx = {
+    profile, jd, items, accepted: new Map(), rejected: [], jdAnalysis: null,
+    attempts: new Map()
+  };
   const tools = buildAgentTools(ctx);
-  const toolMap = new Map(tools.map((t) => [t.name, t]));
   const steps: AgentStep[] = [];
 
   function pushStep(s: AgentStep): void {
@@ -694,221 +740,195 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
     { role: 'user', content: userPrompt + '\n\n【目标 JD】\n<<<JD\n' + jd + '\nJD>>>' }
   ];
 
-  let consecutiveFails = 0;
-  let nudgeCount = 0;        // 「还不能收工」的提醒次数上限，避免弱模型原地打转到步数上限
-  let incompleteReason = '';  // 收工时仍缺的关键动作
-  let finished = false;
-  let loopError: string | null = null;
-  let stepsUsed = 0;
-  // 每个条目被提交过几次改写：用来判断「被拒之后有没有再试」
-  const rewriteAttempts = new Map<string, number>();
-  let completionSummary: {
-    checks: Array<{ key: string; ok: boolean; critical: boolean; label: string }>;
-    coverage: { total: number; untouched: number; untouchedIds: string[] };
-    rejectedPendingRetry: number;
-    nudges: number;
-    toolCalls: number;
-  } | null = null;
-  let toolCallCount = 0;
+  // 工具策略表：把「权限 / 超时 / 重试 / 幂等」显式写出来，而不是散在实现里。
+  // rewrite_bullets 标幂等：同样入参重复提交只是把同一批改写再写一遍（按 id 覆盖），
+  // 所以可以安全重试；而真正写入档案的动作在用户点「应用」时才发生（人工审批），
+  // Agent 本身没有无约束写权限。
+  const POLICY: Record<string, { permission: 'readonly' | 'write'; timeoutMs: number; maxRetries: number; idempotent: boolean }> = {
+    analyze_jd: { permission: 'readonly', timeoutMs: 20_000, maxRetries: 1, idempotent: true },
+    audit_text: { permission: 'readonly', timeoutMs: 10_000, maxRetries: 1, idempotent: true },
+    rewrite_bullets: { permission: 'write', timeoutMs: 15_000, maxRetries: 1, idempotent: true },
+    submit_result: { permission: 'readonly', timeoutMs: 5_000, maxRetries: 0, idempotent: true }
+  };
 
-  for (let i = 1; i <= maxSteps && !finished; i++) {
-    stepsUsed = i;
-    let reply: {
-      content: string;
-      toolCalls: Array<{ name: string; args: Record<string, unknown>; raw?: { id?: string } }>;
-      rawToolCalls?: RawToolCall[];
+  const coreTools: CoreToolSpec[] = tools.map((t) => {
+    const policy = POLICY[t.name] || { permission: 'readonly' as const, timeoutMs: 15_000, maxRetries: 0, idempotent: false };
+    return {
+      name: t.name,
+      description: t.description,
+      inputSchema: t.inputSchema as unknown as CoreJsonSchema,
+      permission: policy.permission,
+      timeoutMs: policy.timeoutMs,
+      maxRetries: policy.maxRetries,
+      idempotent: policy.idempotent,
+      execute: async (args: Record<string, unknown>) => Promise.resolve(t.run(args, ctx))
     };
-    const t0 = Date.now();
-    try {
-      const r = await llm.chat(messages, { tools: toolsToProtocol(tools) as unknown as Array<Record<string, unknown>> });
-      if (typeof r === 'string') {
-        reply = { content: r, toolCalls: [] };
-      } else {
-        reply = r;
-      }
-    } catch (err) {
-      loopError = err instanceof Error ? err.message : String(err);
-      pushStep({ tool: 'agent', label: 'LLM 决策（第 ' + i + ' 步）', ok: false, ms: Date.now() - t0, detail: loopError });
-      break;
-    }
+  });
 
-    const calls = reply.toolCalls || [];
-    const content = reply.content || '';
+  const adapter: RuntimeAdapter = {
+    initialMessages: () => messages,
+    decide: async (rawMessages) => {
+      const r = await llm.chat(rawMessages as ChatMessage[], {
+        tools: toolsToProtocol(tools) as unknown as Array<Record<string, unknown>>
+      });
+      if (typeof r === 'string') return { content: r, calls: [] };
+      const calls = (r.toolCalls || []).map((c) => ({
+        name: c.name,
+        args: (c.args || {}) as Record<string, unknown>,
+        rawId: c.raw && c.raw.id ? c.raw.id : undefined
+      }));
+      const usage = (r as { usage?: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number } }).usage;
+      const tokens = usage && typeof usage.total_tokens === 'number'
+        ? usage.total_tokens
+        : (usage && typeof usage.prompt_tokens === 'number' && typeof usage.completion_tokens === 'number'
+          ? usage.prompt_tokens + usage.completion_tokens
+          : null);
+      return {
+        content: r.content || '',
+        calls,
+        raw: { rawToolCalls: (r as { rawToolCalls?: RawToolCall[] }).rawToolCalls || [] },
+        tokens
+      };
+    },
+    pushAssistant: (rawMessages, reply) => {
+      const list = rawMessages as ChatMessage[];
+      const raw = (reply.raw as { rawToolCalls?: RawToolCall[] } | undefined)?.rawToolCalls;
+      if (raw && raw.length) list.push({ role: 'assistant', content: reply.content || null, tool_calls: raw });
+      else list.push({ role: 'assistant', content: reply.content || '' });
+    },
+    pushToolResult: (rawMessages, call, outcome) => {
+      const list = rawMessages as ChatMessage[];
+      const payload = outcome.ok ? outcome.data : { error: outcome.error };
+      const msg: ChatMessage = { role: 'tool', name: call.name, content: JSON.stringify(payload).slice(0, 4000) };
+      if (call.rawId) msg.tool_call_id = call.rawId;
+      list.push(msg);
+    },
+    snapshot: () => {
+      // 覆盖度必须按「行级 id」比较：条目的 id 是 p0/i0/summary，而模型提交的都是
+      // p0-b0 这样的行级 id；两者混用会让覆盖度永远显示「没碰过」，是错的数据。
+      const normId = (id: string): string => (id === 'summary-b0' ? 'summary' : id);
+      const targetIds = items.flatMap((it) => (
+        it.id === 'summary' ? ['summary'] : it.lines.map((_, j) => it.id + '-b' + j)
+      ));
+      return {
+        targetIds,
+        jdAnalyzed: !!ctx.jdAnalysis,
+        audited: !!ctx.audited,
+        acceptedIds: Array.from(ctx.accepted.keys()).map(normId),
+        rejected: ctx.rejected.map((r) => ({ id: normId(r.id), reason: r.reason })),
+        attemptedIds: Array.from(ctx.attempts.keys()).map(normId),
+        retryCounts: Object.fromEntries(Array.from(ctx.attempts.entries()).map(([k, v]) => [normId(k), v]))
+      };
+    },
+    evaluateCompletion: () => evaluateAgenticCompletion(ctx),
+    finalize: () => finalizeAgentic(ctx)
+  };
 
-    if (!calls.length) {
-      consecutiveFails++;
-      pushStep({ tool: 'agent', label: 'LLM 决策（第 ' + i + ' 步）', ok: false, ms: Date.now() - t0, detail: '未调用任何工具' });
-      if (consecutiveFails >= 2) { loopError = '模型连续未调用工具，终止'; break; }
-      messages.push({ role: 'assistant', content: content || '(空回复)' });
-      messages.push({ role: 'user', content: '请通过工具继续任务；改写必须用 rewrite_bullets 提交。' });
-      continue;
-    }
-    consecutiveFails = 0;
+  const outcome = await runAgentRuntime({
+    adapter,
+    tools: coreTools,
+    budget: { maxSteps, maxDurationMs: (o as { maxDurationMs?: number }).maxDurationMs || 180_000 },
+    signal: (o as { signal?: AbortSignal }).signal,
+    runId: (o as { runId?: string }).runId,
+    taskId: (o as { taskId?: string }).taskId || 'resume-optimize',
+    store: (o as { runStore?: RunStore }).runStore,
+    inputSnapshot: buildInputSnapshot({
+      profileName: String((profile as { name?: string }).name || ''),
+      itemCount: items.length,
+      sections: {
+        education: ((profile as { education?: unknown[] }).education || []).length,
+        internships: ((profile as { internships?: unknown[] }).internships || []).length,
+        projects: ((profile as { projects?: unknown[] }).projects || []).length,
+        skills: String((profile as { skills?: string }).skills || '').split(/[,，、;；\n]+/).filter(Boolean).length
+      },
+      jd,
+      profileDigestSource: JSON.stringify(profile)
+    }),
+    onStep: (ev) => pushStep({
+      tool: ev.tool, label: ev.label, ok: ev.ok, ms: ev.ms, detail: ev.detail,
+      retryCount: ev.retryCount
+    })
+  });
 
-    // OpenAI 协议要求：把 assistant 的 tool_calls 原样回填，再逐个补 tool 结果
-    if (reply.rawToolCalls && reply.rawToolCalls.length) {
-      messages.push({ role: 'assistant', content: content || null, tool_calls: reply.rawToolCalls as RawToolCall[] });
-    } else {
-      messages.push({ role: 'assistant', content: content || '' });
-    }
-
-    for (const call of calls) {
-      const tool = toolMap.get(call.name);
-      const t1 = Date.now();
-      if (!tool) {
-        pushStep({ tool: call.name, label: '调用未知工具 ' + call.name, ok: false, ms: 0, detail: '不在白名单' });
-        const msg0: ChatMessage = { role: 'tool', name: call.name, content: JSON.stringify({ error: '未知工具 ' + call.name }) };
-        if (call.raw && call.raw.id) msg0.tool_call_id = call.raw.id;
-        messages.push(msg0);
-        continue;
-      }
-      if (call.name === 'submit_result') {
-        // 收工前的完成度校验：把「完成」拆成可判定的项，分两级
-        //   critical（缺了就是没干完，催模型补做，最多 2 次）
-        //     - 分析过这份 JD（没有它，覆盖率数字是没有意义的）
-        //     - 至少一条改写通过校验门（写回档案的前提）
-        //   advisory（只如实记录，不额外催）
-        //     - 体检（看一眼改完的分数）
-        //     - 目标条目覆盖度：还有几条一次都没提交过
-        //       （不做成 critical 是因为「没提交」也可能是模型有意判断这条不用改，
-        //         在没有 skip 语义之前不该当成错误拦下来）
-        //     - 被拒的条目是否重试过
-        // 之所以限制催促次数：多催一次就多一次模型调用（费钱费时），弱模型还会原地打转；
-        // 真正的兜底是 maxSteps，以及这里如实标注 incomplete 让用户看得见。
-        const attemptedIds = new Set<string>(rewriteAttempts.keys());
-        const rejectedIds = new Set(ctx.rejected.map((r) => r.id));
-        const untouched = items.filter(
-          (it) => !attemptedIds.has(it.id) && !ctx.accepted.has(it.id) && !rejectedIds.has(it.id)
-        );
-        const pendingRejected = ctx.rejected.filter((r) => (rewriteAttempts.get(r.id) || 0) < 2);
-        const checks = [
-          { key: 'jd_analyzed', ok: !!ctx.jdAnalysis, critical: true, label: '还没用 analyze_jd 分析这份 JD' },
-          { key: 'rewrites_accepted', ok: ctx.accepted.size > 0, critical: true, label: '还没有任何条目通过校验门' },
-          { key: 'audited', ok: !!ctx.audited, critical: false, label: '还没用 audit_text 看体检分' },
-          {
-            key: 'coverage', ok: untouched.length === 0, critical: false,
-            label: '还有 ' + untouched.length + ' 个条目一次都没提交过（' + untouched.slice(0, 3).map((it) => it.id).join('、') + '）'
-          },
-          {
-            key: 'rejected_retried', ok: pendingRejected.length === 0, critical: false,
-            label: '有 ' + pendingRejected.length + ' 条被拒后没再试（' + pendingRejected.slice(0, 3).map((r) => r.id).join('、') + '）'
-          }
-        ];
-        const criticalMissing = checks.filter((c) => c.critical && !c.ok);
-        const advisoryMissing = checks.filter((c) => !c.critical && !c.ok);
-        if (criticalMissing.length && nudgeCount < 2) {
-          nudgeCount++;
-          const tell = criticalMissing.map((c) => c.label).join('；') +
-            (advisoryMissing.length ? '（另外建议：' + advisoryMissing.map((c) => c.label).join('；') + '）' : '');
-          pushStep({ tool: 'submit_result', label: '收工被要求补做', ok: false, ms: Date.now() - t1, detail: tell });
-          const msgN: ChatMessage = {
-            role: 'tool', name: 'submit_result',
-            content: JSON.stringify({ error: '现在还不能收工：' + tell })
-          };
-          if (call.raw && call.raw.id) msgN.tool_call_id = call.raw.id;
-          messages.push(msgN);
-          continue;
-        }
-        const missingWork = criticalMissing.concat(advisoryMissing).map((c) => c.label);
-        // 只有 critical 缺失才打「未完成」警告：advisory（覆盖度/体检/重试）几乎每次运行都会有，
-        // 都去警告就变成「狼来了」，把真正重要的信号淹掉。
-        // advisory 明细照样记进 completion，供执行轨迹和评测统计使用。
-        if (criticalMissing.length) incompleteReason = criticalMissing.map((c) => c.label).join('；');
-        completionSummary = {
-          checks,
-          coverage: { total: items.length, untouched: untouched.length, untouchedIds: untouched.map((it) => it.id).slice(0, 20) },
-          rejectedPendingRetry: pendingRejected.length,
-          nudges: nudgeCount,
-          toolCalls: toolCallCount
-        };
-        const passed = checks.filter((c) => c.ok).length;
-        pushStep({
-          tool: 'submit_result', label: 'Agent 判定任务完成', ok: criticalMissing.length === 0,
-          ms: Date.now() - t1,
-          detail: '第 ' + i + ' 步收工 · 完成度 ' + passed + '/' + checks.length +
-            '，条目覆盖 ' + (items.length - untouched.length) + '/' + items.length +
-            (criticalMissing.length ? '（未完成：' + criticalMissing.map((c) => c.label).join('；') + '）' : '') +
-            (advisoryMissing.length ? '（可改进：' + advisoryMissing.map((c) => c.label).join('；') + '）' : '') +
-            (missingWork.length ? '' : '')
-        });
-        finished = true;
-        break;
-      }
-      try {
-        const out = await Promise.resolve(tool.run(call.args || {}, ctx));
-        toolCallCount++;
-        // 记录每个条目提交过几次：被拒之后有没有再试，是完成度校验的一项
-        if (call.name === 'rewrite_bullets') {
-          const rw = (call.args as { rewrites?: unknown } | undefined)?.rewrites;
-          if (Array.isArray(rw)) {
-            rw.forEach((r) => {
-              const id = r && typeof r === 'object' ? (r as { id?: unknown }).id : null;
-              if (typeof id === 'string' && id) rewriteAttempts.set(id, (rewriteAttempts.get(id) || 0) + 1);
-            });
-          }
-        }
-        pushStep({
-          tool: call.name,
-          label: '调用 ' + call.name,
-          ok: true,
-          ms: Date.now() - t1,
-          detail: call.name === 'analyze_jd'
-            ? '覆盖率 ' + ((out as { score?: number }).score ?? '?') + '%'
-            : call.name === 'audit_text'
-              ? '得分 ' + ((out as { score?: number }).score ?? '?')
-              : '接受 ' + ((out as { accepted?: number }).accepted ?? '?')
-        });
-        const msg: ChatMessage = { role: 'tool', name: call.name, content: JSON.stringify(out).slice(0, 4000) };
-        if (call.raw && call.raw.id) msg.tool_call_id = call.raw.id;
-        messages.push(msg);
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        pushStep({ tool: call.name, label: '调用 ' + call.name, ok: false, ms: Date.now() - t1, detail: errMsg });
-        const msg: ChatMessage = { role: 'tool', name: call.name, content: JSON.stringify({ error: errMsg }) };
-        if (call.raw && call.raw.id) msg.tool_call_id = call.raw.id;
-        messages.push(msg);
-      }
-    }
-    if (finished) break;
-  }
-
-  if (!finished && !loopError) loopError = '达到步数上限（' + maxSteps + ' 步）';
-
-  // 复测：与 runAgent 同口径
+  const final = outcome.finalized as {
+    auditBefore: number; auditAfter: number;
+    jdBefore: number; jdAfter: number; jdMissingAfter: string[];
+  };
   const accepted = Array.from(ctx.accepted.values());
-  const auditBefore = engine.auditAiFlavor(items.map((it) => it.lines.join('\n')).join('\n')).score;
-  let auditAfter = auditBefore;
-  const jdBefore = ctx.jdAnalysis ? ctx.jdAnalysis.score : 0;
-  let jdAfter = jdBefore;
-  // 同 runAgent：复测后的缺失技能取改写后的 matchJd，而不是改写前的 ctx.jdAnalysis
-  let jdMissingAfter: string[] = ctx.jdAnalysis ? ctx.jdAnalysis.missing.map((m) => m.label) : [];
-  if (accepted.length && ctx.jdAnalysis) {
-    const bulletMap = applyRewrites(profile, accepted);
-    const afterText = items.map((it) =>
-      (it.id === 'summary' ? [bulletMap.summary as string] : bulletMap[it.id] as string[]).join('\n')
-    ).join('\n');
-    auditAfter = engine.auditAiFlavor(afterText).score;
-    const afterMatch = engine.matchJd(resumeLike(profile, bulletMap), jd);
-    jdAfter = afterMatch.score;
-    jdMissingAfter = afterMatch.missing.map((m) => m.label);
-  }
+  const ok = accepted.length > 0 && !outcome.loopError && !outcome.cancelled;
+  const error = outcome.cancelled
+    ? '运行已取消（已完成的 ' + accepted.length + ' 条改写保留）'
+    : outcome.loopError;
 
-  const ok = accepted.length > 0 && !loopError;
   return {
     ok,
     mode: 'agentic',
-    error: loopError || null,
-    incomplete: incompleteReason || null,
-    completion: completionSummary,
-    stepsUsed,
-    rounds: stepsUsed,
+    error,
+    incomplete: outcome.incomplete,
+    completion: outcome.completion,
+    stepsUsed: outcome.stepsUsed,
+    rounds: outcome.stepsUsed,
     accepted,
     rejected: ctx.rejected,
-    auditBefore,
-    auditAfter,
-    jdBefore,
-    jdAfter,
-    jdMissingAfter,
-    steps
+    auditBefore: final.auditBefore,
+    auditAfter: final.auditAfter,
+    jdBefore: final.jdBefore,
+    jdAfter: final.jdAfter,
+    jdMissingAfter: final.jdMissingAfter,
+    steps,
+    run: outcome.record
   };
 }
+
+/** 收工完成度检查：critical 缺失才算没干完，advisory 只如实记录（避免「狼来了」） */
+function evaluateAgenticCompletion(ctx: AgentCtx): CompletionCheck[] {
+  // 覆盖度按「行级 id」比对：条目的 id 是 p0/i0/summary，模型提交的是 p0-b0 这样的行级 id。
+  // 混用会让覆盖度永远显示「没碰过」——这是错的数据，不是保守的数据。
+  const normId = (id: string): string => (id === 'summary-b0' ? 'summary' : id);
+  const touched = new Set<string>();
+  ctx.attempts.forEach((_v, k) => touched.add(normId(k)));
+  ctx.accepted.forEach((_v, k) => touched.add(normId(k)));
+  ctx.rejected.forEach((r) => touched.add(normId(r.id)));
+  const untouched = ctx.items.filter((it) => {
+    const ids = it.id === 'summary' ? ['summary'] : it.lines.map((_, j) => it.id + '-b' + j);
+    return !ids.some((id) => touched.has(id));
+  });
+  const pendingRejected = ctx.rejected.filter((r) => (ctx.attempts.get(normId(r.id)) || 0) < 2);
+  return [
+    { key: 'jd_analyzed', ok: !!ctx.jdAnalysis, critical: true, label: '还没用 analyze_jd 分析这份 JD' },
+    { key: 'rewrites_accepted', ok: ctx.accepted.size > 0, critical: true, label: '还没有任何条目通过校验门' },
+    { key: 'audited', ok: !!ctx.audited, critical: false, label: '还没用 audit_text 看体检分' },
+    {
+      key: 'coverage', ok: untouched.length === 0, critical: false,
+      label: '还有 ' + untouched.length + ' 个条目一次都没提交过（' + untouched.slice(0, 3).map((it) => it.id).join('、') + '）'
+    },
+    {
+      key: 'rejected_retried', ok: pendingRejected.length === 0, critical: false,
+      label: '有 ' + pendingRejected.length + ' 条被拒后没再试（' + pendingRejected.slice(0, 3).map((r) => normId(r.id)).join('、') + '）'
+    }
+  ];
+}
+
+/** 收工复测：体检分与 JD 覆盖率的前后对比（与 runAgent 同口径：缺失技能取复测后的 matchJd） */
+function finalizeAgentic(ctx: AgentCtx): {
+  auditBefore: number; auditAfter: number; jdBefore: number; jdAfter: number; jdMissingAfter: string[];
+} {
+  const accepted = Array.from(ctx.accepted.values());
+  const auditBefore = engine.auditAiFlavor(ctx.items.map((it) => it.lines.join('\n')).join('\n')).score;
+  let auditAfter = auditBefore;
+  const jdBefore = ctx.jdAnalysis ? ctx.jdAnalysis.score : 0;
+  let jdAfter = jdBefore;
+  let jdMissingAfter: string[] = ctx.jdAnalysis ? ctx.jdAnalysis.missing.map((m) => m.label) : [];
+  if (accepted.length && ctx.jdAnalysis) {
+    const bulletMap = applyRewrites(ctx.profile, accepted);
+    const afterText = ctx.items.map((it) =>
+      (it.id === 'summary' ? [bulletMap.summary as string] : bulletMap[it.id] as string[]).join('\n')
+    ).join('\n');
+    auditAfter = engine.auditAiFlavor(afterText).score;
+    const afterMatch = engine.matchJd(resumeLike(ctx.profile, bulletMap), ctx.jd);
+    jdAfter = afterMatch.score;
+    jdMissingAfter = afterMatch.missing.map((m) => m.label);
+  }
+  return { auditBefore, auditAfter, jdBefore, jdAfter, jdMissingAfter };
+}
+

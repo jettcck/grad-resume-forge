@@ -16,6 +16,8 @@ import { detectLocalServices } from './local-detect';
 import * as interview from './interview';
 import * as secureStore from './secure-store';
 import { LIMITS, assertSize, assertPlainObject } from './validate';
+// 运行记录与回放来自 agent-core（与 Electron 解耦的 Agent Runtime）
+import { createFileRunStore, replayRun } from '../../packages/agent-core/dist/index';
 import type { IpcResult, Profile, LlmConfig, Application } from './types';
 
 let mainWindow: BrowserWindow | null = null;
@@ -548,7 +550,81 @@ ipcMain.handle('agent:status', async () => {
 });
 
 // 运行 Agent：mode='pipeline'（默认）/ 'agentic' / 'rules'（零下载规则通道，不调模型）
-ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string, opts: { mode?: string } & Partial<LlmConfig>) => {
+// ---------------- Agent 运行记录与取消（第二阶段：Runtime 化）----------------
+// 运行记录单独存 JSONL（不进 db.json：避免主数据文件被日志撑大或被坏日志牵连）。
+let runStore: ReturnType<typeof createFileRunStore> | null = null;
+function getRunStore() {
+  if (!runStore) {
+    runStore = createFileRunStore(path.join(app.getPath('userData'), 'grad-resume-data', 'agent-runs.jsonl'), { maxRuns: 50 });
+  }
+  return runStore;
+}
+/** 正在运行的 runId → 取消控制器：用户点取消时用它中断 */
+const activeRuns = new Map<string, AbortController>();
+
+ipcMain.handle('agent:cancel', (_e, runId: string) => {
+  try {
+    const ctl = activeRuns.get(String(runId || ''));
+    if (!ctl) return fail('这次运行已经结束或不存在');
+    ctl.abort();
+    return ok({ cancelled: true });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 列表只回摘要：trace 与结果明细按 runId 单独取，避免一次拉回几十条大步数记录
+ipcMain.handle('agent:runs', (_e, limit?: number) => {
+  try {
+    const list = getRunStore().list(Math.min(Math.max(Number(limit) || 10, 1), 50)).map((r) => ({
+      runId: r.runId, taskId: r.taskId, status: r.status, currentStep: r.currentStep,
+      startedAt: r.startedAt, finishedAt: r.finishedAt, error: r.error, cancelReason: r.cancelReason,
+      usage: r.usage, traceCount: r.trace.length, inputSnapshot: r.inputSnapshot
+    }));
+    return ok(list);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('agent:run:get', (_e, runId: string) => {
+  try {
+    const rec = getRunStore().get(String(runId || ''));
+    if (!rec) return fail('没有找到这条运行记录');
+    return ok(rec);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('agent:clearRuns', () => {
+  try {
+    return ok({ cleared: getRunStore().clear() });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 回放：用当前工具实现按记录重跑一次，不消耗模型调用（复盘「当时为什么拒了这条」）
+ipcMain.handle('agent:replay', async (_e, runId: string, profile: Partial<Profile>, jdText: string) => {
+  try {
+    const rec = getRunStore().get(String(runId || ''));
+    if (!rec) return fail('没有找到这条运行记录');
+    const items = agent.buildTaskItems(profile);
+    if (!items.length) return fail('档案中没有可改写的经历条目');
+    const ctx = { profile, jd: engine._clean(jdText), items, accepted: new Map(), rejected: [], jdAnalysis: null, attempts: new Map() };
+    const tools = agent.buildAgentTools(ctx).map((t) => ({
+      name: t.name, description: t.description, inputSchema: t.inputSchema,
+      permission: 'readonly' as const, timeoutMs: 15_000, maxRetries: 0, idempotent: true,
+      execute: async (args: Record<string, unknown>) => Promise.resolve(t.run(args, ctx))
+    })) as unknown as Parameters<typeof replayRun>[1]['tools'];
+    return ok(await replayRun(rec, { tools, ctx }));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string, opts: { mode?: string; runId?: string } & Partial<LlmConfig>) => {
   try {
     const o = opts || {};
     const rulesOnly = o.mode === 'rules';
@@ -574,9 +650,20 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
       const result = await agent.runAgent(profile, jdText, { onStep: send, rulesOnly: true });
       return ok(result);
     }
-    const runner = o.mode === 'agentic' ? agent.agenticLoop : agent.runAgent;
-    const result = await runner(profile, jdText, { llm, onStep: send, onChunk: sendStream });
-    return ok(result);
+    // runId 由渲染层给出：这样用户点「取消」时主进程能立刻找到对应的运行
+    const runId = String(o.runId || ('run_' + Date.now().toString(36)));
+    const ctl = new AbortController();
+    activeRuns.set(runId, ctl);
+    try {
+      const runner = o.mode === 'agentic' ? agent.agenticLoop : agent.runAgent;
+      const result = await runner(profile, jdText, {
+        llm, onStep: send, onChunk: sendStream,
+        runId, taskId: 'resume-optimize', runStore: getRunStore(), signal: ctl.signal
+      } as never);
+      return ok(result);
+    } finally {
+      activeRuns.delete(runId);
+    }
   } catch (err) {
     return fail((err as Error).message);
   }

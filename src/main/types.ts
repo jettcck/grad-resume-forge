@@ -144,6 +144,8 @@ export interface AgentStep {
   ok: boolean;
   ms: number;
   detail: string;
+  /** 该步工具重试了几次（工具注册层记录，>0 说明第一次失败了） */
+  retryCount?: number;
 }
 
 export interface AcceptedRewrite {
@@ -188,6 +190,22 @@ export interface AgenticResult {
     rejectedPendingRetry: number;
     nudges: number;
     toolCalls: number;
+  } | null;
+  /** Agentic 运行的完整记录（状态机终态、预算用量、逐步 trace），供界面复盘与 CLI 回放 */
+  run?: {
+    runId: string;
+    taskId: string;
+    status: string;
+    currentStep: string;
+    startedAt: number;
+    finishedAt: number | null;
+    error: string | null;
+    cancelReason: string | null;
+    usage: { steps: number; toolCalls: number; retries: number; ms: number; tokens: number };
+    inputSnapshot: {
+      profileName: string; itemCount: number; sections: Record<string, number>;
+      jdLength: number; jdDigest: string; profileDigest: string;
+    };
   } | null;
   stepsUsed: number;
   rounds: number;

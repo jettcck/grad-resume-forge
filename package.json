@@ -4,11 +4,11 @@
   "description": "应届生一键写简历 / 投简历桌面端 App（全专业通用）（本地优先 · 去 AI 味引擎）",
   "main": "dist/main/main.js",
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:core && tsc",
     "typecheck": "tsc --noEmit",
     "start": "tsc && electron .",
     "dev": "tsc && electron . --dev",
-    "test": "tsc && node test-renderer-apply.js && node test-engine.js && node test-importer.js && node test-portfolio.js && node test-agent.js && node test-e2e.js && node test-versions.js && node test-contract.js && node test-stream.js && node test-validate.js && node test-backup.js && node test-updater.js && node test-embedded.js && node test-secure-store.js && node test-interview.js && node test-assistant.js && node evals/run-evals.js",
+    "test": "npm run build:core && tsc && node test-renderer-apply.js && node test-engine.js && node test-importer.js && node test-portfolio.js && node test-agent.js && node test-runtime.js && node test-e2e.js && node test-versions.js && node test-contract.js && node test-stream.js && node test-validate.js && node test-backup.js && node test-updater.js && node test-embedded.js && node test-secure-store.js && node test-interview.js && node test-assistant.js && node evals/agent-bench.js && node evals/run-evals.js",
     "eval": "node evals/run-evals.js",
     "eval:llm": "node evals/run-llm-eval.js",
     "dist": "tsc && electron-builder --win --x64 --publish never",
@@ -20,7 +20,13 @@
     "smoke:ipc": "electron scripts/smoke-real-ipc.js --no-sandbox --disable-gpu",
     "smoke:ui": "electron scripts/screenshot.js --no-sandbox --disable-gpu",
     "smoke:si": "node scripts/smoke-single-instance.js",
-    "smoke:pdf": "electron scripts/smoke-pdf-import.js --no-sandbox"
+    "smoke:pdf": "electron scripts/smoke-pdf-import.js --no-sandbox",
+    "build:core": "tsc -p packages/agent-core/tsconfig.json && tsc -p packages/agent-cli/tsconfig.json",
+    "agent:run": "node packages/agent-cli/dist/index.js run",
+    "agent:eval": "node packages/agent-cli/dist/index.js eval",
+    "agent:replay": "node packages/agent-cli/dist/index.js replay",
+    "eval:agent": "node evals/agent-bench.js",
+    "eval:agent:llm": "node evals/agent-bench-llm.js"
   },
   "author": "",
   "license": "MIT",
@@ -38,6 +44,7 @@
       "output": "release"
     },
     "files": [
+      "packages/*/dist/**/*",
       "dist/**/*",
       "src/renderer/**/*",
       "data/**/*",

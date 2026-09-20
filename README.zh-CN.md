@@ -177,6 +177,9 @@ git config http.proxy http://127.0.0.1:7890
 | 契约自测 | 渲染层 ↔ preload ↔ 主进程 IPC ↔ 截图 mock 保持一致；会话授权与校验覆盖 | `node test-contract.js` |
 | 零门槛守卫 | 应用内模型加载形态 / 国内镜像 / CSP / 文案口径 | `node test-embedded.js` |
 | 密钥存储 | 明文不落盘 / 加解密往返 | `node test-secure-store.js` |
+| Agent Runtime | 状态机 / 工具注册层（校验·超时·幂等重试·预算）/ 取消 / trace / 运行记录脱敏 / 回放 | `node test-runtime.js` |
+| Agent 评测（mock 层） | 65 个任务用例 + 质量门禁（任务成功率·数字保全·编造技能） | `npm run eval:agent` |
+| Agent 评测（真实模型） | 同一套用例打真实模型（需配置端点，不配则明确跳过） | `npm run eval:agent:llm` |
 | 规则层评测 | 32 个 golden case 回归门禁 | `npm run eval` |
 | LLM 层评测 | 真实模型双模式对比 | `npm run eval:llm` |
 | 真实 IPC 冒烟 | 加载真主进程：未登录拒绝 / 防越权 / 密钥不回显（需 Electron） | `npm run smoke:ipc` |
@@ -222,3 +225,17 @@ git config http.proxy http://127.0.0.1:7890
 ## 📄 License
 
 MIT
+
+### Agent Runtime（第二/三/四阶段）
+
+核心 Agent 已从 Electron 里抽出来，成为可单独测试、单独运行、可回放的模块：
+
+```bash
+npm run agent:run    -- --input case.json --mode rules        # 规则通道，不需要模型
+npm run agent:eval                                            # 65 个用例 + 质量门禁
+npm run agent:replay -- --run <runId>                         # 看某次运行的逐步 trace
+```
+
+设计取舍、状态机、预算与取消语义、脱敏规则、实测指标与「还没做的」都写在
+[`docs/agent-runtime.md`](docs/agent-runtime.md)；第一阶段的审计结论在
+[`docs/phase1-audit.md`](docs/phase1-audit.md)。

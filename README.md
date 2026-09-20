@@ -160,6 +160,9 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 | Contract | renderer ↔ preload ↔ main IPC ↔ screenshot mock stay in sync; session auth & validation coverage | `node test-contract.js` |
 | Zero-barrier guard | in-app model loading shape / China mirrors / CSP / honest copy | `node test-embedded.js` |
 | Secure store | no plaintext key on disk / encrypt-decrypt round trip | `node test-secure-store.js` |
+| Agent Runtime | state machine / tool registry (validation, timeout, idempotent retry, budget) / cancel / trace / redacted run records / replay | `node test-runtime.js` |
+| Agent benchmark (mock) | 65 task cases + quality gates (task success, metric preservation, fabricated skills) | `npm run eval:agent` |
+| Agent benchmark (real model) | same cases against a real endpoint (explicitly skipped when unconfigured) | `npm run eval:agent:llm` |
 | Rule-layer evals | 32 golden cases as a regression gate | `npm run eval` |
 | LLM-layer evals | dual-mode comparison on a real model | `npm run eval:llm` |
 | Real-IPC smoke | boots the actual main process: unauthenticated calls rejected, no cross-account reads, key never echoed (needs Electron) | `npm run smoke:ipc` |
@@ -205,3 +208,17 @@ We'd rather state the ceilings up front than let you hit them:
 ## 📄 License
 
 [MIT](./LICENSE) © jettcck
+
+### Agent Runtime (phases 2–4)
+
+The agent core is no longer tied to Electron — it is separately testable, runnable and replayable:
+
+```bash
+npm run agent:run    -- --input case.json --mode rules        # rules-only, no model needed
+npm run agent:eval                                            # 65 cases + quality gates
+npm run agent:replay -- --run <runId>                         # step-by-step trace of one run
+```
+
+Design tradeoffs, state machine, budget/cancel semantics, redaction rules, measured metrics and
+what is deliberately *not* done yet: [`docs/agent-runtime.md`](docs/agent-runtime.md).
+Phase-1 audit: [`docs/phase1-audit.md`](docs/phase1-audit.md).

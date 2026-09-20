@@ -430,7 +430,24 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     assert(names.includes('analyze_jd') && names.includes('rewrite_bullets') && names.includes('submit_result'), '步骤轨迹含关键工具调用');
     assert(resultA.steps.every((s) => s.ok), '所有步骤成功');
 
-    // 14c. 校验门仍在：模型提交套话 → 被拒收，工具结果带回原因
+    // 防幻觉（证据约束）：JD 要求、但档案里完全没有的技能，不许出现在改写里 ——
+// 这正是「为了匹配 JD 而编造技能」的形态，比改数字更严重（用户会被面试问穿）。
+{
+  const ctxZ = { profile: PROFILE, jd: JD, items: agent.buildTaskItems(PROFILE), accepted: new Map(), rejected: [], jdAnalysis: null, attempts: new Map() };
+  const toolsZ = agent.buildAgentTools(ctxZ);
+  toolsZ.find((t) => t.name === 'analyze_jd').run({});
+  const rwZ = toolsZ.find((t) => t.name === 'rewrite_bullets');
+
+  const fabricated = rwZ.run({ rewrites: [{ id: 'p0-b0', text: '主导订单系统查询优化，精通 Docker 与分布式系统' }] });
+  assert(fabricated.accepted === 0 && fabricated.rejected.some((r) => /编造技能/.test(r.reason)),
+    '编造 JD 要求但档案没有的技能 → 拒收（' + JSON.stringify(fabricated.rejected) + '）');
+  assert(ctxZ.rejected.some((r) => /Docker|分布式/.test(r.reason)), '拒收理由点名了那个技能，便于用户判断');
+
+  const legit = rwZ.run({ rewrites: [{ id: 'p0-b1', text: '承担用户模块开发，用 MySQL 支撑日活 3 万' }] });
+  assert(legit.accepted === 1, '提到档案里已有的技能（MySQL）不算编造');
+}
+
+// 14c. 校验门仍在：模型提交套话 → 被拒收，工具结果带回原因
     const ctxY = { profile: PROFILE, jd: JD, items: agent.buildTaskItems(PROFILE), accepted: new Map(), rejected: [] };
     const ytools = buildAgentTools(ctxY);
     const rw = ytools.find((t) => t.name === 'rewrite_bullets');
