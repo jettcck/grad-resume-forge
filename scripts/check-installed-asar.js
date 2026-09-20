@@ -53,6 +53,8 @@ const checks = [
   ['运行记录 IPC（取消 / 清理）', has('agent:cancel') && has('agent:clearRuns')],
   ['界面运行记录入口', has('清理运行记录') && has('最近运行记录')],
   ['防幻觉门（证据约束）', has('疑似编造技能')],
+  ['llm-adapters 已打进安装包', has('llm-adapters/dist') && has('createOllamaClient')],
+  ['agent-cli 已打进安装包', has('agent-cli/dist')],
   // 夹具不该进安装包
   ['PDF 夹具未进安装包', !has('resume-sample-ats-classic') && !has('resume-sample-stem')]
 ];
