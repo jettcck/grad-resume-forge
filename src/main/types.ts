@@ -181,6 +181,14 @@ export interface AgenticResult {
   error: string | null;
   /** 收工时仍缺的关键动作（如没分析 JD）：有值说明这次不算完整完成，要如实告诉用户 */
   incomplete?: string | null;
+  /** 收工时的完成度校验明细（哪些项通过、条目覆盖多少、催了几次、用了几次工具） */
+  completion?: {
+    checks: Array<{ key: string; ok: boolean; critical: boolean; label: string }>;
+    coverage: { total: number; untouched: number; untouchedIds: string[] };
+    rejectedPendingRetry: number;
+    nudges: number;
+    toolCalls: number;
+  } | null;
   stepsUsed: number;
   rounds: number;
   accepted: AcceptedRewrite[];

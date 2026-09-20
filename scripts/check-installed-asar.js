@@ -29,8 +29,23 @@ const checks = [
   ['渲染分节「奖项与证书」', has('奖项与证书')],
   ['完善度清单已把自我介绍移出的注释', has('一边说可以留空、一边扣你的分')],
   ['奖项合并按整行去重', has('按整行去重后追加') && has('out.awards = merged')],
+  // v1.9.11：技能分隔符统一
+  ['技能分隔符统一 SKILL_SEP_RE', has('SKILL_SEP_RE')],
+  // v1.9.12：图标字体私用区清除
+  ['私用区清除 PUA_RE', has('PUA_RE')],
+  // v1.9.13：输入即刷新
+  ['输入即刷新 refreshSide', has('refreshSide')],
+  ['保存条「有改动未保存」', has('有改动未保存')],
+  // v1.9.14：五套模板重做
+  ['模板页眉包裹层 r-head', has('<div class="r-head">')],
+  ['商务通栏深蓝页眉', has('.tmpl-deep .r-head') && has('linear-gradient(135deg, #16305c')],
+  ['活力暖色通栏页眉', has('linear-gradient(120deg, #fff4ec')],
+  ['科技顶部青蓝细条', has('.tmpl-tech::before')],
+  ['极简顶部细线小节标题', has('.tmpl-minimal .r-sec-title')],
+  ['经典金色细线', has('.tmpl-classic .r-head::after')],
+  ['模板选择器固定三列网格', has('grid-template-columns: repeat(3')],
   // 夹具不该进安装包
-  ['PDF 夹具未进安装包', !has('resume-sample-ats-classic')]
+  ['PDF 夹具未进安装包', !has('resume-sample-ats-classic') && !has('resume-sample-stem')]
 ];
 
 checks.forEach(([name, ok]) => console.log((ok ? '  ✅ ' : '  ❌ ') + name));

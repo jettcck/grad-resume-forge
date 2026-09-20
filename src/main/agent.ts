@@ -116,6 +116,14 @@ export function applyRewritesToProfile(profile: Partial<Profile>, accepted: Acce
 // ---------------- 确定性校验门（核心） ----------------
 interface ValidationOutcome { accepted: AcceptedRewrite[]; rejected: RejectedRewrite[] }
 
+// 把文本里的数字连同紧随其后的单位抽成 token（「3 万」「800ms」「50%」「2.5 倍」）。
+// 数字保全校验按 token 比对，而不是「有没有数字」——后者挡不住 3 万 → 30 万这种改法。
+const NUM_TOKEN_RE = /\d+(?:[.,]\d+)?\s*(?:%|‰|万|亿|千|百|k|K|w|W|ms|MS|s|S|秒|分钟|小时|天|周|月|年|人|次|个|条|倍|元|美元|GB|MB|KB|TB|QPS|qps|G|M)?/g;
+
+export function numberTokens(text: string): string[] {
+  return (String(text || '').match(NUM_TOKEN_RE) || []).map((s) => s.replace(/\s+/g, ''));
+}
+
 export function validateRewrites(items: TaskItem[], rewrites: Array<{ id?: unknown; text?: unknown }>): ValidationOutcome {
   const byId = new Map<string, { it: TaskItem; j: number; text: string }>();
   items.forEach((it) => {
@@ -144,10 +152,20 @@ export function validateRewrites(items: TaskItem[], rewrites: Array<{ id?: unkno
     const adj = EMPTY_ADJECTIVES.find((w) => text.includes(w));
     if (adj) { rejected.push({ id, reason: '含空洞形容词「' + adj + '」' }); return; }
 
-    // 量化守恒：原文有数字而改写丢了 → 拒（LLM 最常见的失真方式）
-    if (/\d/.test(target.text) && !/\d/.test(text)) {
-      rejected.push({ id, reason: '丢失了原文的量化数据' });
-      return;
+    // 量化守恒（强化版）：原文出现的每个数字都必须原样保留。
+    // 旧实现只判断「原文有数字、改写里还有没有数字」——于是 3 万 → 30 万、
+    // 800ms → 1200ms、50% → 5% 全部放行，而这恰是「为了让简历好看把数字改大」
+    // 这类失真最典型的形态，等于把项目最核心的承诺（不篡改数字）让掉了。
+    // 只判「丢没丢」，不判「多没多」：改写补充原文没有的量化数据是允许的
+    // （用户自己会看到并对内容负责），凭空改小/改大原文的数字不行。
+    const oldNums = numberTokens(target.text);
+    if (oldNums.length) {
+      const newNums = numberTokens(text);
+      const lost = oldNums.filter((n) => !newNums.includes(n));
+      if (lost.length) {
+        rejected.push({ id, reason: '数字被改动或丢失：' + lost.slice(0, 4).join('、') });
+        return;
+      }
     }
 
     // 体检不退步：单条去 AI 味评分必须不低于原文
@@ -682,6 +700,16 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
   let finished = false;
   let loopError: string | null = null;
   let stepsUsed = 0;
+  // 每个条目被提交过几次改写：用来判断「被拒之后有没有再试」
+  const rewriteAttempts = new Map<string, number>();
+  let completionSummary: {
+    checks: Array<{ key: string; ok: boolean; critical: boolean; label: string }>;
+    coverage: { total: number; untouched: number; untouchedIds: string[] };
+    rejectedPendingRetry: number;
+    nudges: number;
+    toolCalls: number;
+  } | null = null;
+  let toolCallCount = 0;
 
   for (let i = 1; i <= maxSteps && !finished; i++) {
     stepsUsed = i;
@@ -735,36 +763,90 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
         continue;
       }
       if (call.name === 'submit_result') {
-        // 收工前检查：以前无条件 done=true，于是「一条改写都没过门、JD 都没分析」也显示成功，
-        // 而这时界面上的 JD 覆盖率其实是空的 —— 部分完成不能说成完成。
-        // 处理原则：什么都没做 → 提醒一次让模型补做；部分完成 → 照常收工但如实标注 incomplete，
-        // 不把已经通过校验门的改写结果丢掉（那对用户是净损失）。
-        const missingWork: string[] = [];
-        if (!ctx.jdAnalysis) missingWork.push('还没用 analyze_jd 分析这份 JD');
-        if (ctx.accepted.size === 0) missingWork.push('还没有任何条目通过校验门');
-        const didNothing = !ctx.jdAnalysis && ctx.accepted.size === 0;
-        if (didNothing && nudgeCount < 1) {
+        // 收工前的完成度校验：把「完成」拆成可判定的项，分两级
+        //   critical（缺了就是没干完，催模型补做，最多 2 次）
+        //     - 分析过这份 JD（没有它，覆盖率数字是没有意义的）
+        //     - 至少一条改写通过校验门（写回档案的前提）
+        //   advisory（只如实记录，不额外催）
+        //     - 体检（看一眼改完的分数）
+        //     - 目标条目覆盖度：还有几条一次都没提交过
+        //       （不做成 critical 是因为「没提交」也可能是模型有意判断这条不用改，
+        //         在没有 skip 语义之前不该当成错误拦下来）
+        //     - 被拒的条目是否重试过
+        // 之所以限制催促次数：多催一次就多一次模型调用（费钱费时），弱模型还会原地打转；
+        // 真正的兜底是 maxSteps，以及这里如实标注 incomplete 让用户看得见。
+        const attemptedIds = new Set<string>(rewriteAttempts.keys());
+        const rejectedIds = new Set(ctx.rejected.map((r) => r.id));
+        const untouched = items.filter(
+          (it) => !attemptedIds.has(it.id) && !ctx.accepted.has(it.id) && !rejectedIds.has(it.id)
+        );
+        const pendingRejected = ctx.rejected.filter((r) => (rewriteAttempts.get(r.id) || 0) < 2);
+        const checks = [
+          { key: 'jd_analyzed', ok: !!ctx.jdAnalysis, critical: true, label: '还没用 analyze_jd 分析这份 JD' },
+          { key: 'rewrites_accepted', ok: ctx.accepted.size > 0, critical: true, label: '还没有任何条目通过校验门' },
+          { key: 'audited', ok: !!ctx.audited, critical: false, label: '还没用 audit_text 看体检分' },
+          {
+            key: 'coverage', ok: untouched.length === 0, critical: false,
+            label: '还有 ' + untouched.length + ' 个条目一次都没提交过（' + untouched.slice(0, 3).map((it) => it.id).join('、') + '）'
+          },
+          {
+            key: 'rejected_retried', ok: pendingRejected.length === 0, critical: false,
+            label: '有 ' + pendingRejected.length + ' 条被拒后没再试（' + pendingRejected.slice(0, 3).map((r) => r.id).join('、') + '）'
+          }
+        ];
+        const criticalMissing = checks.filter((c) => c.critical && !c.ok);
+        const advisoryMissing = checks.filter((c) => !c.critical && !c.ok);
+        if (criticalMissing.length && nudgeCount < 2) {
           nudgeCount++;
-          pushStep({ tool: 'submit_result', label: '收工被要求补做', ok: false, ms: Date.now() - t1, detail: missingWork.join('；') });
+          const tell = criticalMissing.map((c) => c.label).join('；') +
+            (advisoryMissing.length ? '（另外建议：' + advisoryMissing.map((c) => c.label).join('；') + '）' : '');
+          pushStep({ tool: 'submit_result', label: '收工被要求补做', ok: false, ms: Date.now() - t1, detail: tell });
           const msgN: ChatMessage = {
             role: 'tool', name: 'submit_result',
-            content: JSON.stringify({ error: '现在还不能收工：' + missingWork.join('；') })
+            content: JSON.stringify({ error: '现在还不能收工：' + tell })
           };
           if (call.raw && call.raw.id) msgN.tool_call_id = call.raw.id;
           messages.push(msgN);
           continue;
         }
-        if (missingWork.length) incompleteReason = missingWork.join('；');
+        const missingWork = criticalMissing.concat(advisoryMissing).map((c) => c.label);
+        // 只有 critical 缺失才打「未完成」警告：advisory（覆盖度/体检/重试）几乎每次运行都会有，
+        // 都去警告就变成「狼来了」，把真正重要的信号淹掉。
+        // advisory 明细照样记进 completion，供执行轨迹和评测统计使用。
+        if (criticalMissing.length) incompleteReason = criticalMissing.map((c) => c.label).join('；');
+        completionSummary = {
+          checks,
+          coverage: { total: items.length, untouched: untouched.length, untouchedIds: untouched.map((it) => it.id).slice(0, 20) },
+          rejectedPendingRetry: pendingRejected.length,
+          nudges: nudgeCount,
+          toolCalls: toolCallCount
+        };
+        const passed = checks.filter((c) => c.ok).length;
         pushStep({
-          tool: 'submit_result', label: 'Agent 判定任务完成', ok: missingWork.length === 0,
+          tool: 'submit_result', label: 'Agent 判定任务完成', ok: criticalMissing.length === 0,
           ms: Date.now() - t1,
-          detail: '第 ' + i + ' 步收工' + (missingWork.length ? '（未完成：' + missingWork.join('；') + '）' : '')
+          detail: '第 ' + i + ' 步收工 · 完成度 ' + passed + '/' + checks.length +
+            '，条目覆盖 ' + (items.length - untouched.length) + '/' + items.length +
+            (criticalMissing.length ? '（未完成：' + criticalMissing.map((c) => c.label).join('；') + '）' : '') +
+            (advisoryMissing.length ? '（可改进：' + advisoryMissing.map((c) => c.label).join('；') + '）' : '') +
+            (missingWork.length ? '' : '')
         });
         finished = true;
         break;
       }
       try {
         const out = await Promise.resolve(tool.run(call.args || {}, ctx));
+        toolCallCount++;
+        // 记录每个条目提交过几次：被拒之后有没有再试，是完成度校验的一项
+        if (call.name === 'rewrite_bullets') {
+          const rw = (call.args as { rewrites?: unknown } | undefined)?.rewrites;
+          if (Array.isArray(rw)) {
+            rw.forEach((r) => {
+              const id = r && typeof r === 'object' ? (r as { id?: unknown }).id : null;
+              if (typeof id === 'string' && id) rewriteAttempts.set(id, (rewriteAttempts.get(id) || 0) + 1);
+            });
+          }
+        }
         pushStep({
           tool: call.name,
           label: '调用 ' + call.name,
@@ -817,6 +899,7 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
     mode: 'agentic',
     error: loopError || null,
     incomplete: incompleteReason || null,
+    completion: completionSummary,
     stepsUsed,
     rounds: stepsUsed,
     accepted,

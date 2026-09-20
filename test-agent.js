@@ -82,7 +82,26 @@ const v2 = agent.validateRewrites(items, [{ id: 'p0-b0', text: '通过赋能业�
 assert(v2.rejected.length === 1 && /套话/.test(v2.rejected[0].reason), '含套话被拒收');
 
 const v3 = agent.validateRewrites(items, [{ id: 'p0-b1', text: '承担用户模块开发' }]);
-assert(v3.rejected.length === 1 && /量化/.test(v3.rejected[0].reason), '丢数字被拒收');
+assert(v3.rejected.length === 1 && /数字被改动或丢失/.test(v3.rejected[0].reason) && /3万/.test(v3.rejected[0].reason),
+  '丢数字被拒收，理由点名是哪个数字（' + v3.rejected[0].reason + '）');
+
+// 数字保全校验的强化用例：旧实现只判断「原文有数字、改写里还有没有数字」，
+// 于是下面这些「把数字改大 / 换掉」的改法会全部放行 —— 而这正是简历造假的典型形态。
+[
+  ['承担用户模块开发，支撑日活 30 万', true, '把 3 万放大成 30 万'],
+  ['承担用户模块开发，支撑日活 3000 人', true, '把 3 万换成 3000 人'],
+  ['承担用户模块开发，支撑日活 3万', false, '只少了空格（同一个数字）']
+].forEach(([text, shouldReject, desc]) => {
+  const v = agent.validateRewrites(items, [{ id: 'p0-b1', text }]);
+  if (shouldReject) {
+    assert(v.rejected.length === 1, '拒收：' + desc + '（' + v.rejected[0]?.reason + '）');
+  } else {
+    assert(v.accepted.length === 1, '通过：' + desc);
+  }
+});
+// 补充原文没有的量化数据是允许的（只判丢没丢，不判多没多）
+const vAdd = agent.validateRewrites(items, [{ id: 'p0-b0', text: '主导订单系统查询优化，P99 从 800ms 降到 120ms' }]);
+assert(vAdd.accepted.length === 1, '补充原文没有的量化数据仍然允许（只判丢没丢）');
 
 const v4 = agent.validateRewrites(items, [{ id: 'p0-b0', text: '优秀的实现订单系统查询优化，P99 从 800ms 降到 120ms' }]);
 assert(v4.rejected.length === 1 && /空洞形容词/.test(v4.rejected[0].reason), '空洞形容词被拒收');
@@ -679,6 +698,63 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     const partialRes = await agenticLoop(PROFILE, JD, { llm: partial, maxSteps: 8 });
     assert(partialRes.accepted.length === 1, '部分完成时已通过的改写不会被丢掉');
     assert(!!partialRes.incomplete && /analyze_jd/.test(partialRes.incomplete), '部分完成会标注缺了什么（' + partialRes.incomplete + '）');
+  }
+
+  // ============================================================
+  //  收工校验（completion）：critical 拦得住、advisory 只记录
+  //  动机：submit_result 以前基本等于「无条件成功」。现在把「完成」拆成可判定的项：
+  //    critical  = 分析过 JD、至少一条过校验门（缺了就是没干完 → 催模型，最多 2 次）
+  //    advisory  = 体检、条目覆盖度、拒收是否重试（只如实记录，不触发用户可见警告）
+  //  分两级的原因：advisory 几乎每次运行都会有，都去警告就成「狼来了」，
+  //  真正重要的信号会被淹掉；但它们必须可查，用于执行轨迹与评测统计。
+  // ============================================================
+  {
+    const { agenticLoop } = require('./dist/main/agent');
+    const call = (name, args) => ({ content: '', toolCalls: [{ name, args: args || {}, raw: { id: 'c-' + name } }], rawToolCalls: [] });
+
+    // D) 什么都不做就收工：最多催 2 次，然后如实收工（不无限纠缠）
+    const lazy = { chat: async () => call('submit_result', {}) };
+    const r1 = await agenticLoop(PROFILE, JD, { llm: lazy, maxSteps: 10 });
+    const nudges = (r1.steps || []).filter((s) => /收工被要求补做/.test(s.label || '')).length;
+    assert(nudges === 2, '催促次数限死在 2 次（实际 ' + nudges + '），不会无限纠缠');
+    assert(r1.completion && r1.completion.nudges === 2, 'completion 记下催了几次');
+    assert(r1.ok === false && !!r1.incomplete, 'critical 缺失 → 不算成功，且如实标注未完成');
+    const jdCheck = ((r1.completion || {}).checks || []).find((c) => c.key === 'jd_analyzed');
+    assert(!!jdCheck && jdCheck.critical === true && jdCheck.ok === false, 'completion 标出 jd_analyzed 是 critical 且未通过');
+    assert(r1.completion.coverage.untouched === r1.completion.coverage.total && r1.completion.coverage.total > 0,
+      'completion 记下条目覆盖（一条都没提交：' + r1.completion.coverage.untouched + '/' + r1.completion.coverage.total + '）');
+
+    // E) 一条合法 + 一条被拒：任务算成功，但拒收与覆盖情况必须可查
+    let n = 0;
+    const partial = {
+      chat: async () => {
+        n++;
+        if (n === 1) return call('analyze_jd', {});
+        if (n === 2) return call('audit_text', {});
+        if (n === 3) {
+          return call('rewrite_bullets', {
+            rewrites: [
+              { id: 'p0-b0', text: '主导订单系统查询优化，P99 从 800ms 降到 120ms' },
+              { id: 'p0-b1', text: '承担用户模块开发，支撑日活 30 万' } // 把 3 万改成 30 万 → 数字被改，应被拒
+            ]
+          });
+        }
+        return call('submit_result', {});
+      }
+    };
+    const r2 = await agenticLoop(PROFILE, JD, { llm: partial, maxSteps: 10 });
+    assert(r2.accepted.length === 1 && r2.rejected.length === 1,
+      '一条过校验门、一条被拒（实际 ' + r2.accepted.length + ' / ' + r2.rejected.length + '）');
+    assert(r2.ok === true, '有过门的改写 → 任务算成功');
+    assert(r2.incomplete === null, 'advisory 缺失不打「未完成」警告（否则每次运行都报警，信号贬值）');
+    const rejCheck = ((r2.completion || {}).checks || []).find((c) => c.key === 'rejected_retried');
+    assert(!!rejCheck && rejCheck.ok === false && rejCheck.critical === false, '被拒未重试 → 记为 advisory 未通过');
+    assert(r2.completion.rejectedPendingRetry === 1, 'completion 记下待重试的拒收条目数（' + r2.completion.rejectedPendingRetry + '）');
+    assert(r2.completion.toolCalls === 3, 'completion 记下工具调用次数（analyze+audit+rewrite=3，实际 ' + r2.completion.toolCalls + '）');
+    assert(!r2.completion.coverage.untouchedIds.includes('p0-b0') && !r2.completion.coverage.untouchedIds.includes('p0-b1'),
+      '提交过的条目不算未覆盖（未覆盖：' + JSON.stringify(r2.completion.coverage.untouchedIds) + '）');
+    const submitStep = (r2.steps || []).find((s) => s.label === 'Agent 判定任务完成');
+    assert(!!submitStep && /可改进/.test(submitStep.detail || ''), '收工那一步如实写出「可改进」项');
   }
 
   console.log('\nAgent 自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

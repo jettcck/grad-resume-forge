@@ -1,5 +1,23 @@
 // 核心引擎自测（不依赖 Electron）
 const engine = require('./dist/main/resume-engine');
+const agent = require('./dist/main/agent');
+
+// 数字保全不变量：规则引擎的改写是「删套话 + 换强动词」式的字符串手术，理论上不该动数字。
+// 但这条性质此前没有任何断言；LLM 那条路径有校验门守着（validateRewrites），规则路径同样得有。
+// 用 numberTokens 比对 token 而不是「有没有数字」：后者挡不住 3万 → 30万 这类改法。
+[
+  '负责订单系统优化，P99 从 800ms 降到 120ms',
+  '通过赋能业务实现降本增效，支撑日活 3 万',
+  '优秀的团队协作能力，完成 12 个模块交付，效率提升 30%',
+  '参与用户增长项目，新增用户 5000 人，留存率提高 2.5 倍'
+].forEach((src) => {
+  const out = engine.rewriteBullet(src, 'backend', 0);
+  const before = agent.numberTokens(src);
+  const after = agent.numberTokens(out);
+  const lost = before.filter((n) => !after.includes(n));
+  assert(lost.length === 0,
+    '规则改写保留全部数字（' + before.join(',') + ' → 丢失 ' + JSON.stringify(lost) + '）：' + out);
+});
 
 function assert(cond, msg) {
   if (!cond) { console.error('❌ FAIL:', msg); process.exitCode = 1; }
