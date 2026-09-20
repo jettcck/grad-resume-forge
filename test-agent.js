@@ -3,7 +3,7 @@
 // Agent 运行时自测：注入 mock LLM，覆盖「改写 → 校验门 → 重生成 → 复测」全链路
 // 不需要真实 Ollama；llm-client 的探测行为单独验证（本机无服务时应返回 false）
 const http = require('http');
-const { createOllamaClient } = require('./dist/main/llm-client');
+const { createOllamaClient } = require('./packages/llm-adapters/dist/index');
 const agent = require('./dist/main/agent');
 const engine = require('./dist/main/resume-engine');
 
@@ -249,7 +249,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
 
   // ---------- 13) 云端客户端（OpenAI 兼容）：分发/状态/非流式/流式/降级/错误 ----------
   {
-    const { createLlmClient } = require('./dist/main/llm-client');
+    const { createLlmClient } = require('./packages/llm-adapters/dist/index');
     let sawAuth = null;
     const bodies = [];
     let failFirstRf = false;

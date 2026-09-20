@@ -95,7 +95,7 @@ async function cmdRun(flags: Record<string, string>): Promise<number> {
     console.error('agentic 模式需要模型：--endpoint 与 --model（或环境变量 AGENT_BENCH_ENDPOINT / AGENT_BENCH_MODEL）');
     return 2;
   }
-  const llm = appModule('llm-client').createLlmClient({
+  const llm = require('../../llm-adapters/dist/index').createLlmClient({
     provider: apiKey ? 'cloud' : 'ollama', endpoint, model, apiKey, temperature: c.llm?.temperature ?? 0.3
   });
 

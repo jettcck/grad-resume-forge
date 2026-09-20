@@ -11,7 +11,7 @@ import fs from 'fs';
 import * as store from './store';
 import * as auth from './auth';
 import * as engine from './resume-engine';
-import { createLlmClient } from './llm-client';
+import { createLlmClient } from '../../packages/llm-adapters/dist/index';
 import { detectLocalServices } from './local-detect';
 import * as interview from './interview';
 import * as secureStore from './secure-store';

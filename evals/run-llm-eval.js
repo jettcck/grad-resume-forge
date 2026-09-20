@@ -12,7 +12,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { createLlmClient } = require('../dist/main/llm-client');
+const { createLlmClient } = require('../packages/llm-adapters/dist/index');
 const agent = require('../dist/main/agent');
 
 // 读取应用保存的 Agent 配置（云端优先），没有则回退本地 Ollama

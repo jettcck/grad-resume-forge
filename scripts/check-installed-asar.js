@@ -44,6 +44,15 @@ const checks = [
   ['极简顶部细线小节标题', has('.tmpl-minimal .r-sec-title')],
   ['经典金色细线', has('.tmpl-classic .r-head::after')],
   ['模板选择器固定三列网格', has('grid-template-columns: repeat(3')],
+  // v1.10.0：Runtime / 评测 / 架构拆分
+  ['agent-core 已打进安装包（状态机）', has('RunStateMachine')],
+  ['agent-core 工具注册层', has('validateArgs') && has('idempotentHit')],
+  ['agent-core 运行记录与脱敏', has('buildInputSnapshot') && has('jdDigest')],
+  ['agent-core 回放能力', has('replayRun')],
+  ['主进程 require agent-core 路径', has('agent-core/dist')],
+  ['运行记录 IPC（取消 / 清理）', has('agent:cancel') && has('agent:clearRuns')],
+  ['界面运行记录入口', has('清理运行记录') && has('最近运行记录')],
+  ['防幻觉门（证据约束）', has('疑似编造技能')],
   // 夹具不该进安装包
   ['PDF 夹具未进安装包', !has('resume-sample-ats-classic') && !has('resume-sample-stem')]
 ];

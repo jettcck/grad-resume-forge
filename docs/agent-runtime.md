@@ -4,6 +4,7 @@
 
 ```
 packages/
+├── llm-adapters/      # Ollama / OpenAI 兼容云端的有流式解析的 LLM 客户端
 ├── agent-core/        # 可控 Agent Runtime（不依赖 Electron，也不认识简历业务）
 │   ├── src/types.ts          运行状态、预算、工具契约、trace、运行记录的类型
 │   ├── src/state-machine.ts  状态机与允许转移表（非法转移直接抛错）

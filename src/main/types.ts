@@ -220,31 +220,11 @@ export interface AgenticResult {
 }
 
 // ---------- LLM ----------
-export interface ChatMessage {
-  role: 'system' | 'user' | 'assistant' | 'tool';
-  content: string | null;
-  tool_calls?: RawToolCall[];
-  name?: string;
-  tool_call_id?: string;
-}
-
-export interface RawToolCall {
-  id?: string;
-  type?: string;
-  function: { name: string; arguments: unknown };
-}
-
-export interface NormalizedToolCall {
-  name: string;
-  args: Record<string, unknown>;
-  raw: RawToolCall;
-}
-
-export interface ToolCallReply {
-  content: string;
-  toolCalls: NormalizedToolCall[];
-  rawToolCalls: RawToolCall[];
-}
+// 这些类型现在归 packages/llm-adapters 所有（它要能独立编译与测试），应用侧统一从这里再导出，
+// 保证「线上用的类型」与「适配层实现里的类型」是同一份定义。
+export type {
+  ChatMessage, RawToolCall, NormalizedToolCall, ToolCallReply, LlmClient, LlmConfig, LlmStatus, ChatOptions
+} from '../../packages/llm-adapters/dist/index';
 
 export interface ToolSpec {
   name: string;
@@ -260,34 +240,6 @@ export interface ProtocolTool {
     description: string;
     parameters: Record<string, unknown>;
   };
-}
-
-export type LlmClient = {
-  readonly provider: 'ollama' | 'cloud' | 'embedded';
-  readonly config: LlmConfig;
-  status(): Promise<LlmStatus>;
-  chat(messages: ChatMessage[], opts?: ChatOptions): Promise<string | ToolCallReply>;
-};
-
-export interface LlmConfig {
-  provider?: 'cloud' | 'embedded';
-  endpoint: string;
-  model: string;
-  apiKey?: string;
-  temperature?: number;
-  timeout?: number;
-  jsonMode?: boolean;
-}
-
-export interface LlmStatus {
-  available: boolean;
-  models: string[];
-  error?: string;
-}
-
-export interface ChatOptions {
-  onChunk?: (piece: string) => void;
-  tools?: Array<Record<string, unknown>>;
 }
 
 // ---------- 快照 ----------

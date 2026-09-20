@@ -21,7 +21,7 @@
 // ============================================================
 const path = require('path');
 const agent = require(path.join(__dirname, '..', 'dist', 'main', 'agent.js'));
-const llmClient = require(path.join(__dirname, '..', 'dist', 'main', 'llm-client.js'));
+const llmClient = require(path.join(__dirname, '..', 'packages', 'llm-adapters', 'dist', 'index.js'));
 
 const endpoint = process.env.AGENT_BENCH_ENDPOINT || '';
 const model = process.env.AGENT_BENCH_MODEL || '';

@@ -11,6 +11,9 @@
 
 import type { LlmClient, LlmConfig, LlmStatus, ChatMessage, ChatOptions, ToolCallReply, NormalizedToolCall, RawToolCall } from './types';
 
+// 类型对外再导出：应用侧（src/main/types.ts）从这里统一取，保证实现与类型是同一份定义
+export type { ChatMessage, RawToolCall, NormalizedToolCall, ToolCallReply, LlmClient, LlmConfig, LlmStatus, ChatOptions } from './types';
+
 export const DEFAULTS: LlmConfig = {
   endpoint: 'http://127.0.0.1:11434',
   model: 'qwen2.5:7b',          // 中文 + JSON 输出表现均衡的小模型

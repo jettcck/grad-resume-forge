@@ -21,7 +21,7 @@
     "smoke:ui": "electron scripts/screenshot.js --no-sandbox --disable-gpu",
     "smoke:si": "node scripts/smoke-single-instance.js",
     "smoke:pdf": "electron scripts/smoke-pdf-import.js --no-sandbox",
-    "build:core": "tsc -p packages/agent-core/tsconfig.json && tsc -p packages/agent-cli/tsconfig.json",
+    "build:core": "tsc -p packages/agent-core/tsconfig.json && tsc -p packages/llm-adapters/tsconfig.json && tsc -p packages/agent-cli/tsconfig.json",
     "agent:run": "node packages/agent-cli/dist/index.js run",
     "agent:eval": "node packages/agent-cli/dist/index.js eval",
     "agent:replay": "node packages/agent-cli/dist/index.js replay",

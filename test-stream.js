@@ -9,7 +9,7 @@
 const http = require('http');
 const path = require('path');
 
-const { createLlmClient } = require(path.join(__dirname, 'dist/main/llm-client'));
+const { createLlmClient } = require(path.join(__dirname, 'packages/llm-adapters/dist/index'));
 
 let pass = 0, failCnt = 0;
 function assert(cond, msg) {
