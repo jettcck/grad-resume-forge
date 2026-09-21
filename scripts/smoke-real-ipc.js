@@ -84,6 +84,46 @@ app.whenReady().then(async () => {
     t(raw.length > 0 && !raw.includes('sk-smoke-secret-123'), '密钥没有以明文写进数据文件');
     t(/enc:v1:|sk-smoke/.test(raw) === true, '数据文件里存的是（加密或至少非明文的）配置项');
 
+    // ---------- 仅本次会话使用密钥（P3）----------
+    // 勾了「不写入本机」时，密钥只留在主进程内存：数据文件里既没有明文、也没有对应密文。
+    const sess = await win.webContents.executeJavaScript(`(async () => {
+      const saved = await window.api.settings.save('agent', {
+        provider: 'cloud', endpoint: 'http://127.0.0.1:9/v1', model: 'session-only-model',
+        apiKey: 'sk-session-only-abc', apiKeySessionOnly: true
+      });
+      const back = await window.api.settings.get('agent');
+      return {
+        savedHasKey: saved.ok && saved.data ? saved.data.hasKey : null,
+        savedSessionOnly: saved.ok && saved.data ? saved.data.sessionOnly : null,
+        savedApiKey: saved.ok && saved.data ? saved.data.apiKey : 'ERR',
+        backHasKey: back.ok && back.data ? back.data.hasKey : null,
+        backSessionOnly: back.ok && back.data ? back.data.sessionOnly : null,
+        backModel: back.ok && back.data ? back.data.model : null
+      };
+    })()`);
+    t(sess.savedHasKey === true && sess.backHasKey === true, '会话密钥保存后 hasKey=true（可正常使用）');
+    t(sess.savedSessionOnly === true && sess.backSessionOnly === true, '界面能看出这是「仅本次会话」的密钥');
+    t(!sess.savedApiKey, '会话密钥同样不回显给渲染层');
+    t(sess.backModel === 'session-only-model', '非密钥字段照常保存与回读');
+
+    const dbFile2 = path.join(tmp, 'grad-resume-data', 'db.json');
+    const raw2 = fs.existsSync(dbFile2) ? fs.readFileSync(dbFile2, 'utf8') : '';
+    t(!raw2.includes('sk-session-only-abc'), '会话密钥没有明文写进数据文件');
+    t(!/session-only-model[\s\S]{0,200}enc:v1:/.test(raw2), '切到「仅本次会话」后，磁盘上不再保留这条配置的密钥密文');
+    t(/session-only-model/.test(raw2), '（对照）非密钥字段仍然落盘，便于下次打开弹窗');
+
+    // 切回「保存到本机」：恢复持久化，会话里的临时密钥应被清掉
+    const persist = await win.webContents.executeJavaScript(`(async () => {
+      const saved = await window.api.settings.save('agent', {
+        provider: 'cloud', endpoint: 'http://127.0.0.1:9/v1', model: 'persisted-model',
+        apiKey: 'sk-persist-xyz', apiKeySessionOnly: false
+      });
+      return { hasKey: saved.ok && saved.data ? saved.data.hasKey : null, sessionOnly: saved.ok && saved.data ? saved.data.sessionOnly : null };
+    })()`);
+    t(persist.hasKey === true && persist.sessionOnly === false, '关闭该选项后回到「保存到本机」（sessionOnly=false）');
+    const raw3 = fs.readFileSync(dbFile2, 'utf8');
+    t(/enc:v1:/.test(raw3) && !raw3.includes('sk-persist-xyz'), '持久化模式下存的是密文，仍然没有明文');
+
     // ---------- 跨账号隔离（评审要求补的测试）----------
     // 1) 模型配置按账号读：A 存了自定义模型后，agent:status 必须回显 A 的配置。
     //    修复前这里读的是全局键，会回落到默认 Ollama —— 用户配了云端也用不上。

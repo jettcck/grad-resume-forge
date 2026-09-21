@@ -1900,7 +1900,7 @@ function openAgentConfig() {
     cloud: el('button', { class: 'seg-btn', type: 'button' }, ['云端 API'])
   };
   const fieldsBox = el('div', { class: 'modal-body' }, []);
-  let endpointInput, modelInput, keyInput, tempInput, presetSelect, embStatusLine, embDlBtn;
+  let endpointInput, modelInput, keyInput, sessionOnlyInput, tempInput, presetSelect, embStatusLine, embDlBtn;
 
   // ---- 本机已有的本地模型服务：探测到就一键用，省掉「让用户自己装一个」----
   const detectBox = el('div', { class: 'detect-box' }, [
@@ -2011,22 +2011,33 @@ function openAgentConfig() {
       modelInput = md.input;
       // 已保存的密钥不回显（防肩窥/截屏泄漏）；留空保存 = 保留原密钥
       const hasKey = isCloudStored && (stored.hasKey || stored.apiKey); // 主进程只回传「是否已保存」，不回显密钥本身
+      const sessionOnlyStored = isCloudStored && stored.sessionOnly === true;
       const key = textInput(
-        hasKey ? 'API 密钥（已加密保存 · 留空保留原密钥）' : 'API 密钥（safeStorage 加密存储，只在本机）',
+        sessionOnlyStored
+          ? 'API 密钥（仅本次运行有效 · 重启后需重填）'
+          : (hasKey ? 'API 密钥（已加密保存 · 留空保留原密钥）' : 'API 密钥（safeStorage 加密存储，只在本机）'),
         '', hasKey ? '已保存，重填可覆盖' : 'sk-…', 'password'
       );
       keyInput = key.input;
 
+      // 「只本次运行使用」：密钥只留在主进程内存里，不写盘。
+      // 给的是「明文保存」与「不保存」之外的第三个选择（评审 P3）。
+      const sessionOnly = el('label', { style: 'display:flex;align-items:flex-start;gap:8px;font-size:12px;color:var(--ink-2);line-height:1.6;' }, [
+        el('input', { type: 'checkbox', name: 'apiKeySessionOnly', checked: sessionOnlyStored ? 'checked' : null, style: 'margin-top:3px;' }),
+        el('span', {}, ['只本次运行使用，不写入本机（重启应用后需要重新填写）'])
+      ]);
+      sessionOnlyInput = sessionOnly.querySelector('input');
+
       // 系统加密不可用时，密钥只能明文落盘 —— 保存前必须让用户知道，不能默默保存
       const plainWarn = el('p', { style: 'font-size:11.5px;color:#b45309;margin:2px 0 0;line-height:1.7;display:none;' },
-        ['⚠ 这台机器上没有可用的系统加密（safeStorage 不可用），密钥会以明文形式存放在本机数据文件中。共用电脑建议改用本机模型，或每次临时填入。']);
+        ['⚠ 这台机器上没有可用的系统加密（safeStorage 不可用），密钥会以明文形式存放在本机数据文件中。共用电脑建议勾选上面的「只本次运行使用」，或改用本机模型。']);
       call(window.api.secure.status()).then((st) => {
         if (st && st.available === false) plainWarn.style.display = 'block';
       }).catch(() => { /* 探测失败就不吓唬用户 */ });
 
       fieldsBox.append(
         el('label', { class: 'field' }, [el('span', {}, ['服务商预设']), presetSelect]),
-        ep.row, md.row, key.row, plainWarn, temp.row
+        ep.row, md.row, key.row, sessionOnly, plainWarn, temp.row
       );
     } else {
       const ep = textInput('Ollama 地址', !isCloudStored ? (stored.endpoint || 'http://127.0.0.1:11434') : 'http://127.0.0.1:11434');
@@ -2062,8 +2073,10 @@ function openAgentConfig() {
         if (typed) {
           value.apiKey = typed; // 新填的密钥
         }
+        // 勾了「只本次运行使用」：告诉主进程别写盘（密钥只在主进程内存里活到退出）
+        value.apiKeySessionOnly = !!(sessionOnlyInput && sessionOnlyInput.checked);
         // 留空 = 保留已保存的密钥：密钥不回显到渲染层，由主进程在保存时补回原值
-        if (!value.endpoint || !value.model || (!value.apiKey && !hasKey)) {
+        if (!value.endpoint || !value.model || (!value.apiKey && !hasKey && !value.apiKeySessionOnly)) {
           toast('云端模式需填写 API 地址、模型名称与 API 密钥', 'err');
           return;
         }

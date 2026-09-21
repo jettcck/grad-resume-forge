@@ -157,6 +157,9 @@ ipcMain.handle('auth:session', (_e, token: string) => {
 
 ipcMain.handle('auth:logout', (_e, token: string) => {
   try {
+    // 本次会话的临时密钥随登出一起清掉：不写盘的东西不该在登出后还留着
+    const uid = sessions.get(_e.sender.id);
+    if (uid) sessionKeys.delete(uid);
     sessions.delete(_e.sender.id);
     return ok(auth.logout(token));
   } catch (err) {
@@ -542,8 +545,9 @@ function embeddedLlmClient(): import('./types').LlmClient {
 ipcMain.handle('agent:status', async (_e) => {
   try {
     const userId = sessionUserId(_e);
-    const cfg: LlmConfig = (decryptAgentConfig(store.getSetting<LlmConfig>('agent', userId)) as LlmConfig) ||
-      { provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'qwen2.5:7b' };
+    // resolveAgentConfig 会带上「仅本次会话使用」的密钥（存在主进程内存里，不落盘）
+    const cfg: LlmConfig = resolveAgentConfig(userId,
+      { provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'qwen2.5:7b' } as unknown as Partial<LlmConfig>);
     // embedded：读渲染进程上报的状态（渲染层启动时会主动上报一次）
     const client = cfg.provider === 'embedded' ? embeddedLlmClient() : createLlmClient(cfg);
     const st = await client.status();
@@ -646,7 +650,7 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
     const o = opts || {};
     const rulesOnly = o.mode === 'rules';
     // 按会话取用户自己的模型配置：设置存在 `userId:agent`，读全局键会让用户配好的云端模型失效
-    const cfg = Object.assign({}, decryptAgentConfig(store.getSetting<LlmConfig>('agent', userId)) || {}, o);
+    const cfg = resolveAgentConfig(userId, o as Partial<LlmConfig>);
     assertPlainObject(profile, '档案');
     assertSize(profile, LIMITS.profileJson, '档案');
     assertSize(jdText, LIMITS.jdText, '职位描述');
@@ -742,11 +746,36 @@ function decryptAgentConfig(cfg: LlmConfig | null): LlmConfig | null {
   return out;
 }
 
+// 仅本次会话使用的密钥：留在主进程内存里，不写盘，退出即失效。
+// 用途：safeStorage 不可用（密钥只能明文落盘）时，给用户一个更安全的选择，
+// 而不是只能在「明文保存」和「不保存」之间二选一。
+const sessionKeys = new Map<string, string>();
+
+function hasStoredKey(userId: string): boolean {
+  const saved = decryptAgentConfig(store.getSetting<LlmConfig>('agent', userId)) as LlmConfig | null;
+  return !!(saved && saved.apiKey);
+}
+
+/** 取当前账号生效的模型配置：兜底默认值在前、用户保存的在后（用户配置优先），最后补会话密钥 */
+function resolveAgentConfig(userId: string, defaults: Partial<LlmConfig> = {}): LlmConfig {
+  const saved = (decryptAgentConfig(store.getSetting<LlmConfig>('agent', userId)) as LlmConfig | null) || ({} as LlmConfig);
+  const cfg: LlmConfig = Object.assign({}, defaults, saved);
+  if (!cfg.apiKey && sessionKeys.has(userId)) cfg.apiKey = sessionKeys.get(userId)!;
+  return cfg;
+}
+
 ipcMain.handle('settings:get', (_e, key: string) => {
   try {
     const userId = sessionUserId(_e);
     const v = store.getSetting(key, userId);
-    return ok(key === 'agent' ? maskAgentConfig(decryptAgentConfig(v as LlmConfig)) : v);
+    if (key !== 'agent') return ok(v);
+    const masked = maskAgentConfig(decryptAgentConfig(v as LlmConfig));
+    // 告诉界面密钥来自哪里：落盘的（重启仍在）还是仅本次会话的（重启要重填）
+    const sessionOnly = !hasStoredKey(userId) && sessionKeys.has(userId);
+    return ok(Object.assign({}, masked, {
+      hasKey: !!((masked && masked.hasKey) || sessionKeys.has(userId)),
+      sessionOnly
+    }));
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -757,15 +786,36 @@ ipcMain.handle('settings:save', (_e, key: string, value: unknown) => {
     const userId = sessionUserId(_e);
     assertSize(value, LIMITS.settingJson, '设置内容');
     if (key !== 'agent') return ok(store.setSetting(key, value)); // 设备级设置（镜像等）不按账号隔离
-    const incoming = Object.assign({}, (value || {}) as LlmConfig);
-    // 密钥不回显给渲染层，所以「留空」表示保留原密钥：这里用存着的那份补回去，
-    // 免得配置弹窗只改了个模型名就把密钥清掉。
-    if (!incoming.apiKey) {
-      const prev = decryptAgentConfig(store.getSetting<LlmConfig>('agent', userId)) as LlmConfig | null;
-      if (prev && prev.apiKey) incoming.apiKey = prev.apiKey;
+    const incoming = Object.assign({}, (value || {}) as LlmConfig) as LlmConfig & { apiKeySessionOnly?: boolean };
+    const sessionOnly = incoming.apiKeySessionOnly === true;
+    delete incoming.apiKeySessionOnly;
+
+    if (sessionOnly) {
+      // 只留在内存：把密钥从要落盘的配置里摘掉，避免「选了不保存却还是写进文件」。
+      // 没填新密钥但原本存过 → 把原来那把转成本次会话用，并从磁盘上一并摘掉
+      // （用户勾这个选项的意思就是「别再存盘了」）。
+      let key = incoming.apiKey;
+      if (!key) {
+        const prev = decryptAgentConfig(store.getSetting<LlmConfig>('agent', userId)) as LlmConfig | null;
+        if (prev && prev.apiKey) key = prev.apiKey;
+      }
+      if (key) sessionKeys.set(userId, key);
+      delete incoming.apiKey;
+      store.setSetting('agent', Object.assign({}, incoming), userId); // 其余字段照常保存
+    } else {
+      // 密钥不回显给渲染层，所以「留空」表示保留原密钥：这里用存着的那份补回去，
+      // 免得配置弹窗只改了个模型名就把密钥清掉。
+      if (!incoming.apiKey) {
+        const prev = decryptAgentConfig(store.getSetting<LlmConfig>('agent', userId)) as LlmConfig | null;
+        if (prev && prev.apiKey) incoming.apiKey = prev.apiKey;
+      }
+      sessionKeys.delete(userId); // 改为持久保存后，本次会话的临时密钥不再需要
+      store.setSetting('agent', encryptAgentConfig(incoming), userId);
     }
-    const saved = store.setSetting('agent', encryptAgentConfig(incoming), userId);
-    return ok(maskAgentConfig(decryptAgentConfig(saved as LlmConfig)));
+    return ok(Object.assign({}, maskAgentConfig(resolveAgentConfig(userId)), {
+      hasKey: !!(hasStoredKey(userId) || sessionKeys.has(userId)),
+      sessionOnly
+    }));
   } catch (err) {
     return fail((err as Error).message);
   }
