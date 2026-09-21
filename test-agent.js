@@ -772,6 +772,24 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
       '提交过的条目不算未覆盖（未覆盖：' + JSON.stringify(r2.completion.coverage.untouchedIds) + '）');
     const submitStep = (r2.steps || []).find((s) => s.label === 'Agent 判定任务完成');
     assert(!!submitStep && /可改进/.test(submitStep.detail || ''), '收工那一步如实写出「可改进」项');
+
+    // F) 关键步骤没做完但有改写过门 —— 不能算成功
+    // （评审在真实运行里复现过：ok=true 且 incomplete 有值；benchmark 里也曾把这种当正确结果）
+    let m = 0;
+    const noAnalyze = {
+      chat: async () => {
+        m++;
+        if (m === 1) return call('rewrite_bullets', { rewrites: [{ id: 'p0-b0', text: '主导订单系统查询优化，P99 从 800ms 降到 120ms' }] });
+        return call('submit_result', {});
+      }
+    };
+    const r3 = await agenticLoop(PROFILE, JD, { llm: noAnalyze, maxSteps: 8 });
+    assert(r3.accepted.length >= 1, '这条用例确实有改写通过校验门（' + r3.accepted.length + ' 条）');
+    assert(r3.ok === false, '没分析 JD → 不算成功（ok=false）');
+    assert(!!r3.incomplete && /analyze_jd/.test(r3.incomplete), '如实标注缺的是哪一步（' + r3.incomplete + '）');
+    assert(r3.partial === true, '标记 partial：结果可用但不算完成');
+    assert(r3.run && r3.run.status === 'PARTIAL', '运行状态记为 PARTIAL 而非 COMPLETED（实际 ' + (r3.run && r3.run.status) + '）');
+    assert(r3.error === null, 'partial 不是错误：error 为空，界面按「结果 + 警告」展示而不是失败页');
   }
 
   console.log('\nAgent 自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

@@ -543,7 +543,10 @@ async function openAbout() {
             onclick: async () => {
               try {
                 const res = await call(window.api.agent.replay(r.runId, state.profile, state.jdText || ''));
-                toast('已用当前校验逻辑回放：工具成功 ' + res.okCount + ' 次、失败 ' + res.errorCount + ' 次（未调用模型）', 'ok');
+                toast(res.skipped
+                  ? '这条记录默认未保存入参原文（脱敏），有 ' + res.skipped + ' 步无法回放；其余成功 ' + res.okCount + ' 次'
+                  : '已用当前校验逻辑回放：工具成功 ' + res.okCount + ' 次、失败 ' + res.errorCount + ' 次（未调用模型）',
+                res.skipped ? 'notify' : 'ok');
               } catch (err) { toast(err.message, 'err'); }
             }
           }, ['回放'])
@@ -2216,7 +2219,10 @@ async function openAgentRun() {
 function renderAgentResult(overlay, box, result, error, steps) {
   box.innerHTML = '';
 
-  if (error || !result || !result.ok) {
+  // 注意：ok=false 不等于「没有可用结果」。关键步骤没做完（partial）时，
+  // 过了校验门的改写仍然应该给用户看并允许应用 —— 否则修一个诚实性问题反而变成让用户白跑。
+  const usableCount = result && result.accepted ? result.accepted.length : 0;
+  if (error || !result || (!result.ok && usableCount === 0)) {
     box.append(
       el('h3', { class: 'modal-title' }, ['Agent 优化未成功']),
       el('p', { style: 'font-size:13px;color:var(--danger);line-height:1.7;' },
@@ -2296,10 +2302,17 @@ function renderAgentResult(overlay, box, result, error, steps) {
       ? el('p', { style: 'font-size:12px;color:var(--ink-2);margin:6px 0 0;' },
           ['另有 ' + result.contextOmitted + ' 段经历与该 JD 相关度低，未送入本轮改写。'])
       : null,
-    // Agent 提前收工时的如实标注：做了多少说多少，不让「部分完成」看起来像完成
+    // Agent 提前收工时的如实标注：做了多少说多少，不让「部分完成」看起来像完成。
+    // ok=false + partial 的这次运行会走到这里（而不是失败页），所以警告要写得足够显眼。
     result.incomplete
-      ? el('p', { style: 'font-size:12px;color:#b45309;margin:6px 0 0;line-height:1.7;' },
-          ['⚠ 这次 Agent 提前收工（' + result.incomplete + '）——上面的覆盖率对比仅供参考，建议按这份 JD 再跑一轮。'])
+      ? el('div', {
+          style: 'margin:10px 0 0;padding:9px 12px;border-radius:6px;background:#fff7ed;' +
+            'border-left:3px solid #f59e0b;font-size:12px;color:#92400e;line-height:1.7;'
+        }, [
+          el('b', {}, ['⚠ 这次运行不算完成']),
+          el('span', {}, ['：' + result.incomplete + '。下面这些改写本身是过了校验门的，可以用；' +
+            '但上面的覆盖率对比仅供参考，建议按这份 JD 再跑一轮。'])
+        ])
       : null,
     el('p', { style: 'font-size:12.5px;color:var(--ink-1);margin:14px 0 0;font-weight:600;' },
       ['共 ' + result.accepted.length + ' 条改写通过校验，取消勾选可保留对应原文：']),

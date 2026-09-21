@@ -20,7 +20,7 @@ import {
   TraceEntry,
   RunUsage
 } from './types';
-import { truncateArgs } from './run-store';
+import { redactValue } from './run-store';
 
 export interface RegistryOptions {
   runId: string;
@@ -30,12 +30,16 @@ export interface RegistryOptions {
   onTrace?: (entry: TraceEntry) => void;
 }
 
-function summarize(value: unknown, max = 160): string {
+// 记录到 trace 的摘要：先按脱敏规则处理（长文本变成「长度 + 指纹」），再压成一行。
+// 这样 trace 仍能看出「接受 3 / 覆盖率 43%」这类信息，但带不出简历正文与改写内容。
+// 只脱敏入参是不够的：工具输出摘要同样会带上原文（测试里就是这么发现漏洞的）。
+function summarize(value: unknown, max = 200): string {
   let s: string;
   try {
-    s = typeof value === 'string' ? value : JSON.stringify(value);
+    const redacted = redactValue(value);
+    s = typeof redacted === 'string' ? redacted : JSON.stringify(redacted);
   } catch (_) {
-    s = String(value);
+    s = '(无法序列化)';
   }
   s = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
   return s.length > max ? s.slice(0, max) + '…' : s;
@@ -157,7 +161,7 @@ export class ToolRegistry {
       this.trace({
         stepId, tool: name, inputSummary: summarize(args), outputSummary: '未知工具',
         latencyMs: meta.latencyMs, retryCount: 0, tokens: null, errorType: 'unknown_tool',
-        startedAt, args: truncateArgs(args)
+        startedAt, args: redactValue(args)
       });
       return { ok: false, error: '未知工具 ' + name + '（不在白名单：' + this.names().join('、') + '）', errorType: 'unknown_tool', meta };
     }
@@ -168,7 +172,7 @@ export class ToolRegistry {
       this.trace({
         stepId, tool: name, inputSummary: summarize(args), outputSummary: budgetErr.error,
         latencyMs: meta.latencyMs, retryCount: 0, tokens: null, errorType: budgetErr.errorType,
-        startedAt, args: truncateArgs(args)
+        startedAt, args: redactValue(args)
       });
       return { ok: false, error: budgetErr.error, errorType: budgetErr.errorType, meta };
     }
@@ -179,7 +183,7 @@ export class ToolRegistry {
       this.trace({
         stepId, tool: name, inputSummary: summarize(args), outputSummary: invalid,
         latencyMs: meta.latencyMs, retryCount: 0, tokens: null, errorType: 'validation',
-        startedAt, args: truncateArgs(args)
+        startedAt, args: redactValue(args)
       });
       return { ok: false, error: invalid, errorType: 'validation', meta };
     }
@@ -191,7 +195,7 @@ export class ToolRegistry {
       this.trace({
         stepId, tool: name, inputSummary: summarize(args), outputSummary: '幂等命中：' + summarize(data),
         latencyMs: meta.latencyMs, retryCount: 0, tokens: null, errorType: null,
-        startedAt, args: truncateArgs(args)
+        startedAt, args: redactValue(args)
       });
       return { ok: true, data, meta };
     }
@@ -214,7 +218,7 @@ export class ToolRegistry {
         this.trace({
           stepId, tool: name, inputSummary: summarize(args), outputSummary: summarize(data),
           latencyMs, retryCount: attempt - 1, tokens: null, errorType: null,
-          startedAt, args: truncateArgs(args)
+          startedAt, args: redactValue(args)
         });
         return { ok: true, data, meta };
       } catch (err) {
@@ -234,7 +238,7 @@ export class ToolRegistry {
     this.trace({
       stepId, tool: name, inputSummary: summarize(args), outputSummary: lastError,
       latencyMs, retryCount: attempt - 1, tokens: null, errorType: lastErrorType,
-      startedAt, args: truncateArgs(args)
+      startedAt, args: redactValue(args)
     });
     return { ok: false, error: lastError, errorType: lastErrorType, meta };
   }

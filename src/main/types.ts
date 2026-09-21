@@ -179,6 +179,8 @@ export interface PipelineResult {
 
 export interface AgenticResult {
   ok: boolean;
+  /** 有可用改写但关键步骤没做完：界面要展示结果 + 明确警告，而不是当成彻底失败 */
+  partial?: boolean;
   mode: 'agentic';
   error: string | null;
   /** 收工时仍缺的关键动作（如没分析 JD）：有值说明这次不算完整完成，要如实告诉用户 */
@@ -203,7 +205,7 @@ export interface AgenticResult {
     cancelReason: string | null;
     usage: { steps: number; toolCalls: number; retries: number; ms: number; tokens: number };
     inputSnapshot: {
-      profileName: string; itemCount: number; sections: Record<string, number>;
+      itemCount: number; sections: Record<string, number>;
       jdLength: number; jdDigest: string; profileDigest: string;
     };
   } | null;

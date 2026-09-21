@@ -537,9 +537,13 @@ function embeddedLlmClient(): import('./types').LlmClient {
 }
 
 // 探测模型服务；返回 { available, models, config }（云端含 error 说明）
-ipcMain.handle('agent:status', async () => {
+// 注意必须按会话取用户自己的配置：设置保存进的是 `userId:agent`，
+// 读全局键会读不到（用户配了 DeepSeek 也会静默回落到默认 Ollama）。
+ipcMain.handle('agent:status', async (_e) => {
   try {
-    const cfg: LlmConfig = (decryptAgentConfig(store.getSetting<LlmConfig>('agent')) as LlmConfig) || { provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'qwen2.5:7b' };
+    const userId = sessionUserId(_e);
+    const cfg: LlmConfig = (decryptAgentConfig(store.getSetting<LlmConfig>('agent', userId)) as LlmConfig) ||
+      { provider: 'ollama', endpoint: 'http://127.0.0.1:11434', model: 'qwen2.5:7b' };
     // embedded：读渲染进程上报的状态（渲染层启动时会主动上报一次）
     const client = cfg.provider === 'embedded' ? embeddedLlmClient() : createLlmClient(cfg);
     const st = await client.status();
@@ -551,22 +555,30 @@ ipcMain.handle('agent:status', async () => {
 
 // 运行 Agent：mode='pipeline'（默认）/ 'agentic' / 'rules'（零下载规则通道，不调模型）
 // ---------------- Agent 运行记录与取消（第二阶段：Runtime 化）----------------
-// 运行记录单独存 JSONL（不进 db.json：避免主数据文件被日志撑大或被坏日志牵连）。
-let runStore: ReturnType<typeof createFileRunStore> | null = null;
-function getRunStore() {
-  if (!runStore) {
-    runStore = createFileRunStore(path.join(app.getPath('userData'), 'grad-resume-data', 'agent-runs.jsonl'), { maxRuns: 50 });
+// 运行记录按账号分文件：不同账号共用一份 JSONL 的话，A 的记录会被 B 读到、清掉甚至取消，
+// 分文件让隔离由文件系统保证，而不是靠每个接口记得加过滤条件。
+const runStores = new Map<string, ReturnType<typeof createFileRunStore>>();
+function getRunStore(userId: string) {
+  // userId 由主进程生成（user_数字_hex），这里再兜一层，避免被拼成路径穿越
+  const safe = String(userId).replace(/[^A-Za-z0-9_-]/g, '');
+  if (!runStores.has(safe)) {
+    runStores.set(safe, createFileRunStore(
+      path.join(app.getPath('userData'), 'grad-resume-data', 'agent-runs-' + safe + '.jsonl'),
+      { maxRuns: 50 }
+    ));
   }
-  return runStore;
+  return runStores.get(safe)!;
 }
-/** 正在运行的 runId → 取消控制器：用户点取消时用它中断 */
-const activeRuns = new Map<string, AbortController>();
+/** 正在运行的运行 → 取消控制器（带 owner：只有本人能取消自己的运行） */
+const activeRuns = new Map<string, { ownerUserId: string; ctl: AbortController }>();
 
 ipcMain.handle('agent:cancel', (_e, runId: string) => {
   try {
-    const ctl = activeRuns.get(String(runId || ''));
-    if (!ctl) return fail('这次运行已经结束或不存在');
-    ctl.abort();
+    const userId = sessionUserId(_e);
+    const entry = activeRuns.get(String(runId || ''));
+    if (!entry) return fail('这次运行已经结束或不存在');
+    if (entry.ownerUserId !== userId) return fail('不能取消其他账号的运行');
+    entry.ctl.abort();
     return ok({ cancelled: true });
   } catch (err) {
     return fail((err as Error).message);
@@ -576,7 +588,8 @@ ipcMain.handle('agent:cancel', (_e, runId: string) => {
 // 列表只回摘要：trace 与结果明细按 runId 单独取，避免一次拉回几十条大步数记录
 ipcMain.handle('agent:runs', (_e, limit?: number) => {
   try {
-    const list = getRunStore().list(Math.min(Math.max(Number(limit) || 10, 1), 50)).map((r) => ({
+    const userId = sessionUserId(_e);
+    const list = getRunStore(userId).list(Math.min(Math.max(Number(limit) || 10, 1), 50)).map((r) => ({
       runId: r.runId, taskId: r.taskId, status: r.status, currentStep: r.currentStep,
       startedAt: r.startedAt, finishedAt: r.finishedAt, error: r.error, cancelReason: r.cancelReason,
       usage: r.usage, traceCount: r.trace.length, inputSnapshot: r.inputSnapshot
@@ -589,7 +602,8 @@ ipcMain.handle('agent:runs', (_e, limit?: number) => {
 
 ipcMain.handle('agent:run:get', (_e, runId: string) => {
   try {
-    const rec = getRunStore().get(String(runId || ''));
+    const userId = sessionUserId(_e);
+    const rec = getRunStore(userId).get(String(runId || ''));
     if (!rec) return fail('没有找到这条运行记录');
     return ok(rec);
   } catch (err) {
@@ -597,9 +611,10 @@ ipcMain.handle('agent:run:get', (_e, runId: string) => {
   }
 });
 
-ipcMain.handle('agent:clearRuns', () => {
+ipcMain.handle('agent:clearRuns', (_e) => {
   try {
-    return ok({ cleared: getRunStore().clear() });
+    const userId = sessionUserId(_e);
+    return ok({ cleared: getRunStore(userId).clear() });
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -608,7 +623,8 @@ ipcMain.handle('agent:clearRuns', () => {
 // 回放：用当前工具实现按记录重跑一次，不消耗模型调用（复盘「当时为什么拒了这条」）
 ipcMain.handle('agent:replay', async (_e, runId: string, profile: Partial<Profile>, jdText: string) => {
   try {
-    const rec = getRunStore().get(String(runId || ''));
+    const userId = sessionUserId(_e);
+    const rec = getRunStore(userId).get(String(runId || ''));
     if (!rec) return fail('没有找到这条运行记录');
     const items = agent.buildTaskItems(profile);
     if (!items.length) return fail('档案中没有可改写的经历条目');
@@ -626,9 +642,11 @@ ipcMain.handle('agent:replay', async (_e, runId: string, profile: Partial<Profil
 
 ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string, opts: { mode?: string; runId?: string } & Partial<LlmConfig>) => {
   try {
+    const userId = sessionUserId(_e);
     const o = opts || {};
     const rulesOnly = o.mode === 'rules';
-    const cfg = Object.assign({}, decryptAgentConfig(store.getSetting<LlmConfig>('agent')) || {}, o);
+    // 按会话取用户自己的模型配置：设置存在 `userId:agent`，读全局键会让用户配好的云端模型失效
+    const cfg = Object.assign({}, decryptAgentConfig(store.getSetting<LlmConfig>('agent', userId)) || {}, o);
     assertPlainObject(profile, '档案');
     assertSize(profile, LIMITS.profileJson, '档案');
     assertSize(jdText, LIMITS.jdText, '职位描述');
@@ -653,12 +671,12 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
     // runId 由渲染层给出：这样用户点「取消」时主进程能立刻找到对应的运行
     const runId = String(o.runId || ('run_' + Date.now().toString(36)));
     const ctl = new AbortController();
-    activeRuns.set(runId, ctl);
+    activeRuns.set(runId, { ownerUserId: userId, ctl });
     try {
       const runner = o.mode === 'agentic' ? agent.agenticLoop : agent.runAgent;
       const result = await runner(profile, jdText, {
         llm, onStep: send, onChunk: sendStream,
-        runId, taskId: 'resume-optimize', runStore: getRunStore(), signal: ctl.signal
+        runId, taskId: 'resume-optimize', runStore: getRunStore(userId), signal: ctl.signal
       } as never);
       return ok(result);
     } finally {

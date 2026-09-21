@@ -116,5 +116,8 @@
     "@mlc-ai/web-llm": "^0.2.85",
     "electron-updater": "^6.8.9",
     "pdfjs-dist": "^4.10.38"
+  },
+  "overrides": {
+    "js-yaml": "^4.3.2"
   }
 }

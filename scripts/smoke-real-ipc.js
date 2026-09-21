@@ -83,6 +83,65 @@ app.whenReady().then(async () => {
     const raw = fs.existsSync(dbFile) ? fs.readFileSync(dbFile, 'utf8') : '';
     t(raw.length > 0 && !raw.includes('sk-smoke-secret-123'), '密钥没有以明文写进数据文件');
     t(/enc:v1:|sk-smoke/.test(raw) === true, '数据文件里存的是（加密或至少非明文的）配置项');
+
+    // ---------- 跨账号隔离（评审要求补的测试）----------
+    // 1) 模型配置按账号读：A 存了自定义模型后，agent:status 必须回显 A 的配置。
+    //    修复前这里读的是全局键，会回落到默认 Ollama —— 用户配了云端也用不上。
+    const cfgA = await win.webContents.executeJavaScript(`(async () => {
+      await window.api.settings.save('agent', { provider: 'cloud', endpoint: 'http://127.0.0.1:9/v1', model: 'account-A-model', apiKey: 'sk-A-secret', timeout: 300 });
+      const st = await window.api.agent.status();
+      return { model: st.ok && st.data && st.data.config ? st.data.config.model : null };
+    })()`);
+    t(cfgA.model === 'account-A-model',
+      'agent:status 回显的是当前账号保存的模型配置（实得：' + JSON.stringify(cfgA.model) + '）');
+
+    // 2) 运行记录按账号隔离：给 A 造一条记录，B 不该看到、也不该能取到或清掉
+    const runsFileA = path.join(tmp, 'grad-resume-data', 'agent-runs-' + out.myId + '.jsonl');
+    const fakeRec = {
+      runId: 'run_ownerA', taskId: 'resume-optimize', status: 'COMPLETED', currentStep: 'completed',
+      createdAt: Date.now(), startedAt: Date.now(), finishedAt: Date.now(), error: null, cancelReason: null,
+      inputSnapshot: { itemCount: 1, sections: { projects: 1 }, jdLength: 10, jdDigest: 'aaaa1111:10', profileDigest: 'bbbb2222:20' },
+      budget: { maxSteps: 10, maxToolCalls: 40, maxDurationMs: 180000, maxTokens: 120000 },
+      usage: { steps: 1, toolCalls: 1, retries: 0, ms: 5, tokens: 0 }, trace: [], result: null
+    };
+    fs.mkdirSync(path.dirname(runsFileA), { recursive: true });
+    fs.writeFileSync(runsFileA, JSON.stringify(fakeRec) + '\n', 'utf8');
+
+    const iso = await win.webContents.executeJavaScript(`(async () => {
+      const aRuns = await window.api.agent.runs(10);
+      const b = await window.api.auth.register({ email: 'smoke-b@test.local', password: 'pass123456', name: '冒烟乙' });
+      if (!b.ok) return { error: b.error };
+      const bRuns = await window.api.agent.runs(10);
+      const bGet = await window.api.agent.getRun('run_ownerA');
+      const bCancel = await window.api.agent.cancel('run_ownerA');
+      const bClear = await window.api.agent.clearRuns();
+      const bStatus = await window.api.agent.status();
+      // 回到 A：记录必须还在（B 的清理不能影响 A）
+      const reloginA = await window.api.auth.login({ email: 'smoke@test.local', password: 'pass123456' });
+      const aRunsAfter = await window.api.agent.runs(10);
+      return {
+        bId: b.data && b.data.id,
+        aCount: aRuns.ok ? aRuns.data.length : -1,
+        bCount: bRuns.ok ? bRuns.data.length : -1,
+        bGetOk: bGet.ok,
+        bCancelOk: bCancel.ok,
+        bCleared: bClear.ok ? bClear.data.cleared : -1,
+        bModel: bStatus.ok && bStatus.data && bStatus.data.config ? bStatus.data.config.model : null,
+        aCountAfter: aRunsAfter.ok ? aRunsAfter.data.length : -1
+      };
+    })()`);
+
+    if (iso.error) {
+      t(false, '跨账号隔离测试失败：' + iso.error);
+    } else {
+      t(iso.aCount === 1, 'A 能看到自己的运行记录（' + iso.aCount + ' 条）');
+      t(iso.bCount === 0, 'B 看不到 A 的运行记录（实得 ' + iso.bCount + ' 条）');
+      t(iso.bGetOk === false, 'B 取不到 A 的运行详情（按 runId 直接取也不行）');
+      t(iso.bCancelOk === false, 'B 不能取消 A 的运行');
+      t(iso.bCleared === 0, 'B 的「清理运行记录」清不到 A 的记录（清除 ' + iso.bCleared + ' 条）');
+      t(iso.aCountAfter === 1, 'B 清理后 A 的记录仍在（' + iso.aCountAfter + ' 条）');
+      t(iso.bModel !== 'account-A-model', 'B 读不到 A 的模型配置（实得：' + JSON.stringify(iso.bModel) + '）');
+    }
   }
 
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* 忽略 */ }

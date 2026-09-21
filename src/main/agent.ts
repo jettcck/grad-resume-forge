@@ -833,7 +833,6 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
     taskId: (o as { taskId?: string }).taskId || 'resume-optimize',
     store: (o as { runStore?: RunStore }).runStore,
     inputSnapshot: buildInputSnapshot({
-      profileName: String((profile as { name?: string }).name || ''),
       itemCount: items.length,
       sections: {
         education: ((profile as { education?: unknown[] }).education || []).length,
@@ -855,13 +854,19 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
     jdBefore: number; jdAfter: number; jdMissingAfter: string[];
   };
   const accepted = Array.from(ctx.accepted.values());
-  const ok = accepted.length > 0 && !outcome.loopError && !outcome.cancelled;
+  // ok 必须计入 incomplete：critical 步骤没做完（如整轮没分析 JD）却算成功，
+  // 就是「部分完成假成功」—— 评审在真实运行里复现过（ok=true 且 incomplete 有值）。
+  const ok = accepted.length > 0 && !outcome.loopError && !outcome.cancelled && !outcome.incomplete;
+  // 但「不成功」不等于「结果没用」：过了校验门的改写仍然可用。
+  // 界面据此走「结果视图 + 未完成警告」，而不是把可用结果丢进失败页。
+  const partial = !ok && accepted.length > 0 && !outcome.loopError && !outcome.cancelled;
   const error = outcome.cancelled
     ? '运行已取消（已完成的 ' + accepted.length + ' 条改写保留）'
     : outcome.loopError;
 
   return {
     ok,
+    partial,
     mode: 'agentic',
     error,
     incomplete: outcome.incomplete,

@@ -24,14 +24,12 @@ export function digest(text: string): string {
 }
 
 export function buildInputSnapshot(input: {
-  profileName?: string;
   itemCount: number;
   sections: Record<string, number>;
   jd: string;
   profileDigestSource: string;
 }): InputSnapshot {
   return {
-    profileName: String(input.profileName || '').slice(0, 40),
     itemCount: input.itemCount,
     sections: input.sections,
     jdLength: String(input.jd || '').length,
@@ -40,7 +38,41 @@ export function buildInputSnapshot(input: {
   };
 }
 
-/** 截断工具入参里的长字符串，保留可回放的形状 */
+/**
+ * 记录入参/出参的白名单式脱敏：**超过 REDACT_MAX_STR 字的字符串一律替换成「长度 + 指纹」**，
+ * 短标签（工具名、条目 id、拒收原因里的关键词）与数字/布尔值保留。
+ *
+ * 阈值定在 12 字是有意的：真实简历要点普遍 15–40 字，阈值放到 24 字会让一半内容直接漏进日志
+ * （第一版就是 24 字，被自己的测试发现 18 字的改写照样落盘）。代价是偏长的拒收原因也会被哈希，
+ * 但运行时的实时步骤（agent:progress）本来就显示完整原因，落盘记录只做复盘用途。
+ */
+export const REDACT_MAX_STR = 12;
+
+export function redactValue(value: unknown, max = REDACT_MAX_STR): unknown {
+  if (typeof value === 'string') {
+    return value.length > max ? { len: value.length, digest: digest(value) } : value;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean' || value == null) return value;
+  if (Array.isArray(value)) return value.slice(0, 20).map((v) => redactValue(v, max));
+  if (typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    Object.keys(value as Record<string, unknown>).forEach((k) => {
+      out[k] = redactValue((value as Record<string, unknown>)[k], max);
+    });
+    return out;
+  }
+  return String(value).slice(0, 40);
+}
+
+/** 兼容旧名字：入参脱敏 */
+export function redactArgs(args: unknown): unknown {
+  return redactValue(args);
+}
+
+/**
+ * 保留正文的入参快照 —— 仅在显式开启 storeTraceArgs 时使用（为了「按记录完整回放」）。
+ * 字符串按 300 字截断以免整份简历进日志；开启后记录里会有内容原文，默认关闭。
+ */
 export function truncateArgs(args: unknown, max = ARG_MAX_STR): unknown {
   if (typeof args === 'string') return args.length > max ? args.slice(0, max) + '…(' + args.length + '字)' : args;
   if (Array.isArray(args)) return args.map((a) => truncateArgs(a, max));

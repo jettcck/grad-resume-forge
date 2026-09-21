@@ -24,7 +24,7 @@ import {
 } from './types';
 import { RunStateMachine } from './state-machine';
 import { ToolRegistry } from './tools';
-import { truncateArgs } from './run-store';
+import { truncateArgs, redactArgs } from './run-store';
 
 export interface RuntimeOutcome {
   runId: string;
@@ -198,7 +198,11 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
               (advisoryMissing.length ? '（可改进：' + advisoryMissing.map((c) => c.label).join('；') + '）' : '')
           });
           finished = true;
-          sm.transition('COMPLETED', 'completed', now());
+          // critical 缺失（如整轮没分析 JD）时不能记成 COMPLETED：
+          // 那就是「部分完成假成功」，评审在真实运行里复现过（ok=true 且 incomplete 有值）。
+          // 用 PARTIAL 表达「产出可用但不是完成」，让上层与界面都能如实区分。
+          if (criticalMissing.length) sm.transition('PARTIAL', 'partial', now());
+          else sm.transition('COMPLETED', 'completed', now());
           break;
         }
 
@@ -247,7 +251,7 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
     inputSnapshot: opts.inputSnapshot || fallbackSnapshot,
     budget,
     usage: Object.assign({}, usage),
-    trace: trace.map((t) => Object.assign({}, t, { args: truncateArgs(t.args) })),
+    trace: trace.map((t) => Object.assign({}, t, { args: opts.storeTraceArgs ? truncateArgs(t.args) : redactArgs(t.args) })),
     result: finalized
   };
   if (opts.store) opts.store.append(record);
@@ -284,14 +288,36 @@ function summarizeOutcome(tool: string, outcome: ToolOutcome): string {
   }
 }
 
+/** 判断入参是不是脱敏后的形态（叶子被替换成 {len, digest}）：这种入参无法用来重跑 */
+function looksRedacted(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some((v) => looksRedacted(v));
+  if (value && typeof value === 'object') {
+    const o = value as Record<string, unknown>;
+    if (typeof o.len === 'number' && typeof o.digest === 'string') return true;
+    return Object.keys(o).some((k) => looksRedacted(o[k]));
+  }
+  return false;
+}
+
 /**
  * 回放：拿到一条运行记录，用当前的工具实现按原顺序重跑那些调用。
  * 用途：复盘「当时为什么拒了这条」、改了校验门之后对比效果，都无需再花模型调用。
+ *
+ * 注意：运行记录默认只保存入参摘要（不含简历正文），这时没有可重跑的入参。
+ * 遇到这种步骤会**如实跳过并计数**，而不是拿脱敏后的占位对象去跑（那只会得到一堆
+ * 「参数类型不对」的假错误，把真正的原因藏起来）。
  */
 export async function replayRun(
   record: RunRecord,
   opts: { tools: ToolSpec[]; ctx?: unknown; now?: () => number }
-): Promise<{ runId: string; steps: Array<{ tool: string; ok: boolean; error?: string; data?: unknown }>; okCount: number; errorCount: number }> {
+): Promise<{
+  runId: string;
+  steps: Array<{ tool: string; ok: boolean; error?: string; data?: unknown }>;
+  okCount: number;
+  errorCount: number;
+  skipped: number;
+  skippedReason: string | null;
+}> {
   const now = opts.now || (() => Date.now());
   const registry = new ToolRegistry({
     runId: 'replay_' + record.runId,
@@ -303,12 +329,17 @@ export async function replayRun(
   const steps: Array<{ tool: string; ok: boolean; error?: string; data?: unknown }> = [];
   let okCount = 0;
   let errorCount = 0;
+  let skipped = 0;
   for (let i = 0; i < record.trace.length; i++) {
     const t = record.trace[i]!;
     if (t.tool === 'agent' || t.tool === 'submit_result') continue;
+    if (t.args == null || looksRedacted(t.args)) { skipped++; continue; }
     const outcome = await registry.call(t.tool, t.args, opts.ctx, i + 1);
     if (outcome.ok) { okCount++; steps.push({ tool: t.tool, ok: true, data: outcome.data }); }
     else { errorCount++; steps.push({ tool: t.tool, ok: false, error: outcome.error }); }
   }
-  return { runId: 'replay_' + record.runId, steps, okCount, errorCount };
+  const skippedReason = skipped
+    ? '这条记录默认未保存工具入参原文（脱敏），有 ' + skipped + ' 步无法回放'
+    : null;
+  return { runId: 'replay_' + record.runId, steps, okCount, errorCount, skipped, skippedReason };
 }

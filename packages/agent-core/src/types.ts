@@ -16,10 +16,12 @@ export type RunStatus =
   | 'CRITIC_REVIEW'
   | 'WAITING_HUMAN_APPROVAL'
   | 'COMPLETED'
+  /** 产出可用（有改写过校验门）但关键步骤没做完：既不是成功，也不该按失败丢掉结果 */
+  | 'PARTIAL'
   | 'FAILED'
   | 'CANCELLED';
 
-export const TERMINAL_STATUSES: ReadonlyArray<RunStatus> = ['COMPLETED', 'FAILED', 'CANCELLED'];
+export const TERMINAL_STATUSES: ReadonlyArray<RunStatus> = ['COMPLETED', 'PARTIAL', 'FAILED', 'CANCELLED'];
 
 /** 预算：一次运行最多花多少步 / 多少次工具调用 / 多少时间 / 多少 token */
 export interface Budget {
@@ -110,9 +112,8 @@ export interface TraceEntry {
   args?: unknown;
 }
 
-/** 脱敏后的输入快照：不保存简历正文与 JD 原文，只留可核对的结构信息与摘要指纹 */
+/** 脱敏后的输入快照：不保存简历正文、姓名与 JD 原文，只留可核对的结构信息与摘要指纹 */
 export interface InputSnapshot {
-  profileName: string;
   itemCount: number;
   sections: Record<string, number>;
   jdLength: number;
@@ -198,6 +199,12 @@ export interface RuntimeOptions {
   budget?: Partial<Budget>;
   /** 脱敏后的输入快照（简历/JD 不存正文，只存结构与指纹） */
   inputSnapshot?: InputSnapshot;
+  /**
+   * 是否在 trace 里保留工具入参原文（默认 false）。
+   * 关闭时只记 id/长度/指纹 —— 记录里不会出现简历正文；代价是无法「按记录完整回放」，
+   * 回放会如实报告跳过了多少步，而不是拿空入参去猜。
+   */
+  storeTraceArgs?: boolean;
   /** 取消信号：外部（用户点取消）触发后，运行时在安全点退出并标记 CANCELLED */
   signal?: AbortSignal;
   onStep?: (ev: RuntimeStepEvent) => void;

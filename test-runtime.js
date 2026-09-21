@@ -219,7 +219,7 @@ function makeAdapter(opts) {
       store,
       taskId: 'unit-task',
       inputSnapshot: core.buildInputSnapshot({
-        profileName: '张三', itemCount: 1, sections: { projects: 1 },
+        itemCount: 1, sections: { projects: 1 },
         jd: '一份很长的 JD 原文，里面写着「招聘后端工程师，熟悉 Redis 与 Kafka」', profileDigestSource: '{"name":"张三"}'
       })
     });
@@ -281,20 +281,46 @@ function makeAdapter(opts) {
     assert(/token/.test(overTokens.trace.map((x) => x.outputSummary).join(' ')), 'trace 里能查到预算拦截原因');
     assert(overTokens.record.usage.tokens === 5000, '运行记录累计 token（' + overTokens.record.usage.tokens + '）');
 
-    // 回放：按记录里的工具调用重跑一遍，不花模型调用
+    // 回放（显式开启入参留档）：按记录里的工具调用重跑一遍，不花模型调用
     const store2 = core.createMemoryRunStore();
     const t5 = makeTool('rewrite3', { permission: 'write' });
     const a5 = makeAdapter({ script: [
       { calls: [{ name: 'rewrite3', args: { id: 'b0', text: '改写内容' } }] },
       { calls: [{ name: 'submit_result', args: {} }] }
     ] });
-    const run = await core.runAgentRuntime({ adapter: a5.adapter, tools: [t5.spec], budget: { maxSteps: 4 }, store: store2 });
+    const run = await core.runAgentRuntime({
+      adapter: a5.adapter, tools: [t5.spec], budget: { maxSteps: 4 }, store: store2,
+      storeTraceArgs: true // 为了能按记录完整回放，显式开启入参留档
+    });
     const record = store2.get(run.runId);
     const replay = await core.replayRun(record, { tools: [t5.spec] });
-    assert(replay.okCount === 1 && replay.errorCount === 0, '回放重跑记录里的工具调用（成功 ' + replay.okCount + '）');
+    assert(replay.okCount === 1 && replay.errorCount === 0 && replay.skipped === 0,
+      '显式留档时可完整回放（成功 ' + replay.okCount + '，跳过 ' + replay.skipped + '）');
     assert(replay.steps[0].tool === 'rewrite3' && JSON.stringify(replay.steps[0].data).includes('改写内容'),
       '回放使用的是记录下来的入参');
     assert(t5.calls.count === 2, '回放确实又执行了工具（累计 ' + t5.calls.count + ' 次）');
+
+    // 默认（不留正文）时的两个硬要求：记录里没有正文；回放如实报告跳过多少步
+    const store3 = core.createMemoryRunStore();
+    const t6 = makeTool('rewrite4', { permission: 'write' });
+    const secret = '负责订单系统开发，支撑日活 3 万';
+    const a6 = makeAdapter({ script: [
+      { calls: [{ name: 'rewrite4', args: { id: 'b0', text: secret } }] },
+      { calls: [{ name: 'submit_result', args: {} }] }
+    ] });
+    const run3 = await core.runAgentRuntime({ adapter: a6.adapter, tools: [t6.spec], budget: { maxSteps: 4 }, store: store3 });
+    const rec3 = store3.get(run3.runId);
+    const text3 = JSON.stringify(rec3);
+    assert(!text3.includes(secret), '默认不落正文：记录里找不到改写内容（' + secret.length + ' 字）');
+    const redacted = rec3.trace.find((x) => x.tool === 'rewrite4');
+    assert(!!redacted && redacted.args && redacted.args.id === 'b0',
+      '脱敏后仍保留可核对的条目 id');
+    assert(typeof redacted.args.text.digest === 'string' && redacted.args.text.len > 0,
+      '脱敏后保留长度与指纹（可核对同一份内容，但读不出内容）');
+    assert(!/负责订单|日活/.test(text3), '出参摘要同样不落正文（只脱敏入参不够）');
+    const replay3 = await core.replayRun(rec3, { tools: [t6.spec] });
+    assert(replay3.okCount === 0 && replay3.skipped >= 1,
+      '默认脱敏时回放如实跳过（跳过 ' + replay3.skipped + ' 步），不拿空入参去猜');
   }
 
   console.log('\nAgent Runtime 自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

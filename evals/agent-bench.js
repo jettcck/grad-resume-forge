@@ -148,20 +148,22 @@ function buildCases() {
       ],
       expect: { ok: true, statusIn: ['COMPLETED'], minAccepted: 1 }
     });
-    // 2) 跳过分析就直接收工：critical 缺失 → 会被催，最终如实标注未完成
+    // 2) 跳过分析就直接收工：critical 缺失 → 会被催，最终如实标注未完成。
+    // 期望必须是 ok:false —— 之前这里写的是 ok:true，等于把「业务没做完」当成成功，
+    // 让成功率口径偏乐观（评审指出的第三项问题）。
     push({
       id: dk + '/no_analysis', category: 'no_analysis', domain: dk, profile, jd: d.jd,
       script: [
         { calls: [{ name: 'rewrite_bullets', args: { rewrites: goodRewrites(dk, profile) } }] },
         { calls: [{ name: 'submit_result', args: {} }] }
       ],
-      expect: { ok: true, incomplete: true }
+      expect: { ok: false, incomplete: true, statusIn: ['PARTIAL'] }
     });
     // 3) 一上来就收工：应该被催两次后如实收工，不能假装成功
     push({
       id: dk + '/lazy', category: 'lazy', domain: dk, profile, jd: d.jd,
       script: [{ calls: [{ name: 'submit_result', args: {} }] }],
-      expect: { ok: false, statusIn: ['COMPLETED'], nudgedAtLeast: 1 }
+      expect: { ok: false, statusIn: ['PARTIAL'], nudgedAtLeast: 1 }
     });
     // 4) 部分被拒：一条过门、一条改了原文已有的数字 → 任务成功但如实记录
     push({
@@ -381,6 +383,9 @@ function judge(c, run) {
   });
 
   const passCount = runs.filter((x) => !x.problems.length).length;
+  // 业务完成率：真正 ok=true 的用例（不含「按预期失败」的样本），与「行为符合预期」分开统计
+  const okRuns = runs.filter((x) => x.run && x.run.result && x.run.result.ok === true).length;
+  const partialRuns = runs.filter((x) => x.run && x.run.result && x.run.result.partial === true).length;
   // 干净路径（不含故意注入失败的类别）的工具成功率：这一项才是真正该 100% 的
   const INJECTS_FAILURE = ['bad_args', 'unknown_tool'];
   let cleanCalls = 0, cleanErrors = 0;
@@ -397,7 +402,12 @@ function judge(c, run) {
   const avg = (list) => (list.length ? list.reduce((a, b) => a + b, 0) / list.length : 0);
   const metrics = {
     cases: runs.length,
+    // 两个口径必须分开看，别混为一谈：
+    //   taskSuccessRate    = 用例行为是否符合预期（含「该失败就失败」的失败样本）
+    //   businessCompletion = 真正 ok=true 的比例（业务上完成的比例）
     taskSuccessRate: Math.round(ok(passCount, runs.length) * 1000) / 10,
+    businessCompletionRate: Math.round(ok(okRuns, runs.length) * 1000) / 10,
+    partialRuns,
     toolCallSuccessRate: Math.round(ok(toolCalls - toolErrors, toolCalls) * 1000) / 10,
     cleanPathToolSuccessRate: Math.round(ok(cleanCalls - cleanErrors, cleanCalls) * 1000) / 10,
     rewriteAcceptanceRate: Math.round(ok(accepted, accepted + rejected) * 1000) / 10,
@@ -423,7 +433,8 @@ function judge(c, run) {
 
   console.log('\n=== Agent Benchmark（mock 层，确定性、零模型成本）===');
   console.log('任务数              ' + metrics.cases);
-  console.log('任务成功率          ' + metrics.taskSuccessRate + '%');
+  console.log('行为符合预期        ' + metrics.taskSuccessRate + '%  （含故意注入的失败样本，测的是「该成功就成功、该失败就失败」）');
+  console.log('业务完成率          ' + metrics.businessCompletionRate + '%  （真正 ok=true 的比例；另有 ' + metrics.partialRuns + ' 个 PARTIAL 部分完成）');
   console.log('工具调用成功率      ' + metrics.toolCallSuccessRate + '%  （' + metrics.toolCalls + ' 次调用，含故意注入的失败）');
   console.log('干净路径成功率      ' + metrics.cleanPathToolSuccessRate + '%  （' + metrics.cleanToolCalls + ' 次调用，不含注入失败）');
   console.log('改写通过率          ' + metrics.rewriteAcceptanceRate + '%  （通过 ' + metrics.accepted + ' / 拒收 ' + metrics.rejected + '）');
@@ -443,8 +454,7 @@ function judge(c, run) {
     cleanPathToolSuccessRate: 100,
     metricPreservation: 100,
     hallucinationRate: 0
-  };
-  const gateFailures = Object.keys(GATES).filter((k) => {
+  };  const gateFailures = Object.keys(GATES).filter((k) => {
     const v = metrics[k];
     return k === 'hallucinationRate' ? v > GATES[k] : v < GATES[k];
   });
@@ -453,8 +463,9 @@ function judge(c, run) {
     console.log('❌ 未达标：' + gateFailures.map((k) => k + '=' + metrics[k]).join('、'));
     process.exitCode = 1;
   } else {
-    console.log('✅ 全部达标（实测：任务成功率 ' + metrics.taskSuccessRate + '%、干净路径 ' + metrics.cleanPathToolSuccessRate +
-      '%、数字保全 ' + metrics.metricPreservation + '%、编造技能 ' + metrics.hallucinationRate + '%）');
+    console.log('✅ 全部达标（实测：行为符合预期 ' + metrics.taskSuccessRate + '%、干净路径 ' + metrics.cleanPathToolSuccessRate +
+      '%、数字保全 ' + metrics.metricPreservation + '%、编造技能 ' + metrics.hallucinationRate + '%；' +
+      '业务完成率 ' + metrics.businessCompletionRate + '% 不计入门禁——失败样本本来就该不完成）');
   }
 })().catch((e) => {
   console.error('benchmark 异常：', e && e.stack ? e.stack : e);

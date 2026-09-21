@@ -55,7 +55,7 @@ const mockRuns = [{
   runId: 'run_mock1', taskId: 'resume-optimize', status: 'COMPLETED', currentStep: 'completed',
   startedAt: Date.now() - 60000, finishedAt: Date.now() - 58000, error: null, cancelReason: null,
   usage: { steps: 4, toolCalls: 3, retries: 0, ms: 2100, tokens: 0 }, traceCount: 4,
-  inputSnapshot: { profileName: '李明', itemCount: 3, sections: { projects: 1 }, jdLength: 120, jdDigest: 'abc12345:120', profileDigest: 'def67890:400' }
+  inputSnapshot: { itemCount: 3, sections: { projects: 1 }, jdLength: 120, jdDigest: 'abc12345:120', profileDigest: 'def67890:400' }
 }];
 // 置真时 settings:get 返回 null（模拟偏好读不回来）—— 用来验证「记住通道」的断言真的会红
 let mockSettingsUnreadable = false;

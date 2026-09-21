@@ -26,6 +26,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # 生产依赖的高危公告直接卡住流水线（本地用的是国内镜像，不提供 audit 接口，
+      # 所以这一步只在 CI 上有意义；发现修复版就用 package.json 的 overrides 固定）
+      - name: Production dependency audit
+        run: npm audit --omit=dev --audit-level=high
+
       - name: Syntax check (all JS files)
         run: |
           for f in $(git ls-files '*.js'); do
