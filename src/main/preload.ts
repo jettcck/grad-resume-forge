@@ -53,7 +53,8 @@ contextBridge.exposeInMainWorld('api', {
   // 数据备份：启动时自动轮转留档（保留最近 5 份），可一键恢复或打开备份目录
   backups: {
     list: () => ipcRenderer.invoke('backups:list'),
-    restore: (name: string) => ipcRenderer.invoke('backups:restore', name),
+    // 恢复整库：主进程要求显式 confirm；界面上已有一层确认弹窗，这里把「用户已确认」传过去
+    restore: (name: string, confirm?: boolean) => ipcRenderer.invoke('backups:restore', name, confirm === true),
     reveal: () => ipcRenderer.invoke('backups:reveal')
   },
   clipboard: {

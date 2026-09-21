@@ -23,10 +23,18 @@ export interface NormalizedToolCall {
   raw: RawToolCall;
 }
 
+export interface LlmUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
 export interface ToolCallReply {
   content: string;
   toolCalls: NormalizedToolCall[];
   rawToolCalls: RawToolCall[];
+  /** 服务端上报的 token 用量：Agent 的 token 预算与成本统计靠它（此前被丢弃，预算等于失效） */
+  usage?: LlmUsage;
 }
 
 export type LlmClient = {

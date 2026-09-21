@@ -337,24 +337,33 @@ ipcMain.handle('snapshots:delete', (_e, userId: string, snapshotId: string) => {
 });
 
 // ---------------- 数据备份（自动轮转 + 一键恢复） ----------------
-ipcMain.handle('backups:list', () => {
+// 这三个接口操作的是**设备级**数据（整库：所有账号、会话、配置），
+// 所以既要登录态，恢复又必须显式确认 —— restore 会把整个数据库换成备份内容，
+// 未登录的渲染层也能调是被评审点出来的越权面。
+ipcMain.handle('backups:list', (_e) => {
   try {
+    sessionUserId(_e);
     return ok({ items: store.listBackups(), dir: store.backupsPath() });
   } catch (err) {
     return fail((err as Error).message);
   }
 });
 
-ipcMain.handle('backups:restore', (_e, name: string) => {
+ipcMain.handle('backups:restore', (_e, name: string, confirm?: boolean) => {
   try {
+    sessionUserId(_e);
+    if (confirm !== true) {
+      return fail('恢复备份会替换整个数据库（含所有账号与配置），需要显式确认后再执行');
+    }
     return ok(store.restoreBackup(name));
   } catch (err) {
     return fail((err as Error).message);
   }
 });
 
-ipcMain.handle('backups:reveal', () => {
+ipcMain.handle('backups:reveal', (_e) => {
   try {
+    sessionUserId(_e);
     const dir = store.backupsPath();
     if (dir && fs.existsSync(dir)) shell.openPath(dir);
     return ok({ dir });
@@ -551,7 +560,13 @@ ipcMain.handle('agent:status', async (_e) => {
     // embedded：读渲染进程上报的状态（渲染层启动时会主动上报一次）
     const client = cfg.provider === 'embedded' ? embeddedLlmClient() : createLlmClient(cfg);
     const st = await client.status();
-    return ok({ ...st, config: client.config, provider: client.provider });
+    // 不能把 client.config 原样回给渲染层：里面有解密后的 apiKey（评审指出的泄漏点，
+    // 一旦渲染层被注入内容就能直接读走）。只回掩码后的配置 + 「是否已有密钥」。
+    const safeConfig = Object.assign({}, client.config) as LlmConfig & { hasKey?: boolean; sessionOnly?: boolean };
+    delete safeConfig.apiKey;
+    safeConfig.hasKey = !!cfg.apiKey;
+    safeConfig.sessionOnly = !hasStoredKey(userId) && sessionKeys.has(userId);
+    return ok({ ...st, config: safeConfig, provider: client.provider });
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -764,9 +779,15 @@ function resolveAgentConfig(userId: string, defaults: Partial<LlmConfig> = {}): 
   return cfg;
 }
 
+// 允许渲染层读写的设置键白名单。
+// 之前没有白名单：渲染层可以传 `userId:agent` 绕过 `key === 'agent'` 的脱敏分支
+// （在 safeStorage 不可用的机器上那读到的就是明文密钥），也能往任意全局键写东西。
+const ALLOWED_SETTING_KEYS = new Set(['agent', 'ghProxy']);
+
 ipcMain.handle('settings:get', (_e, key: string) => {
   try {
     const userId = sessionUserId(_e);
+    if (!ALLOWED_SETTING_KEYS.has(String(key))) return fail('不支持的设置项：' + String(key));
     const v = store.getSetting(key, userId);
     if (key !== 'agent') return ok(v);
     const masked = maskAgentConfig(decryptAgentConfig(v as LlmConfig));
@@ -784,6 +805,7 @@ ipcMain.handle('settings:get', (_e, key: string) => {
 ipcMain.handle('settings:save', (_e, key: string, value: unknown) => {
   try {
     const userId = sessionUserId(_e);
+    if (!ALLOWED_SETTING_KEYS.has(String(key))) return fail('不支持的设置项：' + String(key));
     assertSize(value, LIMITS.settingJson, '设置内容');
     if (key !== 'agent') return ok(store.setSetting(key, value)); // 设备级设置（镜像等）不按账号隔离
     const incoming = Object.assign({}, (value || {}) as LlmConfig) as LlmConfig & { apiKeySessionOnly?: boolean };

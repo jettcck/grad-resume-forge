@@ -468,7 +468,7 @@ async function openAbout() {
               '恢复前系统会先把当前状态也留一份备份，所以这一步同样可回滚。恢复后建议重启应用。', '恢复这份备份');
             if (!ok) return;
             try {
-              await call(window.api.backups.restore(b.name));
+              await call(window.api.backups.restore(b.name, true));
               toast('已恢复到 ' + label + ' 的数据，建议重启应用', 'ok');
               // 内存里的档案已变，重新拉一次并回档案页
               try { state.profile = await call(window.api.profile.get(state.user.id)); } catch (_) { /* 忽略 */ }

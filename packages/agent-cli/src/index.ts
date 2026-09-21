@@ -71,33 +71,60 @@ async function cmdRun(flags: Record<string, string>): Promise<number> {
   if (!c.profile || !c.jd) { console.error('case.json 需要包含 profile 与 jd 字段'); return 2; }
 
   const agent = appModule('agent');
-  const mode: Mode = (flags.mode as Mode) || c.mode || 'pipeline';
+  const mode: Mode = (flags.mode as Mode) || c.mode || 'rules';
   const maxSteps = Number(flags['max-steps'] || c.maxSteps || 10);
   const runId = 'cli_' + Date.now().toString(36);
 
-  if (mode === 'rules' || mode === 'pipeline') {
-    const result = await agent.runAgent(c.profile, c.jd, { rulesOnly: mode === 'rules' });
-    console.log(JSON.stringify({
-      mode, ok: (result as { accepted?: unknown[] }).accepted ? true : false,
-      accepted: ((result as { accepted?: unknown[] }).accepted || []).length,
-      rejected: ((result as { rejected?: unknown[] }).rejected || []).length,
-      jdBefore: (result as { jdBefore?: number }).jdBefore,
-      jdAfter: (result as { jdAfter?: number }).jdAfter,
-      steps: ((result as { steps?: unknown[] }).steps || []).length
-    }, null, 2));
-    return 0;
-  }
-
+  // 模型参数三个模式共用：rules 不需要，pipeline / agentic 必须要有，
+  // 否则核心会直接抛「未提供 LLM 客户端」—— 之前默认走 pipeline 却不建客户端，
+  // 等于默认模式根本跑不通（评审复现出来的问题）。
   const endpoint = flags.endpoint || c.llm?.endpoint || process.env.AGENT_BENCH_ENDPOINT;
   const model = flags.model || c.llm?.model || process.env.AGENT_BENCH_MODEL;
   const apiKey = flags.key || c.llm?.apiKey || process.env.AGENT_BENCH_KEY;
+
+  if (mode === 'rules') {
+    // 零配置通道：不调用任何模型
+    const result = await agent.runAgent(c.profile, c.jd, { rulesOnly: true }) as {
+      accepted?: unknown[]; rejected?: unknown[]; jdBefore?: number; jdAfter?: number; steps?: unknown[]; error?: string | null;
+    };
+    const accepted = (result.accepted || []).length;
+    // ok 必须是真布尔判断：空数组在 JS 里是真值，写成 `accepted ? true : false` 会把
+    // 「一条都没过校验门」输出成成功，CI 也就拦不住（评审指出的问题）。
+    const ok = accepted > 0 && !result.error;
+    console.log(JSON.stringify({
+      mode, ok, accepted,
+      rejected: (result.rejected || []).length,
+      jdBefore: result.jdBefore, jdAfter: result.jdAfter,
+      steps: (result.steps || []).length,
+      error: result.error || null
+    }, null, 2));
+    return ok ? 0 : 1;
+  }
+
   if (!endpoint || !model) {
-    console.error('agentic 模式需要模型：--endpoint 与 --model（或环境变量 AGENT_BENCH_ENDPOINT / AGENT_BENCH_MODEL）');
+    console.error(mode + ' 模式需要模型：--endpoint 与 --model（或环境变量 AGENT_BENCH_ENDPOINT / AGENT_BENCH_MODEL）');
+    console.error('不需要模型请显式用 --mode rules。');
     return 2;
   }
   const llm = require('../../llm-adapters/dist/index').createLlmClient({
     provider: apiKey ? 'cloud' : 'ollama', endpoint, model, apiKey, temperature: c.llm?.temperature ?? 0.3
   });
+
+  if (mode === 'pipeline') {
+    const result = await agent.runAgent(c.profile, c.jd, { llm }) as {
+      accepted?: unknown[]; rejected?: unknown[]; jdBefore?: number; jdAfter?: number; steps?: unknown[]; error?: string | null;
+    };
+    const accepted = (result.accepted || []).length;
+    const ok = accepted > 0 && !result.error;
+    console.log(JSON.stringify({
+      mode, ok, accepted,
+      rejected: (result.rejected || []).length,
+      jdBefore: result.jdBefore, jdAfter: result.jdAfter,
+      steps: (result.steps || []).length,
+      error: result.error || null
+    }, null, 2));
+    return ok ? 0 : 1;
+  }
 
   const store = createFileRunStore(flags.runs || defaultRunsFile(), { maxRuns: 50 });
   const result = await agent.agenticLoop(c.profile, c.jd, { llm, maxSteps, runId, taskId: 'cli-run', runStore: store });
@@ -155,8 +182,16 @@ async function cmdReplay(flags: Record<string, string>): Promise<number> {
     execute: async (args: Record<string, unknown>) => Promise.resolve(t.run(args, ctx))
   }));
   const replayed = await replayRun(rec, { tools, ctx });
-  console.log(JSON.stringify({ runId: replayed.runId, okCount: replayed.okCount, errorCount: replayed.errorCount, steps: replayed.steps }, null, 2));
-  return replayed.errorCount ? 1 : 0;
+  console.log(JSON.stringify({
+    runId: replayed.runId, okCount: replayed.okCount, errorCount: replayed.errorCount,
+    skipped: replayed.skipped, skippedReason: replayed.skippedReason, steps: replayed.steps
+  }, null, 2));
+  // 退出码要反映「到底有没有真的回放」：0 成功 + 0 失败 + N 跳过 说明一步都没跑
+  // （记录是脱敏的、没有入参原文），这时返回 0 会把「什么都没做」当成功。
+  if (replayed.skipped > 0) console.error('\n提示：' + replayed.skippedReason + '。要完整回放需在运行时开启 storeTraceArgs：true。');
+  if (replayed.errorCount > 0) return 1;
+  if (replayed.okCount === 0) return 1;
+  return 0;
 }
 
 function usage(): void {

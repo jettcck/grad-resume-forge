@@ -9,10 +9,10 @@
 //   - 无论哪种模型，产出都由本地确定性校验门把关（见 agent.ts）
 // ============================================================
 
-import type { LlmClient, LlmConfig, LlmStatus, ChatMessage, ChatOptions, ToolCallReply, NormalizedToolCall, RawToolCall } from './types';
+import type { LlmClient, LlmConfig, LlmStatus, ChatMessage, ChatOptions, ToolCallReply, NormalizedToolCall, RawToolCall, LlmUsage } from './types';
 
 // 类型对外再导出：应用侧（src/main/types.ts）从这里统一取，保证实现与类型是同一份定义
-export type { ChatMessage, RawToolCall, NormalizedToolCall, ToolCallReply, LlmClient, LlmConfig, LlmStatus, ChatOptions } from './types';
+export type { ChatMessage, RawToolCall, NormalizedToolCall, ToolCallReply, LlmClient, LlmConfig, LlmStatus, ChatOptions, LlmUsage } from './types';
 
 export const DEFAULTS: LlmConfig = {
   endpoint: 'http://127.0.0.1:11434',
@@ -30,6 +30,19 @@ export const CLOUD_DEFAULTS: LlmConfig = {
 };
 
 // ---------------- 本地 Ollama ----------------
+/** 把各家的 usage 形状归一到 { prompt_tokens, completion_tokens, total_tokens } */
+function normalizeUsage(raw: unknown): LlmUsage | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const u = raw as { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number; prompt_eval_count?: number; eval_count?: number };
+  const prompt = typeof u.prompt_tokens === 'number' ? u.prompt_tokens : (typeof u.prompt_eval_count === 'number' ? u.prompt_eval_count : undefined);
+  const completion = typeof u.completion_tokens === 'number' ? u.completion_tokens : (typeof u.eval_count === 'number' ? u.eval_count : undefined);
+  const total = typeof u.total_tokens === 'number'
+    ? u.total_tokens
+    : (prompt != null || completion != null ? (prompt || 0) + (completion || 0) : undefined);
+  if (prompt == null && completion == null && total == null) return undefined;
+  return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: total };
+}
+
 export function createOllamaClient(config: Partial<LlmConfig> | undefined): LlmClient {
   const cfg = Object.assign({}, DEFAULTS, config || {}) as Required<Pick<LlmConfig, 'endpoint' | 'model' | 'temperature' | 'timeout'>> & LlmConfig;
   const base = String(cfg.endpoint || '').replace(/\/+$/, '');
@@ -91,12 +104,13 @@ export function createOllamaClient(config: Partial<LlmConfig> | undefined): LlmC
         if (!resp.ok) throw new Error('HTTP ' + resp.status);
 
         if (!onChunk || !resp.body) {
-          const r = await resp.json() as { message?: { content?: string; tool_calls?: RawToolCall[] } };
+          const r = await resp.json() as { message?: { content?: string; tool_calls?: RawToolCall[] }; prompt_eval_count?: number; eval_count?: number };
           const msg = r.message || {};
           const content = msg.content;
           if (tools) {
             const toolCalls = normalizeToolCalls(msg.tool_calls);
-            return { content: content || '', toolCalls, rawToolCalls: msg.tool_calls || [] };
+            // Ollama 的用量字段是 prompt_eval_count / eval_count
+            return { content: content || '', toolCalls, rawToolCalls: msg.tool_calls || [], usage: normalizeUsage(r) };
           }
           if (!content) throw new Error('模型未返回内容');
           return content;
@@ -287,10 +301,11 @@ export function createOpenAiClient(config: Partial<LlmConfig> | undefined): LlmC
 
       async function extract(res: Response): Promise<string | ToolCallReply> {
         if (tools) {
-          const r = await res.json() as { choices?: Array<{ message?: { content?: string; tool_calls?: RawToolCall[] } }> };
+          const r = await res.json() as { choices?: Array<{ message?: { content?: string; tool_calls?: RawToolCall[] } }>; usage?: unknown };
           const msg = r.choices?.[0]?.message || {};
           const toolCalls = normalizeToolCalls(msg.tool_calls);
-          return { content: msg.content || '', toolCalls, rawToolCalls: msg.tool_calls || [] };
+          // usage 以前被直接丢掉，导致 Agent 的 token 预算永远读到 0
+          return { content: msg.content || '', toolCalls, rawToolCalls: msg.tool_calls || [], usage: normalizeUsage(r.usage) };
         }
         const r = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
         const content = r.choices?.[0]?.message?.content;

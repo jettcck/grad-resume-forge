@@ -143,7 +143,7 @@ function numberTokens(text) {
       ' | 通过 ' + accepted.length +
       ' / 拒收 ' + (r.rejected || []).length + ' | 覆盖率 ' + r.jdBefore + '→' + r.jdAfter +
       ' | ' + ms + 'ms' + (r.incomplete ? ' | 未完成标注：' + r.incomplete : ''));
-    results.push({ ok: r.ok, ms, accepted: accepted.length, rejected: (r.rejected || []).length, lost: lostNumbers.length, fabricated: fabricated.length, status: r.run && r.run.status });
+    results.push({ ok: r.ok, ms, accepted: accepted.length, rejected: (r.rejected || []).length, lost: lostNumbers.length, fabricated: fabricated.length, status: r.run && r.run.status, tokens: (r.run && r.run.usage && r.run.usage.tokens) || 0 });
   }
 
   const done = results.filter((x) => !x.error);
@@ -166,7 +166,11 @@ function numberTokens(text) {
     if (totalAccepted < 1) problems.push('没有任何改写通过（工具调用没被正确解析）');
     if (totalLost > 0) problems.push('数字保全失败');
     if (totalFabricated > 0) problems.push('有编造技能的改写通过了校验门');
-    console.log('\n' + (problems.length ? '❌ 链路自测未通过：' + problems.join('；') : '✅ 链路自测通过（脚本可正常请求、解析工具调用、汇总指标）'));
+    // token 必须真的统计到：适配器此前把 usage 丢了，maxTokens 预算等于形同虚设
+    const totalTokens = done.reduce((a, b) => a + (b.tokens || 0), 0);
+    if (totalTokens <= 0) problems.push('token 用量为 0（适配器没把 usage 传上来，token 预算会失效）');
+    console.log('token 用量合计        ' + totalTokens + '（自测假服务每次调用上报 150）');
+    console.log('\n' + (problems.length ? '❌ 链路自测未通过：' + problems.join('；') : '✅ 链路自测通过（脚本可正常请求、解析工具调用、上报 token、汇总指标）'));
     if (fakeServer) { try { fakeServer.close(); } catch (_) { /* 忽略 */ } }
     process.exitCode = problems.length ? 1 : 0;
     return;

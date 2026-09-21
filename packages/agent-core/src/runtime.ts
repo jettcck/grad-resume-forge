@@ -24,7 +24,7 @@ import {
 } from './types';
 import { RunStateMachine } from './state-machine';
 import { ToolRegistry } from './tools';
-import { truncateArgs, redactArgs } from './run-store';
+
 
 export interface RuntimeOutcome {
   runId: string;
@@ -75,6 +75,8 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
     budget,
     usage,
     now,
+    // 是否保留入参原文由注册层决定（在这里二次处理时原文已经丢了 —— 评审指出的问题）
+    storeTraceArgs: opts.storeTraceArgs === true,
     onTrace: (e) => trace.push(e)
   });
   registry.registerAll(opts.tools);
@@ -251,7 +253,7 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
     inputSnapshot: opts.inputSnapshot || fallbackSnapshot,
     budget,
     usage: Object.assign({}, usage),
-    trace: trace.map((t) => Object.assign({}, t, { args: opts.storeTraceArgs ? truncateArgs(t.args) : redactArgs(t.args) })),
+    trace: trace.map((t) => Object.assign({}, t)),
     result: finalized
   };
   if (opts.store) opts.store.append(record);

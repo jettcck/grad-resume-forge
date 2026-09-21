@@ -20,10 +20,12 @@ import {
   TraceEntry,
   RunUsage
 } from './types';
-import { redactValue } from './run-store';
+import { redactValue, truncateArgs } from './run-store';
 
 export interface RegistryOptions {
   runId: string;
+  /** true = trace 里保留入参原文（供完整回放）；默认 false，只记 id/长度/指纹 */
+  storeTraceArgs?: boolean;
   budget: Budget;
   usage: RunUsage;
   now?: () => number;
@@ -134,6 +136,11 @@ export class ToolRegistry {
     return Array.from(this.specs.values());
   }
 
+  /** trace 里的入参：默认脱敏（只留 id/长度/指纹），显式开启才留原文 */
+  private traceArgs(args: unknown): unknown {
+    return this.opts.storeTraceArgs ? truncateArgs(args) : redactValue(args);
+  }
+
   private now(): number {
     return this.opts.now ? this.opts.now() : Date.now();
   }
@@ -161,7 +168,7 @@ export class ToolRegistry {
       this.trace({
         stepId, tool: name, inputSummary: summarize(args), outputSummary: '未知工具',
         latencyMs: meta.latencyMs, retryCount: 0, tokens: null, errorType: 'unknown_tool',
-        startedAt, args: redactValue(args)
+        startedAt, args: this.traceArgs(args)
       });
       return { ok: false, error: '未知工具 ' + name + '（不在白名单：' + this.names().join('、') + '）', errorType: 'unknown_tool', meta };
     }
@@ -172,7 +179,7 @@ export class ToolRegistry {
       this.trace({
         stepId, tool: name, inputSummary: summarize(args), outputSummary: budgetErr.error,
         latencyMs: meta.latencyMs, retryCount: 0, tokens: null, errorType: budgetErr.errorType,
-        startedAt, args: redactValue(args)
+        startedAt, args: this.traceArgs(args)
       });
       return { ok: false, error: budgetErr.error, errorType: budgetErr.errorType, meta };
     }
@@ -183,7 +190,7 @@ export class ToolRegistry {
       this.trace({
         stepId, tool: name, inputSummary: summarize(args), outputSummary: invalid,
         latencyMs: meta.latencyMs, retryCount: 0, tokens: null, errorType: 'validation',
-        startedAt, args: redactValue(args)
+        startedAt, args: this.traceArgs(args)
       });
       return { ok: false, error: invalid, errorType: 'validation', meta };
     }
@@ -195,7 +202,7 @@ export class ToolRegistry {
       this.trace({
         stepId, tool: name, inputSummary: summarize(args), outputSummary: '幂等命中：' + summarize(data),
         latencyMs: meta.latencyMs, retryCount: 0, tokens: null, errorType: null,
-        startedAt, args: redactValue(args)
+        startedAt, args: this.traceArgs(args)
       });
       return { ok: true, data, meta };
     }
@@ -218,7 +225,7 @@ export class ToolRegistry {
         this.trace({
           stepId, tool: name, inputSummary: summarize(args), outputSummary: summarize(data),
           latencyMs, retryCount: attempt - 1, tokens: null, errorType: null,
-          startedAt, args: redactValue(args)
+          startedAt, args: this.traceArgs(args)
         });
         return { ok: true, data, meta };
       } catch (err) {
@@ -238,7 +245,7 @@ export class ToolRegistry {
     this.trace({
       stepId, tool: name, inputSummary: summarize(args), outputSummary: lastError,
       latencyMs, retryCount: attempt - 1, tokens: null, errorType: lastErrorType,
-      startedAt, args: redactValue(args)
+      startedAt, args: this.traceArgs(args)
     });
     return { ok: false, error: lastError, errorType: lastErrorType, meta };
   }

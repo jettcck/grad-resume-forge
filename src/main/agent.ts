@@ -832,6 +832,8 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
     runId: (o as { runId?: string }).runId,
     taskId: (o as { taskId?: string }).taskId || 'resume-optimize',
     store: (o as { runStore?: RunStore }).runStore,
+    // 显式开启才在记录里保留入参原文（默认脱敏，代价是无法完整回放）
+    storeTraceArgs: (o as { storeTraceArgs?: boolean }).storeTraceArgs === true,
     inputSnapshot: buildInputSnapshot({
       itemCount: items.length,
       sections: {

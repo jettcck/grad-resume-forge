@@ -281,11 +281,14 @@ function makeAdapter(opts) {
     assert(/token/.test(overTokens.trace.map((x) => x.outputSummary).join(' ')), 'trace 里能查到预算拦截原因');
     assert(overTokens.record.usage.tokens === 5000, '运行记录累计 token（' + overTokens.record.usage.tokens + '）');
 
-    // 回放（显式开启入参留档）：按记录里的工具调用重跑一遍，不花模型调用
+    // 回放（显式开启入参留档）：按记录里的工具调用重跑一遍，不花模型调用。
+    // 这里刻意用**超过 12 字**的正文：短文本即使脱敏也读得出来，测不出「开关没生效」
+    // （旧测试用 4 个字的『改写内容』，所以没发现工具层先脱敏导致开关形同虚设）。
     const store2 = core.createMemoryRunStore();
     const t5 = makeTool('rewrite3', { permission: 'write' });
+    const longSecret = '负责订单系统开发，支撑日活三万，覆盖三条业务线';
     const a5 = makeAdapter({ script: [
-      { calls: [{ name: 'rewrite3', args: { id: 'b0', text: '改写内容' } }] },
+      { calls: [{ name: 'rewrite3', args: { id: 'b0', text: longSecret } }] },
       { calls: [{ name: 'submit_result', args: {} }] }
     ] });
     const run = await core.runAgentRuntime({
@@ -293,11 +296,13 @@ function makeAdapter(opts) {
       storeTraceArgs: true // 为了能按记录完整回放，显式开启入参留档
     });
     const record = store2.get(run.runId);
+    assert(JSON.stringify(record).includes(longSecret),
+      '显式开启时入参原文确实留在记录里（此前工具层已先脱敏，开着也没用）');
     const replay = await core.replayRun(record, { tools: [t5.spec] });
     assert(replay.okCount === 1 && replay.errorCount === 0 && replay.skipped === 0,
       '显式留档时可完整回放（成功 ' + replay.okCount + '，跳过 ' + replay.skipped + '）');
-    assert(replay.steps[0].tool === 'rewrite3' && JSON.stringify(replay.steps[0].data).includes('改写内容'),
-      '回放使用的是记录下来的入参');
+    assert(replay.steps[0].tool === 'rewrite3' && JSON.stringify(replay.steps[0].data).includes(longSecret),
+      '回放使用的是记录下来的入参原文');
     assert(t5.calls.count === 2, '回放确实又执行了工具（累计 ' + t5.calls.count + ' 次）');
 
     // 默认（不留正文）时的两个硬要求：记录里没有正文；回放如实报告跳过多少步

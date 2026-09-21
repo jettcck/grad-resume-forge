@@ -124,6 +124,57 @@ app.whenReady().then(async () => {
     const raw3 = fs.readFileSync(dbFile2, 'utf8');
     t(/enc:v1:/.test(raw3) && !raw3.includes('sk-persist-xyz'), '持久化模式下存的是密文，仍然没有明文');
 
+    // ---------- 密钥边界与权限（评审 P1：1 / 2 / 3）----------
+    // 1) agent:status 不能再把解密后的密钥带出来（此前直接回 client.config）
+    const statusLeak = await win.webContents.executeJavaScript(`(async () => {
+      const st = await window.api.agent.status();
+      const cfg = st.ok && st.data ? st.data.config : null;
+      const text = JSON.stringify(st);
+      return {
+        apiKey: cfg ? cfg.apiKey : 'NO_CFG',
+        hasKey: cfg ? cfg.hasKey : null,
+        hasPlain: text.includes('sk-A-secret') || text.includes('sk-persist-xyz')
+      };
+    })()`);
+    t(statusLeak.apiKey === undefined, 'agent:status 的 config 里没有 apiKey 字段（实得：' + JSON.stringify(statusLeak.apiKey) + '）');
+    t(statusLeak.hasPlain === false, 'agent:status 的整个返回里不含任何密钥明文');
+    t(statusLeak.hasKey === true, '改为回传 hasKey=true，界面仍能显示「已保存」');
+
+    // 2) 设置接口只接受白名单键
+    const settingGuard = await win.webContents.executeJavaScript(`(async () => {
+      const scoped = await window.api.settings.get('user_1787501007207_ca989c39:agent');
+      const bad = await window.api.settings.get('__proto__');
+      const badSave = await window.api.settings.save('evil-key', { x: 1 });
+      const okGet = await window.api.settings.get('agent');
+      const okSave = await window.api.settings.save('ghProxy', 'https://gh-proxy.com');
+      return { scopedOk: scoped.ok, badOk: bad.ok, badSaveOk: badSave.ok, okGetOk: okGet.ok, okSaveOk: okSave.ok };
+    })()`);
+    t(settingGuard.scopedOk === false, '用 `userId:agent` 这类键读设置被拒（否则可绕过脱敏拿到未处理的值）');
+    t(settingGuard.badOk === false && settingGuard.badSaveOk === false, '非白名单键的读写都被拒');
+    t(settingGuard.okGetOk === true && settingGuard.okSaveOk === true, '白名单内的键（agent / ghProxy）照常可用');
+
+    // 3) 全库备份接口需要登录（restore 会替换所有账号与会话）
+    const backupGuard = await win.webContents.executeJavaScript(`(async () => {
+      const before = await window.api.backups.list();
+      await window.api.auth.logout(state.token);
+      const listOut = await window.api.backups.list();
+      const restoreOut = await window.api.backups.restore('db-20200101-000000000.json', true);
+      const revealOut = await window.api.backups.reveal();
+      const relogin = await window.api.auth.login({ email: 'smoke@test.local', password: 'pass123456' });
+      return { beforeOk: before.ok, listOut: listOut.ok, restoreOut: restoreOut.ok, revealOut: revealOut.ok, reloginOk: relogin.ok };
+    })()`);
+    t(backupGuard.beforeOk === true, '登录状态下备份列表可用');
+    t(backupGuard.listOut === false, '退出登录后备份列表被拒');
+    t(backupGuard.restoreOut === false, '退出登录后「恢复整个库」被拒');
+    t(backupGuard.revealOut === false, '退出登录后「打开备份目录」被拒');
+    t(backupGuard.reloginOk === true, '重新登录成功（后续断言继续）');
+
+    const restoreConfirm = await win.webContents.executeJavaScript(`(async () => {
+      const r = await window.api.backups.restore('db-20200101-000000000.json');
+      return { ok: r.ok, err: r.error };
+    })()`);
+    t(restoreConfirm.ok === false && /确认/.test(String(restoreConfirm.err)), '恢复备份必须显式确认（实得：' + restoreConfirm.err + '）');
+
     // ---------- 跨账号隔离（评审要求补的测试）----------
     // 1) 模型配置按账号读：A 存了自定义模型后，agent:status 必须回显 A 的配置。
     //    修复前这里读的是全局键，会回落到默认 Ollama —— 用户配了云端也用不上。
