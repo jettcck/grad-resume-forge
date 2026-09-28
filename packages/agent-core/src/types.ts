@@ -163,7 +163,7 @@ export interface RuntimeAdapter {
   /** 初始消息（含系统提示与工具清单） */
   initialMessages(): unknown[];
   /** 让模型决策下一步 */
-  decide(messages: unknown[]): Promise<{
+  decide(messages: unknown[], signal?: AbortSignal): Promise<{
     content: string;
     calls: Array<{ name: string; args: Record<string, unknown>; rawId?: string }>;
     raw?: unknown;

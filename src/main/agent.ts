@@ -695,6 +695,21 @@ export function toolsToProtocol(tools: ToolSpec[]): ProtocolTool[] {
   }));
 }
 
+/**
+ * 算出「当前这份档案 + JD」对应的输入指纹，供回放时与记录比对。
+ * 刻意复用 buildInputSnapshot：比对用的算法必须和写记录时是同一套，
+ * 否则以后改了摘要规则会让所有历史记录都「对不上」。
+ */
+export function inputDigests(profile: Partial<Profile>, jdText: string): { jdDigest: string; profileDigest: string } {
+  const snap = buildInputSnapshot({
+    itemCount: 0,
+    sections: {},
+    jd: engine._clean(jdText),
+    profileDigestSource: JSON.stringify(profile)
+  });
+  return { jdDigest: snap.jdDigest, profileDigest: snap.profileDigest };
+}
+
 export async function agenticLoop(profile: Partial<Profile>, jdText: string, opts: AgentRunOptions): Promise<AgenticResult> {
   const o = opts || {} as AgentRunOptions;
   const llm = o.llm;
@@ -767,8 +782,9 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
 
   const adapter: RuntimeAdapter = {
     initialMessages: () => messages,
-    decide: async (rawMessages) => {
+    decide: async (rawMessages, signal) => {
       const r = await llm.chat(rawMessages as ChatMessage[], {
+        signal,
         tools: toolsToProtocol(tools) as unknown as Array<Record<string, unknown>>
       });
       if (typeof r === 'string') return { content: r, calls: [] };

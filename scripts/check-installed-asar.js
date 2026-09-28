@@ -54,6 +54,11 @@ const checks = [
   ['界面运行记录入口', has('清理运行记录') && has('最近运行记录')],
   ['防幻觉门（证据约束）', has('疑似编造技能')],
   ['llm-adapters 已打进安装包', has('llm-adapters/dist') && has('createOllamaClient')],
+  ['会话 token 只存哈希（SHA-256 键）', has('createHash') && has("'sha256'")],
+  ['取消能中断模型请求（AbortSignal 透传）', has('externalSignal') && has('adapter.decide(messages, opts.signal)')],
+  ['重复 runId 被拒绝', has('正在使用中')],
+  ['回放校验输入是否同一份', has('不是同一份')],
+  ['会话与临时密钥随窗口销毁清理', has('forgetSession') && has("'destroyed'")],
   ['agent-cli 已打进安装包', has('agent-cli/dist')],
   // 夹具不该进安装包
   ['PDF 夹具未进安装包', !has('resume-sample-ats-classic') && !has('resume-sample-stem')]

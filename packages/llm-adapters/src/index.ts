@@ -176,9 +176,14 @@ export function createOpenAiClient(config: Partial<LlmConfig> | undefined): LlmC
   const base = String(cfg.endpoint || '').replace(/\/+$/, '');
 
   // 单次请求。raw=true 返回原始 Response；false 时消费 body 返回拼接全文
-  async function postChat(body: Record<string, unknown>, onChunk: ((p: string) => void) | null, raw?: boolean): Promise<Response | string> {
+  async function postChat(body: Record<string, unknown>, onChunk: ((p: string) => void) | null, raw?: boolean, externalSignal?: AbortSignal): Promise<Response | string> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), cfg.timeout);
+    const abortExternal = () => ctrl.abort();
+    if (externalSignal) {
+      if (externalSignal.aborted) ctrl.abort();
+      else externalSignal.addEventListener('abort', abortExternal, { once: true });
+    }
     try {
       const resp = await fetch(base + '/chat/completions', {
         method: 'POST',
@@ -243,6 +248,8 @@ export function createOpenAiClient(config: Partial<LlmConfig> | undefined): LlmC
       return full;
     } finally {
       clearTimeout(timer);
+      // 请求结束就摘掉外部取消监听，避免长时间运行里累积监听器
+      if (externalSignal) externalSignal.removeEventListener('abort', abortExternal);
     }
   }
 
@@ -314,16 +321,16 @@ export function createOpenAiClient(config: Partial<LlmConfig> | undefined): LlmC
       }
 
       try {
-        if (onChunk) return await postChat(body, onChunk) as string; // 流式路径直接拿全文
-        const res = await postChat(body, null, true) as Response;
+        if (onChunk) return await postChat(body, onChunk, false, o.signal) as string; // 流式路径直接拿全文
+        const res = await postChat(body, null, true, o.signal) as Response;
         return await extract(res);
       } catch (err) {
         const e = err as Error & { status?: number };
         if ((e.status === 400 || e.status === 422) && body.response_format) {
           const retry = Object.assign({}, body);
           delete retry.response_format;
-          if (onChunk) return await postChat(retry, onChunk) as string;
-          const res = await postChat(retry, null, true) as Response;
+          if (onChunk) return await postChat(retry, onChunk, false, o.signal) as string;
+          const res = await postChat(retry, null, true, o.signal) as Response;
           return await extract(res);
         }
         throw err;

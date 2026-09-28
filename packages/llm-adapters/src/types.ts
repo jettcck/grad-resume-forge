@@ -63,4 +63,6 @@ export interface LlmStatus {
 export interface ChatOptions {
   onChunk?: (piece: string) => void;
   tools?: Array<Record<string, unknown>>;
+  /** 外部取消信号：用户取消 Agent 时立即中断正在等待的 HTTP 请求 */
+  signal?: AbortSignal;
 }

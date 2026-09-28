@@ -260,6 +260,40 @@ function makeAdapter(opts) {
     assert(t2.calls.count === 1, '取消发生在安全点：已完成的工具调用保留（' + t2.calls.count + ' 次）');
     assert(cancelled.record.cancelReason === '用户取消', '运行记录写明取消原因');
 
+    // 取消发生在「模型正在思考」时：中断异常不能被记成模型出错（FAILED）
+    const ctrl2 = new AbortController();
+    let decideCalled = 0;
+    const slowAdapter = makeAdapter({ script: [{ calls: [] }] }).adapter;
+    slowAdapter.decide = async (_msgs, signal) => {
+      decideCalled++;
+      // 模拟「HTTP 请求被中止」：等信号，然后抛 AbortError（和 fetch 被 abort 时一致）
+      await new Promise((resolve, reject) => {
+        const timer = setTimeout(resolve, 50);
+        if (signal) {
+          signal.addEventListener('abort', () => {
+            clearTimeout(timer);
+            const e = new Error('The operation was aborted');
+            e.name = 'AbortError';
+            reject(e);
+          }, { once: true });
+        }
+      });
+      return { content: '', calls: [] };
+    };
+    const stepEvents = [];
+    const abortMidway = core.runAgentRuntime({
+      adapter: slowAdapter, tools: [makeTool('noop').spec], signal: ctrl2.signal, budget: { maxSteps: 4 },
+      onStep: (ev) => stepEvents.push(ev)
+    });
+    await new Promise((r) => setTimeout(r, 10));
+    ctrl2.abort();
+    const midway = await abortMidway;
+    assert(decideCalled === 1, '模型决策确实被调用过一次（' + decideCalled + '）');
+    assert(midway.status === 'CANCELLED' && midway.cancelled === true,
+      '取消中断模型请求 → 记为 CANCELLED 而不是 FAILED（实得 ' + midway.status + '）');
+    assert(!midway.loopError, '不留下误导性的「模型错误」（loopError=' + JSON.stringify(midway.loopError) + '）');
+    assert(stepEvents.some((ev) => /已取消/.test(ev.label || '')), '步骤事件里如实记下「模型请求已中断」');
+
     // 时长预算：假装时间已经用掉
     let fake = 0;
     const t3 = makeTool('slowstep');

@@ -22,6 +22,13 @@ import type { IpcResult, Profile, LlmConfig, Application } from './types';
 
 let mainWindow: BrowserWindow | null = null;
 
+/** 清除某个 webContents 上的登录态，并连带清掉它对应的「仅本次会话」密钥 */
+function forgetSession(webContentsId: number): void {
+  const uid = sessions.get(webContentsId);
+  if (uid) sessionKeys.delete(uid);
+  sessions.delete(webContentsId);
+}
+
 function createWindow(): void {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -42,6 +49,8 @@ function createWindow(): void {
   // dist/main → 渲染层源码在 src/renderer（TS 编译只处理主进程）
   mainWindow.loadFile(path.join(__dirname, '..', '..', 'src', 'renderer', 'index.html'));
 
+  const wcId = mainWindow.webContents.id;
+
   const levels = ['LOG', 'WARN', 'ERROR'];
   mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {
     const src = String(sourceId || '').split(/[\\/]/).pop();
@@ -52,6 +61,16 @@ function createWindow(): void {
   });
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     console.log('[render-process-gone]', JSON.stringify(details));
+    // 渲染进程崩溃/被结束：主进程侧的会话与临时密钥一起失效。
+    // 只清「本次会话」的密钥（sessionKeys），落盘的加密密钥不受影响；
+    // 渲染层重启后会拿本地 token 走 auth:session 自动恢复登录态。
+    forgetSession(mainWindow!.webContents.id);
+  });
+
+  // 窗口销毁（关窗、整个 webContents 被销毁）：同样清掉会话与临时密钥，
+  // 否则「不写盘的临时密钥」会一直留到应用退出。
+  mainWindow.webContents.once('destroyed', () => {
+    forgetSession(wcId);
   });
 
   mainWindow.once('ready-to-show', () => mainWindow!.show());
@@ -640,11 +659,23 @@ ipcMain.handle('agent:clearRuns', (_e) => {
 });
 
 // 回放：用当前工具实现按记录重跑一次，不消耗模型调用（复盘「当时为什么拒了这条」）
-ipcMain.handle('agent:replay', async (_e, runId: string, profile: Partial<Profile>, jdText: string) => {
+ipcMain.handle('agent:replay', async (_e, runId: string, profile: Partial<Profile>, jdText: string, force?: boolean) => {
   try {
     const userId = sessionUserId(_e);
     const rec = getRunStore(userId).get(String(runId || ''));
     if (!rec) return fail('没有找到这条运行记录');
+    // 回放的前提是「同一份输入」：拿另一份简历/JD 重跑旧记录，结果无法对比，
+    // 却很容易被当成「可复现」。默认拒绝，要强行回放必须显式 force。
+    const now = agent.inputDigests(profile, jdText);
+    const snap = rec.inputSnapshot;
+    const mismatch: string[] = [];
+    if (snap && snap.jdDigest && now.jdDigest !== snap.jdDigest) mismatch.push('JD');
+    if (snap && snap.profileDigest && now.profileDigest !== snap.profileDigest) mismatch.push('档案');
+    if (mismatch.length && force !== true) {
+      return fail('当前的' + mismatch.join('与') + '和这条记录不是同一份（' +
+        '记录 JD ' + (snap ? snap.jdDigest : '-') + ' / 现在 ' + now.jdDigest + '），' +
+        '这样回放的结果不能用来对比。确认要强行回放请再加确认。');
+    }
     const items = agent.buildTaskItems(profile);
     if (!items.length) return fail('档案中没有可改写的经历条目');
     const ctx = { profile, jd: engine._clean(jdText), items, accepted: new Map(), rejected: [], jdAnalysis: null, attempts: new Map() };
@@ -687,8 +718,11 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
       const result = await agent.runAgent(profile, jdText, { onStep: send, rulesOnly: true });
       return ok(result);
     }
-    // runId 由渲染层给出：这样用户点「取消」时主进程能立刻找到对应的运行
+    // runId 由渲染层给出：这样用户点「取消」时主进程能立刻找到对应的运行。
+    // 但必须拒绝重复 ID：覆盖别人的控制器会让「取消」打到错误的任务上，
+    // 而且先结束的那个任务的 finally 会把新任务的控制器删掉（评审指出）。
     const runId = String(o.runId || ('run_' + Date.now().toString(36)));
+    if (activeRuns.has(runId)) return fail('这次运行的 ID 正在使用中，请稍后重试');
     const ctl = new AbortController();
     activeRuns.set(runId, { ownerUserId: userId, ctl });
     try {
@@ -699,7 +733,9 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
       } as never);
       return ok(result);
     } finally {
-      activeRuns.delete(runId);
+      // 只删自己那一个：就算 runId 之后被复用，也不能顺手删掉别人的控制器
+      const cur = activeRuns.get(runId);
+      if (cur && cur.ctl === ctl) activeRuns.delete(runId);
     }
   } catch (err) {
     return fail((err as Error).message);

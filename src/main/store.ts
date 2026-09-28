@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import type {
   StoredUser, PublicUser, Profile, Application, AgentSnapshot, AgentSnapshotMeta,
   ResumeVersion, ResumeVersionMeta
@@ -301,7 +302,23 @@ export { createSession as _createSession };
 
 // 校验 token：有效则返回 userId，过期/无效则清理并返回 null
 function getSessionUserId(token: string): string | null {
-  const s = db.sessions[token];
+  // 新格式传入的是 SHA-256(token)；为迁移老库，若调用方传入旧明文 token 也尝试一次，
+  // 找到后立刻把键迁移成 digest，避免继续把 bearer token 留在 db.json。
+  const digest = token && /^[a-f0-9]{64}$/i.test(token)
+    ? token
+    : crypto.createHash('sha256').update(String(token || '')).digest('hex');
+  let key = digest;
+  let s = db.sessions[key];
+  if (!s && token) {
+    const legacy = db.sessions[token];
+    if (legacy) {
+      key = digest;
+      s = legacy;
+      db.sessions[key] = legacy;
+      delete db.sessions[token];
+      persist();
+    }
+  }
   if (!s) return null;
   if (s.expiresAt && s.expiresAt < Date.now()) {
     delete db.sessions[token];
@@ -314,7 +331,12 @@ function getSessionUserId(token: string): string | null {
 export { getSessionUserId as _getSessionUserId };
 
 function clearSession(token: string): { removed: string } {
-  if (db.sessions[token]) {
+  const digest = token && /^[a-f0-9]{64}$/i.test(token) ? token : crypto.createHash('sha256').update(String(token || '')).digest('hex');
+  if (db.sessions[digest]) {
+    delete db.sessions[digest];
+    persist();
+  } else if (db.sessions[token]) {
+    // 兼容老库的明文键
     delete db.sessions[token];
     persist();
   }

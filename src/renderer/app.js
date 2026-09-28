@@ -541,8 +541,20 @@ async function openAbout() {
           el('button', {
             class: 'btn btn-ghost btn-sm', type: 'button',
             onclick: async () => {
+              // 回放要先确认是同一份输入：拿另一份简历/JD 重跑旧记录，结果没法对比
+              const doReplay = async (force) => call(window.api.agent.replay(r.runId, state.profile, state.jdText || '', force));
               try {
-                const res = await call(window.api.agent.replay(r.runId, state.profile, state.jdText || ''));
+                let res;
+                try {
+                  res = await doReplay(false);
+                } catch (err) {
+                  if (!/不是同一份/.test(err.message || '')) throw err;
+                  const go = await modalConfirm('当前输入和这条记录不是同一份',
+                    err.message + '\n\n强行回放会用「现在的」档案与 JD 去重跑记录里的工具调用，' +
+                    '结果只能说明工具行为是否一致，不能用来说明那次运行可复现。', '仍要回放');
+                  if (!go) return;
+                  res = await doReplay(true);
+                }
                 toast(res.skipped
                   ? '这条记录默认未保存入参原文（脱敏），有 ' + res.skipped + ' 步无法回放；其余成功 ' + res.okCount + ' 次'
                   : '已用当前校验逻辑回放：工具成功 ' + res.okCount + ' 次、失败 ' + res.errorCount + ' 次（未调用模型）',

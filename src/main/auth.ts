@@ -35,14 +35,18 @@ function publicUser(user: { id: string; email: string; name: string; createdAt: 
   };
 }
 
-// 会话有效期：30 天
-const SESSION_TTL = 30 * 24 * 60 * 60 * 1000;
+// 会话有效期缩短为 7 天；数据库只保存 token 哈希，不保存可直接复用的 bearer token。
+const SESSION_TTL = 7 * 24 * 60 * 60 * 1000;
+
+function sessionDigest(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
 
 // 生成会话 token 并落库
 function issueSession(userId: string): SessionInfo {
   const token = crypto.randomBytes(32).toString('hex');
   const expiresAt = Date.now() + SESSION_TTL;
-  store._createSession(token, userId, expiresAt);
+  store._createSession(sessionDigest(token), userId, expiresAt);
   return { token, expiresAt };
 }
 
@@ -83,7 +87,8 @@ export function login({ email, password }: LoginPayload): PublicUser & SessionIn
 // 用本地保存的 token 恢复登录态，无效返回 null
 export function resumeSession(token: string | null | undefined): PublicUser | null {
   if (!token) return null;
-  const userId = store._getSessionUserId(token);
+  // store 内部同时兼容旧明文键并迁移为 hash；新库只命中 hash 键
+  const userId = store._getSessionUserId(String(token));
   if (!userId) return null;
   const user = store.findUserById(userId);
   if (!user) {

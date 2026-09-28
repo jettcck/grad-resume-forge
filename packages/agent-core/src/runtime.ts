@@ -122,8 +122,19 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
       let reply: Awaited<ReturnType<typeof adapter.decide>>;
       const t0 = now();
       try {
-        reply = await adapter.decide(messages);
+        reply = await adapter.decide(messages, opts.signal);
       } catch (err) {
+        // 用户取消会让正在等待的模型请求抛中断异常 —— 那不是「模型出错」。
+        // 判据取信号本身（最可靠）以及 AbortError 名字，避免把取消记成 FAILED
+        // （实测：不区分时用户取消会看到「运行失败」）。
+        const errName = err instanceof Error ? err.name : '';
+        const aborted = cancelRequested() || errName === 'AbortError';
+        if (aborted) {
+          cancelled = true;
+          emit({ runId, stepId: i, tool: 'agent', label: '已取消（模型请求已中断）', ok: false, ms: now() - t0, detail: '用户取消' });
+          sm.settle('CANCELLED', '用户取消', now());
+          break;
+        }
         loopError = err instanceof Error ? err.message : String(err);
         emit({ runId, stepId: i, tool: 'agent', label: 'LLM 决策（第 ' + i + ' 步）', ok: false, ms: now() - t0, detail: loopError });
         sm.settle('FAILED', 'llm_error', now());

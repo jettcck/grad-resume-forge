@@ -235,6 +235,89 @@ app.whenReady().then(async () => {
     }
   }
 
+  // ---------- 会话 token 只存哈希（评审 P2-12）----------
+  try {
+    const dbRaw = fs.readFileSync(path.join(tmp, 'grad-resume-data', 'db.json'), 'utf8');
+    const dbObj = JSON.parse(dbRaw);
+    const keys = Object.keys(dbObj.sessions || {});
+    t(keys.length > 0, '库里有会话记录（' + keys.length + ' 个）');
+    t(keys.every((k) => /^[a-f0-9]{64}$/.test(k)), '会话键全部是 SHA-256 哈希（不是可直接复用的 token）');
+    // 渲染层手里的真实 token 不能出现在库文件里（冒烟脚本直接走 IPC，所以自己登录拿一个 token）
+    const token = await win.webContents.executeJavaScript(`(async () => {
+      const r = await window.api.auth.login({ email: 'smoke@test.local', password: 'pass123456' });
+      return r.ok && r.data ? r.data.token : null;
+    })()`);
+    t(!!token && !dbRaw.includes(token), '登录 token 本身没有落进数据文件（' + (token ? token.slice(0, 8) + '…' : '(未取到)') + '）');
+  } catch (err) {
+    t(false, '会话哈希检查失败：' + err.message);
+  }
+
+  // ---------- 取消能中断模型请求 / 重复 runId 防护 / 回放输入校验 ----------
+  // 起一个「故意慢」的 OpenAI 兼容服务：如果取消不能中断 HTTP 请求，
+  // 这次运行会一直等到服务返回（8 秒）或客户端超时，测出来就是没被中断。
+  const http = require('http');
+  const slow = http.createServer((req, res) => {
+    // 永不主动返回：只有客户端 abort 才能结束
+    setTimeout(() => {
+      try {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '', tool_calls: [] } }], usage: { total_tokens: 1 } }));
+      } catch (_) { /* 连接已断 */ }
+    }, 8000).unref();
+  });
+  await new Promise((r) => slow.listen(0, '127.0.0.1', r));
+  const slowPort = slow.address().port;
+
+  try {
+    const cancelOut = await win.webContents.executeJavaScript(`(async () => {
+      const prof = { name: '取消测试', skills: 'Java', projects: [{ name: 'p', description: '负责订单系统开发，支撑日活 3 万' }], internships: [] };
+      await window.api.settings.save('agent', {
+        provider: 'cloud', endpoint: 'http://127.0.0.1:${slowPort}/v1', model: 'slow-model',
+        apiKey: 'sk-slow-test', timeout: 30000
+      });
+      const runId = 'run_cancel_test';
+      // 先发起一次运行（不 await），再马上用同一个 runId 起第二次
+      const first = window.api.agent.run(prof, '岗位：Java 后端工程师，要求熟悉 Java 与 Docker', { mode: 'agentic', runId });
+      await new Promise((r) => setTimeout(r, 700));
+      const dup = await window.api.agent.run(prof, '岗位：Java 后端工程师', { mode: 'agentic', runId });
+      const t0 = Date.now();
+      const cancel = await window.api.agent.cancel(runId);
+      const r = await first;
+      const elapsed = Date.now() - t0;
+      const rec = await window.api.agent.getRun(runId);
+      return {
+        dupOk: dup.ok, dupErr: dup.error,
+        cancelOk: cancel.ok, elapsed,
+        status: r.ok && r.data && r.data.run ? r.data.run.status : null,
+        recStatus: rec.ok && rec.data ? rec.data.status : null
+      };
+    })()`);
+    t(cancelOut.dupOk === false && /正在使用中/.test(String(cancelOut.dupErr)), '重复 runId 被拒绝（实得：' + cancelOut.dupErr + '）');
+    t(cancelOut.cancelOk === true, '取消请求被接受');
+    t(cancelOut.status === 'CANCELLED' || cancelOut.recStatus === 'CANCELLED',
+      '取消后运行状态为 CANCELLED（实得 ' + cancelOut.status + '/' + cancelOut.recStatus + '）');
+    t(cancelOut.elapsed < 3000, '取消立即中断了正在等待的模型请求（耗时 ' + cancelOut.elapsed + 'ms，慢服务是 8 秒）');
+  } catch (err) {
+    t(false, '取消/重复 runId 检查失败：' + err.message);
+  }
+
+  // 回放输入一致性：换一份档案回放旧记录必须被拒，显式强制才允许
+  try {
+    const replayOut = await win.webContents.executeJavaScript(`(async () => {
+      const same = { name: '取消测试', skills: 'Java', projects: [{ name: 'p', description: '负责订单系统开发，支撑日活 3 万' }], internships: [] };
+      const other = { name: '另一个人', skills: 'Go', projects: [{ name: 'p', description: '负责支付系统重构' }], internships: [] };
+      const jd = '岗位：Java 后端工程师，要求熟悉 Java 与 Docker';
+      const mismatch = await window.api.agent.replay('run_cancel_test', other, jd, false);
+      const forced = await window.api.agent.replay('run_cancel_test', other, jd, true);
+      return { matchOk: mismatch.ok, matchErr: mismatch.error, forcedOk: forced.ok, sameName: same.name };
+    })()`);
+    t(replayOut.matchOk === false && /不是同一份/.test(String(replayOut.matchErr)), '换一份档案回放被拒（实得：' + String(replayOut.matchErr).slice(0, 40) + '…）');
+    t(replayOut.forcedOk === true, '显式确认后可以强行回放');
+  } catch (err) {
+    t(false, '回放一致性检查失败：' + err.message);
+  }
+  try { slow.close(); } catch (_) { /* 忽略 */ }
+
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* 忽略 */ }
   console.log('\n真实 IPC 冒烟完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
   app.exit(process.exitCode || 0);

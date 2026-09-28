@@ -68,7 +68,9 @@ contextBridge.exposeInMainWorld('api', {
     runs: (limit?: number) => ipcRenderer.invoke('agent:runs', limit),
     getRun: (runId: string) => ipcRenderer.invoke('agent:run:get', runId),
     clearRuns: () => ipcRenderer.invoke('agent:clearRuns'),
-    replay: (runId: string, profile: unknown, jdText: string) => ipcRenderer.invoke('agent:replay', runId, profile, jdText),
+    // force=true 表示「明知输入与记录不是同一份，仍要强行回放」（界面会先确认）
+    replay: (runId: string, profile: unknown, jdText: string, force?: boolean) =>
+      ipcRenderer.invoke('agent:replay', runId, profile, jdText, force === true),
     // 探测本机已有的本地模型服务（只在 127.0.0.1 上短超时并发探测）
     detectLocal: () => ipcRenderer.invoke('agent:detectLocal'),
     onProgress: (cb: (step: unknown) => void) => {
