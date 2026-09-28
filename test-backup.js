@@ -129,4 +129,45 @@ assert(fs.readdirSync(dataDir).some((f) => f.includes('.corrupt-')), '损坏的�
   }
 }
 
+// ---------- 结构损坏的库：形状不对的字段要被校正，而不是让应用崩掉 ----------
+// 评审指出的场景：`users: {}` 这类「truthy 但类型错」会让 users.find() 直接抛异常。
+{
+  const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), 'grf-bak-bad-'));
+  const dir3 = path.join(tmp3, 'grad-resume-data');
+  fs.mkdirSync(dir3, { recursive: true });
+  // 手工造一个「每个字段类型都不对」的库
+  fs.writeFileSync(path.join(dir3, 'db.json'), JSON.stringify({
+    users: { not: 'an array' },
+    profiles: [],
+    applications: 'nope',
+    sessions: [{ userId: 'x' }, { nothing: true }, null],
+    settings: 42,
+    agentSnapshots: null,
+    resumeVersions: 'x',
+    schemaVersion: 1
+  }), 'utf-8');
+
+  let threw = null;
+  try { store.init(tmp3); } catch (e) { threw = e; }
+  assert(!threw, '类型全错的库不会让 init 抛异常（' + (threw ? threw.message : '正常加载') + '）');
+
+  let findThrew = null;
+  try { store.findUserByEmail('nobody@test.local'); } catch (e) { findThrew = e; }
+  assert(!findThrew, 'users 被校正成数组，find 不再抛异常');
+
+  // 坏库不能污染正常流程：新注册的账号能正常用
+  let regOk = true;
+  try { auth.register({ email: 'after-bad@test.local', password: 'pass123456', name: '坏库之后' }); } catch (_) { regOk = false; }
+  assert(regOk, '校正之后仍能正常注册（坏字段只丢那一个字段）');
+
+  // sessions 里的坏条目会被丢掉，好条目保留
+  const raw3 = JSON.parse(fs.readFileSync(path.join(dir3, 'db.json'), 'utf-8'));
+  assert(Array.isArray(raw3.users), '重新落盘后 users 是数组（实际 ' + JSON.stringify(raw3.users).slice(0, 30) + '…）');
+  assert(raw3.sessions && typeof raw3.sessions === 'object' && !Array.isArray(raw3.sessions),
+    'sessions 被校正成对象');
+  const sessionKeys = Object.keys(raw3.sessions);
+  assert(sessionKeys.every((k) => /^[a-f0-9]{64}$/.test(k)), '保留的会话键都是哈希（坏条目已丢弃）');
+  try { fs.rmSync(tmp3, { recursive: true, force: true }); } catch (_) { /* 忽略 */ }
+}
+
 console.log('\n数据备份自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

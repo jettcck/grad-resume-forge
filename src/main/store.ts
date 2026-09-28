@@ -194,19 +194,56 @@ function sweepExpiredSessions(): void {
   if (dirty) persist();
 }
 
+// 结构校验：只认「形状对」的字段，类型不对就退回空值。
+// 原来写的是 `parsed.users || []` —— 只要字段是 truthy 就照单全收，
+// 于是 `users: {}` 这种「truthy 但类型错」的库会让后续 users.find() 直接抛异常，
+// 整个应用起不来。现在按字段逐个校正，坏库最多丢那一个字段，不至于全盘崩。
+function asRecord<T>(value: unknown): Record<string, T> {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, T> : {};
+}
+function asArray<T>(value: unknown): T[] {
+  return Array.isArray(value) ? value as T[] : [];
+}
+/** 只保留形如 { userId, expiresAt, createdAt } 的会话项 */
+function asSessions(value: unknown): DbShape['sessions'] {
+  const raw = asRecord<unknown>(value);
+  const out: DbShape['sessions'] = {};
+  Object.keys(raw).forEach((k) => {
+    const s = raw[k];
+    if (s && typeof s === 'object' && typeof (s as { userId?: unknown }).userId === 'string') {
+      const item = s as { userId: string; expiresAt?: unknown; createdAt?: unknown };
+      out[k] = {
+        userId: item.userId,
+        expiresAt: typeof item.expiresAt === 'number' ? item.expiresAt : 0,
+        createdAt: typeof item.createdAt === 'number' ? item.createdAt : 0
+      };
+    }
+  });
+  return out;
+}
+/** users 必须是数组，且每项至少有 id/email（缺 id 的条目留着只会让 find 返回坏对象） */
+function asUsers(value: unknown): StoredUser[] {
+  return asArray<StoredUser>(value).filter((u) =>
+    !!u && typeof u === 'object' && typeof (u as { id?: unknown }).id === 'string'
+  );
+}
+
 function load(): void {
   try {
     if (dbFile && fs.existsSync(dbFile)) {
       const raw = fs.readFileSync(dbFile, 'utf-8');
-      const parsed = JSON.parse(raw) as Partial<DbShape>;
-      db.users = parsed.users || [];
-      db.profiles = parsed.profiles || {};
-      db.applications = parsed.applications || {};
-      db.sessions = parsed.sessions || {};
-      db.settings = parsed.settings || {};
-      db.agentSnapshots = parsed.agentSnapshots || {};
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('库根节点不是对象');
+      }
+      db.users = asUsers(parsed.users);
+      db.profiles = asRecord(parsed.profiles);
+      db.applications = asRecord(parsed.applications);
+      db.sessions = asSessions(parsed.sessions);
+      db.settings = asRecord(parsed.settings);
+      db.agentSnapshots = asRecord(parsed.agentSnapshots);
       // 老库没有 resumeVersions 字段：缺省为空，向前兼容
-      db.resumeVersions = parsed.resumeVersions || {};
+      db.resumeVersions = asRecord(parsed.resumeVersions);
     }
   } catch (err) {
     // 数据损坏时不崩溃，退回空库并备份原文件
