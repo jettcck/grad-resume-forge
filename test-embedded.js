@@ -64,6 +64,23 @@ assert(/script-src/.test(csp), 'CSP 显式声明 script-src（动态 import 依�
 assert(/script-src[^;]*'wasm-unsafe-eval'/.test(csp), "CSP script-src 含 'wasm-unsafe-eval'（WebAssembly 编译放行）");
 assert(/wasmCompilable/.test(emb), 'embedded-llm.js 提供 wasmCompilable 运行时检测（CSP 拦截时 UI 明示原因）');
 
+// ---------- 3b) CSP 收紧：script-src 不需要 'unsafe-inline' / data: ----------
+// 依据（都验证过，不是推测）：index.html 里 0 个内联 <script>（7 个脚本全是 src=）；
+// 渲染层没有 eval / new Function / importScripts / createElement('script') / new Worker。
+// 实测：收紧后应用内模型模块自检仍 exports=31 createMLCEngine=true wasm=true mirror=206。
+// 留着 'unsafe-inline' 只会让「将来万一漏了一处注入」从「被 CSP 拦下」变成「直接执行」。
+assert(!/script-src[^;]*unsafe-inline/.test(csp), 'CSP script-src 不放行 unsafe-inline');
+assert(!/script-src[^;]*data:/.test(csp), 'CSP script-src 不放行 data:');
+assert(/style-src[^;]*'unsafe-inline'/.test(csp), 'style-src 保留 unsafe-inline（内联 style 属性 + 模板注入 <style> 需要）');
+
+// ---------- 3c) 导航守卫：主窗口挂着 preload，不能被导航到远端站点 ----------
+// 否则远端站点的脚本会连同 preload 一起加载，直接拿到 window.api 下全部 IPC 通道。
+const mainSrc = R('src/main/main.ts');
+assert(/will-navigate/.test(mainSrc), '主窗口拦截远端导航（will-navigate）');
+assert(/setWindowOpenHandler/.test(mainSrc), '主窗口拒绝新建窗口（setWindowOpenHandler → deny）');
+assert(/openExternalIfHttp/.test(mainSrc), '被拦下的 http/https 链接转交系统浏览器（与 shell:openExternal 行为一致）');
+assert(/sandbox:\s*true/.test(mainSrc), '主窗口开启渲染进程沙箱（渲染层不需要 Node）');
+
 // ---------- 4) 配置弹窗：默认选应用内模型 + 诚实文案 ----------
 const app = R('src/renderer/app.js');
 assert(/isCloudStored \? 'cloud' : 'embedded'/.test(app), '未配置时默认选「应用内模型」（零门槛首选）');

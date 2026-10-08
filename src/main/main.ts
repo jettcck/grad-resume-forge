@@ -7,6 +7,7 @@
 import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron';
 import path from 'path';
 import fs from 'fs';
+import { pathToFileURL } from 'url';
 
 import * as store from './store';
 import * as auth from './auth';
@@ -42,7 +43,10 @@ function createWindow(): void {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      // 主窗口不需要 Node：渲染层只用 DOM + window.api（preload 通过 contextBridge 暴露），
+      // preload 本身只用 contextBridge/ipcRenderer 和 process.env 里的一个自检开关。
+      // 开沙箱后渲染进程即使被攻破也拿不到 Node 能力（导出 PDF 的离屏窗口早就这么设了）。
+      sandbox: true
     }
   });
 
@@ -50,6 +54,41 @@ function createWindow(): void {
   mainWindow.loadFile(path.join(__dirname, '..', '..', 'src', 'renderer', 'index.html'));
 
   const wcId = mainWindow.webContents.id;
+
+  // ---------------- 导航守卫 ----------------
+  // 为什么必须有：安全边界不是「preload 本身」，而是「这个窗口只加载本应用自己的页面」。
+  // 一旦窗口被导航到远端站点，那个站点的脚本会连同 preload 一起加载，于是能直接调用
+  // window.api 下的全部 IPC 通道（等于把整库读写、备份恢复、Agent 运行都交出去）。
+  // 所以：除应用自身页面外一律拦下，http/https 外链交给系统浏览器
+  // （应用里所有外链本来就走的 shell:openExternal，二者行为一致）。
+  const rendererDirUrl = pathToFileURL(
+    path.join(__dirname, '..', '..', 'src', 'renderer')
+  ).href; // 例：file:///C:/.../app.asar/src/renderer（打包后仍在 asar 内，__dirname 已指向 asar）
+  const isOwnPage = (url: string): boolean =>
+    url === rendererDirUrl || url.indexOf(rendererDirUrl + '/') === 0;
+  const openExternalIfHttp = (rawUrl: string): void => {
+    try {
+      const u = new URL(rawUrl);
+      if (u.protocol === 'http:' || u.protocol === 'https:') void shell.openExternal(u.href);
+    } catch (_) { /* 非法 URL：丢掉，不抛错打断导航处理 */ }
+  };
+  // 只放行应用自己渲染目录下的页面（含刷新）；其余一律 preventDefault。
+  // 用目录前缀而不是精确比对一个 index.html，是为了打包后路径形态变化时不会误拦自己的页面
+  // （误拦的后果是白屏，比漏拦更难排查）。
+  // 注意 did-navigate-in-page（#hash 跳转）不走这里，预览页内的锚点不受影响。
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (isOwnPage(url)) return;
+    event.preventDefault();
+    console.log('[nav-blocked]', String(url).slice(0, 200));
+    openExternalIfHttp(url);
+  });
+  // 新窗口一律不开：要么转交系统浏览器，要么丢弃。
+  // 不回 { action: 'allow' } 是因为新窗口默认不带 preload/CSP 约束，等于绕过上面这条。
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    console.log('[window-open-blocked]', String(url).slice(0, 200));
+    openExternalIfHttp(url);
+    return { action: 'deny' };
+  });
 
   const levels = ['LOG', 'WARN', 'ERROR'];
   mainWindow.webContents.on('console-message', (_e, level, message, line, sourceId) => {

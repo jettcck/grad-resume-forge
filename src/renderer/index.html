@@ -3,7 +3,16 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' data:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://hf-mirror.com https://*.hf-mirror.com https://*.xethub.hf.co https://gh-proxy.com https://*.gh-proxy.com; script-src 'self' 'unsafe-inline' data: 'wasm-unsafe-eval';" />
+  <!--
+    CSP：script-src 只放行本应用自己的脚本文件 + WebAssembly 编译（应用内模型是 wasm）。
+    - 不再给 script-src 'unsafe-inline' / data:：index.html 里一个内联 <script> 都没有
+      （7 个脚本全是 src=），渲染层也没有 eval / new Function / 动态插 <script>。
+      留着它们只会让「万一将来漏了一处注入」从「被 CSP 拦下」变成「直接执行」。
+    - style-src 必须留 'unsafe-inline'：界面大量使用内联 style 属性，模板预览还会注入 <style>。
+    - default-src 的 'unsafe-inline' 是死配置（script/style 都已单独声明），一并去掉；
+      data: 保留（图标/图片等内联资源用得到）。
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' data:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https://hf-mirror.com https://*.hf-mirror.com https://*.xethub.hf.co https://gh-proxy.com https://*.gh-proxy.com; script-src 'self' 'wasm-unsafe-eval';" />
   <title>简历锻造炉 · GradResume Forge</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

@@ -59,6 +59,11 @@ const checks = [
   ['重复 runId 被拒绝', has('正在使用中')],
   ['回放校验输入是否同一份', has('不是同一份')],
   ['会话与临时密钥随窗口销毁清理', has('forgetSession') && has("'destroyed'")],
+  // v1.10.7：CSP 收紧 + 导航守卫（preload 一直挂在主窗口上，不能让它加载远端页面）
+  ['CSP script-src 已收紧（无 unsafe-inline / data:）', has("script-src 'self' 'wasm-unsafe-eval'")],
+  ['CSP style-src 仍保留 unsafe-inline（内联样式需要）', has("style-src 'self' 'unsafe-inline'")],
+  ['导航守卫 will-navigate', has('will-navigate') && has('[nav-blocked]')],
+  ['新窗口守卫 setWindowOpenHandler', has('setWindowOpenHandler') && has('[window-open-blocked]')],
   ['agent-cli 已打进安装包', has('agent-cli/dist')],
   // 夹具不该进安装包
   ['PDF 夹具未进安装包', !has('resume-sample-ats-classic') && !has('resume-sample-stem')]

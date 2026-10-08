@@ -226,7 +226,7 @@ CLI 之所以成立，是因为 `agent-core` 不认识 Electron、`src/main/agen
 | 重复 `runId` 破坏取消逻辑 | 相同 `runId` 直接拒绝；`finally` 里比对 controller 后才删除，不再误删别人的控制器 | 真实主进程：同一 `runId` 的第二次请求被拒 |
 | 回放不校验是否同一份简历/JD | 用与运行记录同一套算法算输入指纹，默认拒绝不一致的回放；界面弹确认后才允许强制回放 | 真实主进程：换一份档案回放被拒，显式确认后放行 |
 | 数据库结构没有运行时校验 | 已做（v1.10.6）：`load()` 逐字段校正形状（`asUsers`/`asRecord`/`asSessions`），类型不对就退回空值而不是照单全收 | 故意造一个「每个字段类型都不对」的库：init 不抛异常、`findUserByEmail` 不崩、校正后仍能正常注册；会话里的坏条目被丢掉、剩下的键仍是哈希 |
-| 主窗口 `sandbox: false`、CSP 允许 `unsafe-inline` | **未做** | 先把内联脚本/样式挪出去才能收紧 CSP，属独立一轮 |
+| 主窗口 `sandbox: false`、CSP 允许 `unsafe-inline` | 已在 v1.10.7 处理（见第十一节） | 真实窗口里实测：注入的内联脚本被 CSP 拒绝执行、远端导航被拦、`window.open` 被拒；同时跑通内嵌模型模块自检 |
 
 取消路径上有一处是我在写测试时才发现的真实缺陷：中断异常先被 `catch` 接住，
 于是**用户点取消会看到「运行失败」**。现在按信号与 `AbortError` 判定，记 CANCELLED 并在步骤里写明
@@ -234,9 +234,39 @@ CLI 之所以成立，是因为 `agent-core` 不认识 Electron、`src/main/agen
 
 ### 这一轮之后还剩什么
 
-- **主窗口 `sandbox: false` 与 CSP 的 `unsafe-inline`**：渲染层大量使用内联 `style` 属性，
-  收紧 `style-src` 之前必须先把它们挪进样式表，否则界面直接崩。这是一个独立的重构，
-  没有把握就不动 —— 现在写「已加固」是不诚实的。
 - **真实模型的多轮/多温度评测**：脚本链路已由 `--self-test` 守住，真实数字仍需要端点。
 - **人工审批队列**：仍是「Agent 产出候选 → 用户点应用」，没有队列与超时。
-- **运行记录的按时间保留策略**：现在只有 50 条轮转上限。
+- **运行记录的按时间保留策略**：现在只有 50 条轮转上限（文件本身会压实，不会无限增长）。
+- **窗口销毁时的会话清理**：代码挂在 `destroyed` / `render-process-gone` 上，但只有静态守卫
+  （做运行时断言等于在冒烟中途销毁窗口，会把冒烟进程一起结束）。
+
+## 十一、安全边界收口（v1.10.7）
+
+这一轮只做一件事：把主窗口的边界收紧到「它只加载本应用自己的页面、且渲染进程没有 Node」。
+起因是自检时确认了一个结构性事实：**preload 一直挂在主窗口上**，所以安全边界不是 preload 本身，
+而是「这个窗口不许被导航到远端站点」——否则远端页面的脚本会连同 preload 一起加载，
+直接拿到 `window.api` 下全部 48 个 IPC 通道（等于交出整库读写、备份恢复、Agent 运行）。
+
+| 改动 | 依据（先验证再改，不是推测） | 怎么证明 |
+|---|---|---|
+| `script-src` 去掉 `'unsafe-inline'` 与 `data:` | 逐一扫过：`index.html` 里 **0 个内联 `<script>`**（7 个脚本全是 `src=`）；渲染层**没有** `eval` / `new Function` / `importScripts` / `createElement('script')` / `new Worker` / `createObjectURL` | 真实窗口里真的往 `head` 插一段可执行内联脚本 → Chromium 打印 CSP 拒绝，`window.__inlineRan` 始终不是 1 |
+| `default-src` 去掉 `'unsafe-inline'`（死配置） | `script-src` / `style-src` 都已单独声明，fallback 里的 `'unsafe-inline'` 不生效 | 同上；`data:` 保留（内联图标/图片要用） |
+| `style-src` **保留** `'unsafe-inline'` | 界面大量使用内联 `style` 属性，模板预览还会注入 `<style>` —— 动它就是界面直接崩 | 收紧后重跑界面冒烟 174 项全过，截图逐张确认样式完好 |
+| 新增 `will-navigate` 守卫 | 主窗口不能停在除自身页面外的任何 URL；http/https 外链转交系统浏览器（与应用里本来就用的 `shell:openExternal` 行为一致） | 真实窗口执行 `location.href='https://example.com/'` → 400ms 后 URL 仍停在 `file:///…/src/renderer/index.html`，主进程日志 `[nav-blocked]` |
+| 新增 `setWindowOpenHandler`（一律 `deny`） | 新窗口默认不带 preload/CSP 约束，`allow` 等于绕过上面那条 | 真实窗口执行 `window.open('https://example.com')` → 返回 `null`，主进程日志 `[window-open-blocked]`，窗口数不变 |
+| 主窗口 `sandbox: true` | 渲染层只用 DOM + `window.api`；扫过全部 `src/renderer/*.js`，**没有任何 `process` / `require` / `__dirname` / `global` 用法**；preload 只用 `contextBridge`/`ipcRenderer` 和 `process.env` 里的一个自检开关（导出 PDF 的离屏窗口早就开了沙箱） | 沙箱下真实主进程 48 个 IPC 通道全部照常（冒烟 56 项全过）；`GRF_EMBEDDED_SELFTEST=1` 启动仍打印 `module exports=31 createMLCEngine=true wasm=true mirror=206` |
+
+**最关键的一条是「先证明收紧没把内嵌模型掐死」。** 应用内模型的模块是用
+`import('../../node_modules/@mlc-ai/web-llm/lib/index.js')` 动态加载的，`script-src` 恰好是它的闸门；
+运行库还是 wasm，靠 `'wasm-unsafe-eval'`。所以改完 CSP 立刻带 `GRF_EMBEDDED_SELFTEST=1` 起真机：
+
+```
+[embedded-selftest] module exports=31 prebuilt=163 createMLCEngine=true wasm=true webgpu=false variant=f32(270MB) mirror=206
+```
+
+动态 `import` 成功、wasm 能编译、国内镜像 206 —— 三项都在，收紧了也没误伤自己。
+
+这一轮新增的断言都进了 `npm test`：`test-embedded.js` 从 39 项涨到 **46 项**（静态守 CSP 口径与导航守卫），
+`scripts/smoke-real-ipc.js` 从 48 项涨到 **56 项**（真实窗口里的运行时行为），
+`scripts/check-installed-asar.js` 加了 4 项装机包守卫。
+

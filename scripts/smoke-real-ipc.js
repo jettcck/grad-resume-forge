@@ -316,6 +316,58 @@ app.whenReady().then(async () => {
   } catch (err) {
     t(false, '回放一致性检查失败：' + err.message);
   }
+  // 安全加固：CSP 收紧 + 导航守卫。这两条是「万一将来漏了一处注入」时的最后一道防线，
+  // 所以不能只做静态检查，要真的插一段内联脚本、真的跳一次远端，看结果。
+  try {
+    const secOut = await win.webContents.executeJavaScript(`(async () => {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const meta = document.querySelector('meta[http-equiv="Content-Security-Policy"]');
+      const csp = (meta && meta.content) || '';
+      const part = (name) => {
+        const seg = csp.split(';').map((x) => x.trim()).find((x) => x.indexOf(name) === 0);
+        return seg || '';
+      };
+      const scriptSrc = part('script-src');
+      const styleSrc = part('style-src');
+      // 1) wasm 仍可编译：应用内模型的运行库是 wasm，收紧 script-src 不能把它一起掐死
+      let wasmOk = false;
+      try { new WebAssembly.Module(new Uint8Array([0, 97, 115, 109, 1, 0, 0, 0])); wasmOk = true; } catch (_) {}
+      // 2) 内联脚本必须被拦下：真的往 head 里插一段可执行内联脚本
+      let inlineRan = false;
+      try {
+        const s = document.createElement('script');
+        s.textContent = 'window.__inlineRan = 1';
+        document.head.appendChild(s);
+        await sleep(30);
+        inlineRan = window.__inlineRan === 1;
+        s.remove();
+      } catch (_) {}
+      // 3) window.open 一律被拒
+      let popped = false;
+      try { popped = window.open('https://example.com', '_blank') !== null; } catch (_) {}
+      await sleep(30);
+      // 4) 远端导航被拦：URL 必须仍停在应用自己的页面
+      const before = location.href;
+      try { location.href = 'https://example.com/'; } catch (_) {}
+      await sleep(400);
+      return {
+        scriptSrc, styleSrc, wasmOk, inlineRan, popped,
+        stayed: location.href === before,
+        after: location.href
+      };
+    })()`);
+    t(/'wasm-unsafe-eval'/.test(secOut.scriptSrc), 'script-src 仍放行 wasm 编译（实得：' + secOut.scriptSrc + '）');
+    t(!/unsafe-inline/.test(secOut.scriptSrc), 'script-src 不再放行 unsafe-inline');
+    t(!/data:/.test(secOut.scriptSrc), 'script-src 不再放行 data:');
+    t(/'unsafe-inline'/.test(secOut.styleSrc), 'style-src 仍保留 unsafe-inline（界面内联样式需要）');
+    t(secOut.wasmOk === true, '收紧后 WebAssembly 仍可编译（应用内模型不受影响）');
+    t(secOut.inlineRan === false, '注入的内联脚本没有执行（CSP 实测拦下）');
+    t(secOut.popped === false, 'window.open 被拒（不开新窗口）');
+    t(secOut.stayed === true, '远端导航被拦下，窗口仍停在应用页面（实得：' + String(secOut.after).slice(0, 56) + '）');
+  } catch (err) {
+    t(false, '安全加固检查失败：' + err.message);
+  }
+
   try { slow.close(); } catch (_) { /* 忽略 */ }
 
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (_) { /* 忽略 */ }
