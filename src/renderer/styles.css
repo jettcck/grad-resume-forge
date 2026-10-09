@@ -1440,3 +1440,72 @@ em { font-style: normal; color: var(--gold); }
 .tmpl-warm .r-skill { background: #fff1e7; color: #c2410c; border: 1px solid #fcd9bd; }
 .tmpl-warm .r-tech { color: #9a6b4a; }
 .tmpl-warm .r-bullets li::marker { color: #f97316; }
+
+/* ============================================================
+   投递地点与距离（map-view.js）
+   注意：所有选择器都以 .mv- 前缀限定，避免影响 PDF 导出文档
+   ============================================================ */
+.mv-root { margin-top: 26px; }
+.mv-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 14px 16px; background: linear-gradient(180deg, var(--bg-2), var(--bg-1)); border: 1px solid var(--line); border-radius: var(--radius); }
+.mv-head-left { display: flex; flex-direction: column; gap: 3px; }
+.mv-kicker { font-family: var(--font-mono); font-size: 11px; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); }
+.mv-origin-text { font-size: 15px; color: var(--ink-0); }
+.mv-origin-src { font-size: 12px; color: var(--ink-2); }
+.mv-empty { margin: 12px 0 0; padding: 14px 16px; font-size: 13px; line-height: 1.7; color: var(--ink-2); background: var(--bg-1); border: 1px dashed var(--line); border-radius: var(--radius); }
+.mv-summary { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0 4px; font-size: 13px; color: var(--ink-1); }
+.mv-warn { color: var(--gold); }
+
+.mv-card { margin-top: 14px; padding: 14px 16px 16px; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius); }
+.mv-card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.mv-card-head h4 { margin: 0; font-size: 14px; color: var(--ink-0); }
+.mv-hint { font-size: 12px; color: var(--ink-2); }
+.mv-map-note { margin: 0 0 10px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
+
+/* 离线相对位置图 */
+.mv-svg { display: block; width: 100%; height: auto; max-height: 420px; color: var(--ink-2); background: radial-gradient(circle at 50% 50%, var(--bg-2), var(--bg-1) 70%); border: 1px solid var(--line); border-radius: var(--radius); }
+.mv-label { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-1); }
+.mv-sublabel { font-size: 10px; fill: var(--ink-2); }
+.mv-origin-label { font-size: 11px; fill: var(--gold); font-weight: 700; }
+.mv-dot { stroke: var(--bg-0); stroke-width: 1.5; }
+.mv-origin { fill: var(--gold); stroke: var(--bg-0); stroke-width: 2; }
+.mv-band-very-close { fill: var(--teal); background: var(--teal); }
+.mv-band-close { fill: #6fd8a8; background: #6fd8a8; }
+.mv-band-medium { fill: var(--gold); background: var(--gold); }
+.mv-band-far { fill: var(--ember); background: var(--ember); }
+.mv-band-very-far { fill: var(--danger); background: var(--danger); }
+.mv-band-unknown { fill: var(--ink-2); background: var(--ink-2); }
+
+/* 距离排序 */
+.mv-list { display: flex; flex-direction: column; gap: 8px; }
+.mv-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.mv-rank { flex: 0 0 22px; font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); padding-top: 2px; }
+.mv-row-main { flex: 1 1 auto; min-width: 0; }
+.mv-row-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.mv-row-top b { font-size: 13.5px; color: var(--ink-0); }
+.mv-dist { font-family: var(--font-mono); font-size: 13px; color: var(--gold); }
+.mv-band { font-size: 11px; padding: 1px 6px; border-radius: 999px; color: var(--bg-0); }
+.mv-bar-wrap { margin: 6px 0 4px; height: 6px; background: var(--bg-0); border-radius: 999px; overflow: hidden; }
+.mv-bar { height: 100%; border-radius: 999px; }
+.mv-row-sub { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--ink-2); flex-wrap: wrap; }
+.mv-src { padding: 0 6px; border: 1px solid var(--line-2); border-radius: 999px; font-size: 11px; }
+.mv-mini { background: none; border: 1px solid var(--line-2); color: var(--ink-1); font-size: 11px; padding: 2px 7px; border-radius: var(--radius-sm); cursor: pointer; }
+.mv-mini:hover { border-color: var(--gold); color: var(--gold); }
+.mv-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.mv-chip { display: inline-flex; align-items: baseline; gap: 2px; background: var(--bg-2); border: 1px solid var(--line); color: var(--ink-1); font-size: 12.5px; padding: 5px 10px; border-radius: 999px; cursor: pointer; }
+.mv-chip:hover { border-color: var(--gold); color: var(--gold); }
+.mv-chip-sub { font-size: 11px; color: var(--ink-2); }
+
+/* 在线地图 */
+.mv-map-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.mv-select { background: var(--bg-2); color: var(--ink-0); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 5px 8px; font-size: 12.5px; max-width: 320px; }
+.mv-attr { font-size: 11.5px; color: var(--ink-2); line-height: 1.6; margin-bottom: 8px; }
+.mv-map-host { position: relative; }
+.mv-map-wrap { overflow: auto; padding-bottom: 4px; }
+.mv-map-canvas { position: relative; width: 768px; height: 420px; background: var(--bg-0); border: 1px solid var(--line); border-radius: var(--radius); cursor: crosshair; overflow: hidden; }
+.mv-map-canvas.dragging { cursor: grabbing; }
+.mv-map-tiles { position: absolute; left: 0; top: 0; }
+.mv-tile { position: absolute; width: 256px; height: 256px; user-select: none; -webkit-user-drag: none; }
+.mv-map-overlay { position: absolute; left: 0; top: 0; width: 768px; height: 420px; pointer-events: none; }
+.mv-map-status { margin-top: 6px; font-size: 12px; color: var(--ink-2); min-height: 16px; }
+.mv-target { margin: 8px 0 0; font-size: 12.5px; color: var(--gold); font-family: var(--font-mono); }
+.mv-cache { margin-top: 10px; font-size: 11.5px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

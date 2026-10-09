@@ -114,6 +114,18 @@ contextBridge.exposeInMainWorld('api', {
     // 面试准备（全本地、零模型）：自我介绍生成 + 方向化题库 + 开放题模板 + 反问清单
     prep: (profile: unknown, opts?: unknown) => ipcRenderer.invoke('interview:prep', profile, opts)
   },
+  map: {
+    // 可用瓦片源（内置 + 是否已配自定义）。模板里可能带用户自己的 key，所以主进程不回传模板
+    sources: () => ipcRenderer.invoke('map:sources'),
+    // 取一块瓦片：主进程负责联网 + SSRF 校验 + 磁盘缓存，回传 data: URL（因此 CSP 无需放宽）
+    tile: (sourceId: string, z: number, x: number, y: number) =>
+      ipcRenderer.invoke('map:tile', sourceId, z, x, y),
+    cacheStats: () => ipcRenderer.invoke('map:cacheStats'),
+    clearCache: () => ipcRenderer.invoke('map:clearCache'),
+    // 保存自定义瓦片源（https + 非内网）；传空 url 表示清除
+    setCustomSource: (name: string, url: string, datum: string) =>
+      ipcRenderer.invoke('map:setCustomSource', name, url, datum)
+  },
   embedded: {
     // 渲染进程 → 主进程：报告 WebGPU/模型就绪状态（主进程据此决定 agent:status）
     reportStatus: (st: { webgpu: boolean; ready: boolean }) =>

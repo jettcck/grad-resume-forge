@@ -857,7 +857,7 @@ function resolveAgentConfig(userId: string, defaults: Partial<LlmConfig> = {}): 
 // 允许渲染层读写的设置键白名单。
 // 之前没有白名单：渲染层可以传 `userId:agent` 绕过 `key === 'agent'` 的脱敏分支
 // （在 safeStorage 不可用的机器上那读到的就是明文密钥），也能往任意全局键写东西。
-const ALLOWED_SETTING_KEYS = new Set(['agent', 'ghProxy']);
+const ALLOWED_SETTING_KEYS = new Set(['agent', 'ghProxy', 'map']);
 
 ipcMain.handle('settings:get', (_e, key: string) => {
   try {
@@ -882,7 +882,7 @@ ipcMain.handle('settings:save', (_e, key: string, value: unknown) => {
     const userId = sessionUserId(_e);
     if (!ALLOWED_SETTING_KEYS.has(String(key))) return fail('不支持的设置项：' + String(key));
     assertSize(value, LIMITS.settingJson, '设置内容');
-    if (key !== 'agent') return ok(store.setSetting(key, value)); // 设备级设置（镜像等）不按账号隔离
+    if (key !== 'agent') return ok(store.setSetting(key, value, userId)); // 设备级键（镜像等）不受 userId 影响；用户级键（map）必须带 userId，否则读按账号、写却落全局，地点存不住
     const incoming = Object.assign({}, (value || {}) as LlmConfig) as LlmConfig & { apiKeySessionOnly?: boolean };
     const sessionOnly = incoming.apiKeySessionOnly === true;
     delete incoming.apiKeySessionOnly;
@@ -913,6 +913,119 @@ ipcMain.handle('settings:save', (_e, key: string, value: unknown) => {
       hasKey: !!(hasStoredKey(userId) || sessionKeys.has(userId)),
       sessionOnly
     }));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// ---------------- 地图瓦片代理（投递地点距离）----------------
+// 设计要点：渲染层不直接连瓦片服务器，改由主进程取回并以 data: URL 交出。
+// 好处是刚收紧的 CSP 一行都不用改（data: 本来就在 default-src 里），渲染层继续待在沙箱中；
+// 代价是这一层必须自己做好 SSRF 防护——用户能自定义瓦片地址，不拦就等于给了个读内网的工具。
+import {
+  BUILTIN_TILE_SOURCES, fetchTile, validateTemplate, clearTileCache, tileCacheStats
+} from './tile-proxy';
+import type { TileSource } from './tile-proxy';
+
+function tileCacheDir(): string {
+  return path.join(app.getPath('userData'), 'grad-resume-data', 'tile-cache');
+}
+
+/** 用户自定义瓦片源（存 map 设置里）；非法的一律当作不存在 */
+function customTileSource(userId: string): TileSource | null {
+  try {
+    const cfg = store.getSetting<{ tiles?: { customUrl?: string; customName?: string; customDatum?: string } }>('map', userId);
+    const url = cfg && cfg.tiles && cfg.tiles.customUrl;
+    if (!url) return null;
+    if (validateTemplate(String(url)) !== null) return null;
+    return {
+      id: 'custom',
+      name: String((cfg.tiles && cfg.tiles.customName) || '自定义瓦片源'),
+      datum: cfg.tiles && cfg.tiles.customDatum === 'gcj02' ? 'gcj02' : 'wgs84',
+      url: String(url),
+      attribution: '自定义源',
+      maxZoom: 19
+    };
+  } catch (_) { return null; }
+}
+
+function resolveTileSource(userId: string, sourceId: string): TileSource | null {
+  if (sourceId === 'custom') return customTileSource(userId);
+  return BUILTIN_TILE_SOURCES.find((s) => s.id === sourceId) || null;
+}
+
+ipcMain.handle('map:sources', (_e) => {
+  try {
+    const userId = sessionUserId(_e);
+    const custom = customTileSource(userId);
+    return ok({
+      // 只回必要字段：模板里可能带用户自己的 key，不回传给渲染层
+      builtin: BUILTIN_TILE_SOURCES.map((s) => ({
+        id: s.id, name: s.name, datum: s.datum, attribution: s.attribution, maxZoom: s.maxZoom, note: s.note
+      })),
+      hasCustom: !!custom,
+      customName: custom ? custom.name : null,
+      customDatum: custom ? custom.datum : null
+    });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('map:tile', async (_e, sourceId: string, z: number, x: number, y: number) => {
+  try {
+    const userId = sessionUserId(_e);
+    const src = resolveTileSource(userId, String(sourceId || ''));
+    if (!src) return fail('未知的瓦片源');
+    const r = await fetchTile({ source: src, z: Number(z), x: Number(x), y: Number(y), cacheDir: tileCacheDir() });
+    if (!r.ok) return fail(r.error || '取瓦片失败');
+    return ok({ dataUrl: r.dataUrl, cached: !!r.cached });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('map:cacheStats', (_e) => {
+  try {
+    sessionUserId(_e);
+    const s = tileCacheStats(tileCacheDir());
+    return ok({ files: s.files, bytes: s.bytes });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('map:clearCache', (_e) => {
+  try {
+    sessionUserId(_e);
+    return ok({ removed: clearTileCache(tileCacheDir()) });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 保存/校验自定义瓦片源：把校验放在主进程，界面只负责显示错误
+ipcMain.handle('map:setCustomSource', (_e, name: string, url: string, datum: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    const raw = String(url || '').trim();
+    if (!raw) {
+      const cfg = store.getSetting<Record<string, unknown>>('map', userId) || {};
+      const tiles = Object.assign({}, (cfg as { tiles?: Record<string, unknown> }).tiles);
+      delete tiles.customUrl; delete tiles.customName; delete tiles.customDatum;
+      store.setSetting('map', Object.assign({}, cfg, { tiles }), userId);
+      return ok({ cleared: true });
+    }
+    const bad = validateTemplate(raw);
+    if (bad) return fail(bad);
+    const cfg = store.getSetting<Record<string, unknown>>('map', userId) || {};
+    const tiles = Object.assign({}, (cfg as { tiles?: Record<string, unknown> }).tiles, {
+      customUrl: raw,
+      customName: String(name || '').trim().slice(0, 40) || '自定义瓦片源',
+      customDatum: datum === 'gcj02' ? 'gcj02' : 'wgs84'
+    });
+    store.setSetting('map', Object.assign({}, cfg, { tiles }), userId);
+    return ok({ saved: true });
   } catch (err) {
     return fail((err as Error).message);
   }

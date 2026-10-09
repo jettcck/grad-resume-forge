@@ -64,6 +64,16 @@ const checks = [
   ['CSP style-src 仍保留 unsafe-inline（内联样式需要）', has("style-src 'self' 'unsafe-inline'")],
   ['导航守卫 will-navigate', has('will-navigate') && has('[nav-blocked]')],
   ['新窗口守卫 setWindowOpenHandler', has('setWindowOpenHandler') && has('[window-open-blocked]')],
+  // v1.11.0：投递地点与距离（离线直线距离对比 + 可选在线地图）
+  ['城市/区县坐标表已打进安装包', has('CityGeo') && has('北京|朝阳')],
+  ['距离与坐标解析模块', has('haversineKm') && has('parseLocation') && has('formatDistance')],
+  ['坐标系换算（WGS-84 ⇄ GCJ-02）', has('wgs84ToGcj02') && has('needsGcjOffset')],
+  ['离线相对位置图', has('buildCompareSvg') && has('mv-svg')],
+  ['地图视图模块', has('MapView') && has('mv-map-canvas')],
+  ['瓦片走主进程代理（CSP 无需放宽）', has('map:tile') && has('map:setCustomSource') && has('data:image/png;base64,')],
+  ['瓦片代理 SSRF 守卫', has('isBlockedHost') && has('assertAllowedHop') && has('validateTemplate')],
+  ['内置瓦片源（OSM + 高德，含版权署名）', has('tile.openstreetmap.org') && has('is.autonavi.com')],
+  ['第三方数据许可声明随包分发', has('木兰宽松许可证')],
   ['agent-cli 已打进安装包', has('agent-cli/dist')],
   // 夹具不该进安装包
   ['PDF 夹具未进安装包', !has('resume-sample-ats-classic') && !has('resume-sample-stem')]

@@ -155,6 +155,12 @@ assert(store.getAgentSnapshot(uid, 'snap_不存在') === null, '读取不存在�
   assert(aCfg && aCfg.apiKey === 'enc:v1:AAA', '两个账号各自的配置互不覆盖');
   // 老库迁移：全局键只在「单账号」时被继承；这里顺带确认设备级设置不分账号
   assert(store.getSetting('ghProxy', a.id) === store.getSetting('ghProxy', b.id), '设备级设置（镜像）不分账号');
+  // 地图出发地是个人数据 → 必须按账号隔离（写入时若漏传 userId 会写成全局键，两人会共用同一个「我的学校」）
+  store.setSetting('map', { origin: { label: '甲校', lat: 31.4, lng: 104.7 } }, a.id);
+  const aMap = store.getSetting('map', a.id);
+  assert(aMap && aMap.origin && aMap.origin.label === '甲校', '账号甲的出发地能按账号存下');
+  assert(store.getSetting('map', b.id) === null, '账号乙读不到账号甲的出发地（map 是用户级设置）');
+  assert(store._dbForTest().settings['map'] === undefined, '出发地没有被写到全局 map 键上（否则读按账号、写却落全局）');
 }
 
 // 13) 数据真正落盘（新实例重新 load 也能读到）

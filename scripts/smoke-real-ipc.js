@@ -153,6 +153,41 @@ app.whenReady().then(async () => {
     t(settingGuard.badOk === false && settingGuard.badSaveOk === false, '非白名单键的读写都被拒');
     t(settingGuard.okGetOk === true && settingGuard.okSaveOk === true, '白名单内的键（agent / ghProxy）照常可用');
 
+    // 2b) 地图：出发地按账号存（settings 的 map 键），瓦片代理要挡住内网
+    const mapOut = await win.webContents.executeJavaScript(`(async () => {
+      const origin = { label: '我的学校', place: '绵阳', lat: 31.4289, lng: 104.7555, source: 'city', level: 'city' };
+      const saved = await window.api.settings.save('map', { origin: origin });
+      const readBack = await window.api.settings.get('map');
+      const sources = await window.api.map.sources();
+      const hasUrlLeak = !!(sources.data && (sources.data.builtin || []).some((s) => s.url));
+      const ssrfLocal = await window.api.map.setCustomSource('坏源', 'https://127.0.0.1/{z}/{x}/{y}.png', 'wgs84');
+      const ssrfLan = await window.api.map.setCustomSource('坏源', 'https://192.168.1.10/{z}/{x}/{y}.png', 'wgs84');
+      const ssrfHttp = await window.api.map.setCustomSource('坏源', 'http://tile.example.com/{z}/{x}/{y}.png', 'wgs84');
+      const namePtr = await window.api.map.setCustomSource('坏源', 'https://tile.example.com/{z}/{x}/{y}.png', 'wgs84');
+      const unknownSrc = await window.api.map.tile('nope', 5, 1, 1);
+      const badZoom = await window.api.map.tile('osm', 99, 0, 0);
+      const cache = await window.api.map.cacheStats();
+      return {
+        savedOk: saved.ok, originOk: readBack.ok && readBack.data && readBack.data.origin && readBack.data.origin.label,
+        sourcesOk: sources.ok, builtinCount: (sources.data && sources.data.builtin || []).length, hasUrlLeak: hasUrlLeak,
+        ssrfLocal: ssrfLocal.ok, ssrfLan: ssrfLan.ok, ssrfHttp: ssrfHttp.ok, namePtr: namePtr.ok,
+        unknownOk: unknownSrc.ok, unknownErr: unknownSrc.error, badZoomOk: badZoom.ok,
+        cacheOk: cache.ok, cacheFiles: cache.data && cache.data.files
+      };
+    })()`);
+    t(mapOut.savedOk === true && mapOut.originOk === '我的学校',
+      '出发地能存进设置并读回（验证 map 键的用户级写入没写成全局：实得 ' + mapOut.originOk + '）');
+    t(mapOut.sourcesOk === true && mapOut.builtinCount >= 2, '瓦片源列表可读（' + mapOut.builtinCount + ' 个内置源）');
+    t(mapOut.hasUrlLeak === false, '瓦片源列表不回传 URL 模板（模板里可能有用户自己的 key）');
+    t(mapOut.ssrfLocal === false && mapOut.ssrfLan === false, '自定义瓦片源指向本机/内网被拒（SSRF 防线在真实 IPC 上也生效）');
+    t(mapOut.ssrfHttp === false, '自定义瓦片源用 http 被拒');
+    t(mapOut.namePtr === true, '正常 https 自定义源可以保存（对照，说明上面不是「一律拒绝」）');
+    t(mapOut.unknownOk === false && /未知/.test(String(mapOut.unknownErr)), '未知瓦片源被拒（实得：' + mapOut.unknownErr + '）');
+    t(mapOut.badZoomOk === false, '超范围缩放级别在联网前就被拒（不会白发请求）');
+    t(mapOut.cacheOk === true && typeof mapOut.cacheFiles === 'number', '瓦片缓存统计可读（' + mapOut.cacheFiles + ' 块）');
+    // 自定义源会留在设置里，这里清掉，避免影响后续断言
+    await win.webContents.executeJavaScript(`window.api.map.setCustomSource('', '', 'wgs84')`);
+
     // 3) 全库备份接口需要登录（restore 会替换所有账号与会话）
     const backupGuard = await win.webContents.executeJavaScript(`(async () => {
       const before = await window.api.backups.list();

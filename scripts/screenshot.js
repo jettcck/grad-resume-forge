@@ -49,7 +49,13 @@ const DEMO_PASSWORD = 'demo123456';
 let mockAgentAvailable = false;
 // 内存版设置存储（settings:get / settings:save 必须能往返，否则「偏好是否真的被记住」测不出来）。
 // 放在模块级：断言里要直接读它来验证通道选择确实写进去了。
-const savedSettings = {};
+const savedSettings = {
+  // 地图出发地：预置一个示例，让「投递地点与距离」面板在截图/回归里真的整块渲染出来
+  // （不预置的话面板只显示「还没设置出发地」，离线图与距离排序就永远测不到）
+  map: {
+    origin: { label: '我的学校（示例）', place: '杭州', lat: 30.2741, lng: 120.1551, source: 'city', level: 'city' }
+  }
+};
 // 运行记录 mock（界面「最近一次运行」与「清理运行记录」用它）
 const mockRuns = [{
   runId: 'run_mock1', taskId: 'resume-optimize', status: 'COMPLETED', currentStep: 'completed',
@@ -87,11 +93,13 @@ const DEMO_PROFILE = {
 };
 
 const DEMO_APPS = [
-  { company: '腾讯', position: '后端开发工程师', stage: 'interview' },
-  { company: '阿里巴巴', position: 'Java 开发', stage: 'applied' },
-  { company: '网易', position: '服务端开发', stage: 'applied' },
-  { company: '拼多多', position: '后端开发', stage: 'wish' },
-  { company: '美团', position: '后端开发工程师', stage: 'wish' }
+  // place 是「公司所在地」，用于投递地点与距离面板；写法刻意模仿招聘平台（城市·区县）
+  { company: '腾讯', position: '后端开发工程师', stage: 'interview', place: '深圳·南山' },
+  { company: '阿里巴巴', position: 'Java 开发', stage: 'applied', place: '杭州·余杭' },
+  { company: '网易', position: '服务端开发', stage: 'applied', place: '杭州·滨江' },
+  { company: '拼多多', position: '后端开发', stage: 'wish', place: '上海·长宁' },
+  { company: '美团', position: '后端开发工程师', stage: 'wish', place: '北京·朝阳' },
+  { company: '某家没写地址的公司', position: '后端开发', stage: 'wish' }
 ];
 
 const ok = (d) => ({ ok: true, data: d });
@@ -201,6 +209,19 @@ function registerIpc() {
     return v;
   });
   h('settings:save', (k, v) => { savedSettings[k] = v; return v; });
+  // 地图瓦片代理：截图/回归模式不联网。来源列表与缓存统计照常可用，
+  // 取瓦片明确失败（地图默认关闭，不会真的触发）。
+  h('map:sources', () => ({
+    builtin: [{
+      id: 'osm', name: 'OpenStreetMap（国际，WGS-84）', datum: 'wgs84',
+      attribution: '© OpenStreetMap contributors', maxZoom: 19, note: '截图模式不联网'
+    }],
+    hasCustom: false, customName: null, customDatum: null
+  }));
+  h('map:tile', () => { throw new Error('截图模式不联网，未取瓦片'); });
+  h('map:cacheStats', () => ({ files: 0, bytes: 0 }));
+  h('map:clearCache', () => ({ removed: 0 }));
+  h('map:setCustomSource', () => ({ saved: true }));
   // 系统加密可用性：渲染层据此决定是否提示「密钥会明文落盘」
   h('secure:status', () => ({ available: mockSecureAvailable }));
   // 渲染层 → 主进程的两个 fire-and-forget 通道。主进程用 ipcMain.on，mock 也必须用 on：
@@ -468,6 +489,44 @@ async function main() {
       })()`));
     }
   }
+
+  // —— 投递地点与距离面板：断言 + 单独截图（它在看板下方，viewport 截图拍不到）——
+  // 显式切回投递页：否则可能在别的路由上，读到的是上次渲染残留的 DOM（隐藏元素 scrollIntoView 无效，
+  // 截出来的会是别的页面 —— 这一点第一版就踩到了）
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.nav-item[data-route="apps"]').click();
+    return true;
+  })()`);
+  await sleep(1600);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const mv = document.querySelector('.mv-root');
+    const routeBox = document.getElementById('route-apps');
+    const routeDisp = routeBox ? getComputedStyle(routeBox).display : 'no-box';
+    t('【诊断】route-apps.display=' + routeDisp + ' / mv-root=' + (mv ? '有' : '无') + ' / 可见高度=' + (mv ? Math.round(mv.getBoundingClientRect().height) : 0), true);
+    t('距离面板已挂载且在可见路由上', !!mv && routeDisp !== 'none');
+    if (!mv) return out.join('\\n');
+    const originText = (mv.querySelector('.mv-origin-text') || {}).textContent || '';
+    t('出发地已显示（' + originText.trim() + '）', /出发地/.test(originText));
+    t('渲染了离线相对位置图(SVG)', !!mv.querySelector('.mv-svg'));
+    const dots = mv.querySelectorAll('.mv-svg .mv-dot').length;
+    const rows = [...mv.querySelectorAll('.mv-row')];
+    t('图上公司点数 = 排序行数（' + dots + ' vs ' + rows.length + '）', dots > 0 && dots === rows.length);
+    t('至少定位到 3 家公司（实得 ' + rows.length + '）', rows.length >= 3);
+    t('按由近到远排序（第一家是杭州本地公司）', rows.length > 0 && /阿里|网易/.test(rows[0].textContent));
+    t('每行都带直线距离与分档', rows.length > 0 && /(km|m)/.test(rows[0].textContent) && /很近|较近|一般|较远|很远/.test(rows[0].textContent));
+    t('缺位置的公司被单独列出并提示补填', !!mv.querySelector('.mv-chip'));
+    const ctrls = mv.querySelector('.mv-map-controls');
+    t('在线地图区块存在', !!mv.querySelector('.mv-map-card') && !!ctrls);
+    t('地图默认关闭（按钮写着「开启地图」，即不联网）', !!ctrls && /开启地图/.test(ctrls.textContent));
+    const attr = (mv.querySelector('.mv-attr') || {}).textContent || '';
+    t('底图版权署名已就绪', /版权/.test(attr));
+    return out.join('\\n');
+  })()`));
+  // 注意：这里刻意不截图。capturePage 在「刚切过路由」时会返回切换前的旧帧
+  // （DOM 明确说 route-apps 是 display:block，但截出来还是上一页），
+  // 留一张对不上的截图比不截更糟。上面这些断言跑在真实窗口的活 DOM 上，才是可信证据。
 
   // 回到信息录入页做最后断言
   await win.webContents.executeJavaScript(`(() => {

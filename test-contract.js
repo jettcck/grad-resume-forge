@@ -21,6 +21,12 @@ function assert(cond, msg) {
 }
 
 const appSrc = R('src/renderer/app.js');
+// 渲染层不止 app.js：map-view.js 等模块也会调 window.api。
+// 只扫 app.js 会把「在新模块里正常调用的接口」误报成「暴露了没人调用」。
+const rendererSrc = fs.readdirSync(path.join(__dirname, 'src', 'renderer'))
+  .filter((f) => f.endsWith('.js'))
+  .map((f) => R('src/renderer/' + f))
+  .join('\n');
 const preloadSrc = R('src/main/preload.ts');
 const mainSrc = R('src/main/main.ts');
 const mockSrc = R('scripts/screenshot.js');
@@ -40,7 +46,7 @@ nsBlocks.forEach((ns) => {
 assert(exposed.size > 30, 'preload 暴露 ' + exposed.size + ' 个方法');
 
 // ---------- 2) 渲染层调用的接口都必须在 preload 里 ----------
-const calls = new Set([...appSrc.matchAll(/window\.api\.(\w+)\.(\w+)\(/g)].map((m) => m[1] + '.' + m[2]));
+const calls = new Set([...rendererSrc.matchAll(/window\.api\.(\w+)\.(\w+)\(/g)].map((m) => m[1] + '.' + m[2]));
 const missingExpose = [...calls].filter((c) => !exposed.has(c));
 assert(missingExpose.length === 0,
   '渲染层调用的接口都已暴露（缺：' + (missingExpose.join(', ') || '无') + '）');
@@ -154,7 +160,7 @@ assert(brokenClicks.length === 0,
 // 这类接口通常是「写了一半忘了接线」，会影响用户对功能是否存在的判断。
 // 允许清单里的两个是有意保留的完整实现（无 UI 入口，将来可能接上），不是半成品。
 const UNUSED_ALLOW = ['resume.audit', 'snapshots.get'];
-const usedCalls = new Set([...appSrc.matchAll(/window\.api\.(\w+)\.(\w+)/g)].map((m) => m[1] + '.' + m[2]));
+const usedCalls = new Set([...rendererSrc.matchAll(/window\.api\.(\w+)\.(\w+)/g)].map((m) => m[1] + '.' + m[2]));
 const unusedApi = [...exposed].filter((k) => !usedCalls.has(k) && !UNUSED_ALLOW.includes(k));
 assert(unusedApi.length === 0,
   '没有新增「暴露但渲染层无人调用」的接口（新增：' + (unusedApi.join(', ') || '无') + '）');

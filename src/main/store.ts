@@ -385,7 +385,7 @@ export { clearSession as _clearSession };
 // ---------------- 设置 ----------------
 // 分两类：设备级（镜像等，跟具体账号无关）与用户级（Agent 模型配置，含云端 API Key）。
 // 用户级必须按 userId 隔离：settings 曾经是全局对象，等于多账号共用一个配置和密钥。
-const USER_SCOPED_SETTINGS = new Set(['agent']);
+const USER_SCOPED_SETTINGS = new Set(['agent', 'map']);
 
 export function getSetting<T = unknown>(key: string, userId?: string): T | null {
   const scoped = userId && USER_SCOPED_SETTINGS.has(key) ? userId + ':' + key : key;

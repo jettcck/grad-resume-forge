@@ -309,4 +309,11 @@ export interface Application {
   stage?: string;
   createdAt?: number;
   updatedAt?: number;
+  /** 公司所在地：从招聘平台抄下来的写法，如「北京·朝阳区」（用于查内置坐标表） */
+  place?: string;
+  /** 精确坐标（纬度、经度），内部统一 WGS-84；有它时优先于 place 的查表结果 */
+  lat?: number;
+  lng?: number;
+  /** 坐标来源：city/district=内置城市表，manual=手填，map=地图点选 */
+  placeSource?: string;
 }

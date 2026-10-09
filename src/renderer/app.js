@@ -2506,10 +2506,17 @@ const STAGES = [
 async function openAddApplication() {
   const data = await modalForm('新增投递', [
     { name: 'company', label: '公司名称', placeholder: '如：字节跳动' },
-    { name: 'position', label: '岗位名称', value: state.profile.targetRole || '软件开发工程师' }
+    { name: 'position', label: '岗位名称', value: state.profile.targetRole || '软件开发工程师' },
+    // 所在地只用来算「离学校多远」，从招聘平台上抄下来即可（BOSS 上写的就是「北京·朝阳区」这种）
+    { name: 'place', label: '公司所在地（选填，用于算距离）', placeholder: '如：北京·朝阳区 / 深圳 南山' }
   ], '添加');
   if (!data || !data.company) return;
-  saveApplication({ company: data.company, position: data.position, stage: 'wish' });
+  saveApplication({
+    company: data.company,
+    position: data.position,
+    place: String(data.place || '').trim(),
+    stage: 'wish'
+  });
 }
 
 // 打开某企业官网投递入口，并自动落一条投递记录（去重：同公司已存在则只更新时间/链接）
@@ -2519,12 +2526,14 @@ async function applyToCompany(company) {
     if (!res.ok) { toast(res.error, 'err'); return; }
     const existing = state.applications.find((a) => a.company === company.name);
     const position = state.profile.targetRole || '软件开发工程师';
+    // 预填「总部所在城市」：可以直接算距离；实际岗位挂别的城市时用户能改
+    const place = company.city || '';
     if (existing) {
-      await saveApplication({ id: existing.id, url: company.url, stage: existing.stage || 'applied' });
+      await saveApplication({ id: existing.id, url: company.url, place: existing.place || place, stage: existing.stage || 'applied' });
       toast('已打开「' + company.name + '」官网投递页', 'ok');
     } else {
-      await saveApplication({ company: company.name, position, url: company.url, stage: 'applied' });
-      toast('已打开「' + company.name + '」官网，并记入「已投递」', 'ok');
+      await saveApplication({ company: company.name, position, url: company.url, place: place, stage: 'applied' });
+      toast('已打开「' + company.name + '」官网，并记入「已投递」' + (place ? '（所在地按总部预填为 ' + place + '）' : ''), 'ok');
     }
   } catch (err) {
     toast(err.message, 'err');
@@ -2655,7 +2664,20 @@ async function renderApps() {
     ]);
   }));
 
-  root.append(head, toolbar, platformPanel, directPanel, board);
+  // 投递地点与距离：离线直线距离对比 + 可选在线地图。
+  // 放在看板下面——先看进度，再看「这些公司离我多远」。
+  const mvHost = el('div', { class: 'mv-root' });
+  root.append(head, toolbar, platformPanel, directPanel, board, mvHost);
+  if (window.MapView) {
+    window.MapView.render(mvHost, {
+      applications: state.applications,
+      userId: state.user.id,
+      onChanged: async () => {
+        try { state.applications = await call(window.api.applications.list(state.user.id)); } catch (_) { /* 忽略 */ }
+        renderApps();
+      }
+    });
+  }
 }
 
 // 相对时间：投递卡片上显示「多久前更新」，方便回溯跟进节奏
