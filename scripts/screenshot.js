@@ -548,6 +548,39 @@ async function main() {
     return out.join('\\n');
   })()`));
 
+  // 真正点一次「粘贴导入」并跑完整流程：上一次「开启地图」就是只断言按钮存在、从没点过才漏掉的
+  console.log(await verify(win, `(async () => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    const before = document.querySelectorAll('#route-apps .app-card').length;
+    const btn = [...document.querySelectorAll('#route-apps .toolbar .btn')].find((b) => /粘贴导入/.test(b.textContent));
+    t('工具栏有「粘贴导入」按钮', !!btn);
+    if (!btn) return out.join('\\n');
+    btn.click();
+    await sleep(600);
+    const ta = document.querySelector('.modal-overlay textarea');
+    t('点击后真的弹出粘贴框', !!ta);
+    t('粘贴框里有示例说明（用户知道该复制什么）', /公司名|岗位名/.test((ta && ta.placeholder) || ''));
+    if (!ta) return out.join('\\n');
+    ta.value = 'Java开发工程师\\n15-25K\\n北京·朝阳区\\n3-5年\\n本科\\n某某科技有限公司';
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', ctrlKey: true, bubbles: true, cancelable: true }));
+    await sleep(800);
+    const rows = document.querySelectorAll('.ji-row');
+    t('识别出 1 条并进入预览（实得 ' + rows.length + '）', rows.length === 1);
+    const vals = [...document.querySelectorAll('.ji-input')].map((i) => i.value);
+    t('预览里公司名已填好（' + vals.filter(Boolean).join(' / ') + '）', vals.indexOf('某某科技有限公司') >= 0);
+    t('预览里地点已填好（能接着算距离）', vals.indexOf('北京朝阳') >= 0);
+    t('预览里岗位名已填好', vals.indexOf('Java开发工程师') >= 0);
+    const sub = document.querySelector('.ji-box .btn-primary');
+    t('有「导入选中的记录」按钮', !!sub);
+    if (sub) { sub.click(); await sleep(1500); }
+    t('导入后预览弹窗已关闭', !document.querySelector('.ji-box'));
+    const after = document.querySelectorAll('#route-apps .app-card').length;
+    t('投递卡片真的增加了（' + before + ' → ' + after + '）', after > before);
+    return out.join('\\n');
+  })()`));
+
   // 注意：这里刻意不截图。capturePage 在「刚切过路由」时会返回切换前的旧帧
   // （DOM 明确说 route-apps 是 display:block，但截出来还是上一页），
   // 留一张对不上的截图比不截更糟。上面这些断言跑在真实窗口的活 DOM 上，才是可信证据。

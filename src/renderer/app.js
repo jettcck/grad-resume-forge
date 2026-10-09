@@ -2503,6 +2503,24 @@ const STAGES = [
   { key: 'offer', label: 'Offer / 结束' }
 ];
 
+// 粘贴导入：把招聘网站上复制来的岗位信息在本机解析成投递记录。
+// 刻意不做抓取 —— 那要绕过反爬，既违法也会连累用户自己的求职账号。
+async function openPasteImport() {
+  if (!window.JobImport) { toast('导入模块没加载成功，请重启应用', 'err'); return; }
+  try {
+    await window.JobImport.openImportDialog({
+      userId: state.user.id,
+      applications: state.applications,
+      onChanged: async () => {
+        try { state.applications = await call(window.api.applications.list(state.user.id)); } catch (_) { /* 忽略 */ }
+        renderApps();
+      }
+    });
+  } catch (err) {
+    toast('导入失败：' + ((err && err.message) || err), 'err');
+  }
+}
+
 async function openAddApplication() {
   const data = await modalForm('新增投递', [
     { name: 'company', label: '公司名称', placeholder: '如：字节跳动' },
@@ -2598,6 +2616,8 @@ async function renderApps() {
 
   const toolbar = el('div', { class: 'toolbar' }, [
     el('button', { class: 'btn btn-primary', type: 'button', onclick: openAddApplication }, [window.Icons.icon('plus', 15), '新增投递']),
+    // 粘贴导入：把招聘网站上复制来的岗位信息在本机解析成记录（不联网、不抓取）
+    el('button', { class: 'btn btn-ghost', type: 'button', onclick: openPasteImport }, ['粘贴导入']),
     el('div', { class: 'spacer' }),
     pipeline
   ]);

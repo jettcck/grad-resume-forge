@@ -1509,3 +1509,31 @@ em { font-style: normal; color: var(--gold); }
 .mv-map-status { margin-top: 6px; font-size: 12px; color: var(--ink-2); min-height: 16px; }
 .mv-target { margin: 8px 0 0; font-size: 12.5px; color: var(--gold); font-family: var(--font-mono); }
 .mv-cache { margin-top: 10px; font-size: 11.5px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ============================================================
+   粘贴导入（job-import.js）—— 预览与勾选
+   选择器统一 .ji- 前缀，避免影响 PDF 导出文档
+   ============================================================ */
+.ji-box { width: min(880px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
+.ji-hint { margin: 0 0 10px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
+.ji-list { overflow: auto; flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
+.ji-row { display: flex; gap: 10px; padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.ji-check { flex: 0 0 auto; padding-top: 3px; }
+.ji-body { flex: 1 1 auto; min-width: 0; }
+.ji-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.ji-top b { font-family: var(--font-mono); font-size: 12px; color: var(--ink-2); }
+.ji-platform { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; color: var(--bg-0); background: var(--violet); }
+.ji-salary { font-family: var(--font-mono); font-size: 12.5px; color: var(--gold); }
+.ji-tag { font-size: 11px; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 999px; color: var(--ink-2); }
+.ji-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
+.ji-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.ji-label { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
+.ji-input { background: var(--bg-1); color: var(--ink-0); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 6px 8px; font-size: 13px; width: 100%; }
+.ji-input:focus { outline: none; border-color: var(--gold); }
+.ji-src { font-style: normal; font-size: 10px; padding: 0 5px; border-radius: 999px; }
+.ji-src-explicit { background: var(--teal); color: var(--bg-0); }
+.ji-src-inferred { background: var(--gold); color: var(--bg-0); }
+.ji-src-guessed { background: var(--ember); color: var(--bg-0); }
+.ji-notes { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--ember); }
+.ji-notes.ok { color: var(--teal); }
+@media (max-width: 720px) { .ji-grid { grid-template-columns: 1fr; } }

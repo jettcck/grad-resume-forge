@@ -76,6 +76,12 @@ const checks = [
   ['在线地图默认源为高德（OSM 国内实测不可达）', has("tiles.sourceId || 'amap'")],
   ['第三方数据许可声明随包分发', has('木兰宽松许可证')],
   ['agent-cli 已打进安装包', has('agent-cli/dist')],
+  // v1.12.0：粘贴导入（在本机解析用户复制来的岗位信息，不联网、不抓取）
+  ['粘贴导入解析器已打进安装包', has('JobImport') && has('parseBlock') && has('lineKind')],
+  ['识别词表（岗位 / 公司 / 薪资）', has('TITLE_WORDS') && has('COMPANY_WORDS') && has('RE_SALARY')],
+  ['导入必须走预览勾选，不静默写入', has('ji-row') && has('导入选中的记录')],
+  ['招聘平台域名识别', has('zhipin.com') && has('zhaopin.com') && has('51job.com') && has('iguopin.com')],
+  ['粘贴导入按钮已接线', has('粘贴导入') && has('openPasteImport')],
   // 夹具不该进安装包
   ['PDF 夹具未进安装包', !has('resume-sample-ats-classic') && !has('resume-sample-stem')]
 ];

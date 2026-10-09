@@ -316,4 +316,6 @@ export interface Application {
   lng?: number;
   /** 坐标来源：city/district=内置城市表，manual=手填，map=地图点选 */
   placeSource?: string;
+  /** 备注：粘贴导入时把识别到的薪资/平台/学历/经验写在这里，不丢信息 */
+  notes?: string;
 }
