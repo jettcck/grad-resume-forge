@@ -2668,7 +2668,10 @@ async function renderApps() {
   // 放在看板下面——先看进度，再看「这些公司离我多远」。
   const mvHost = el('div', { class: 'mv-root' });
   root.append(head, toolbar, platformPanel, directPanel, board, mvHost);
-  if (window.MapView) {
+  // 能走到投递页就说明已登录，state.user 正常一定存在；但少一次判空就是一次未捕获异常，
+  // 而 renderApps 抛错会连带打断它后面的渲染（真实冒烟里就复现过：只走 IPC 登录的
+  // 测试进程 state.user 为空，这里直接抛 TypeError）。
+  if (window.MapView && state.user && state.user.id) {
     window.MapView.render(mvHost, {
       applications: state.applications,
       userId: state.user.id,
@@ -2677,6 +2680,8 @@ async function renderApps() {
         renderApps();
       }
     });
+  } else if (window.MapView) {
+    console.warn('[map] 没有登录态（state.user 为空），跳过距离面板');
   }
 }
 

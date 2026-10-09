@@ -212,10 +212,12 @@ function registerIpc() {
   // 地图瓦片代理：截图/回归模式不联网。来源列表与缓存统计照常可用，
   // 取瓦片明确失败（地图默认关闭，不会真的触发）。
   h('map:sources', () => ({
-    builtin: [{
-      id: 'osm', name: 'OpenStreetMap（国际，WGS-84）', datum: 'wgs84',
-      attribution: '© OpenStreetMap contributors', maxZoom: 19, note: '截图模式不联网'
-    }],
+    // 与真实主进程保持一致：三个内置源（默认高德，因为 OSM 在国内网络实测不可达）
+    builtin: [
+      { id: 'osm', name: 'OpenStreetMap（国际，WGS-84）', datum: 'wgs84', attribution: '© OpenStreetMap contributors', maxZoom: 19, note: '国内可能较慢或不可达' },
+      { id: 'osm-de', name: 'OSM 德国镜像（WGS-84）', datum: 'wgs84', attribution: '© OpenStreetMap contributors', maxZoom: 19, note: '备用镜像' },
+      { id: 'amap', name: '高德地图（国内，GCJ-02）', datum: 'gcj02', attribution: '© 高德地图', maxZoom: 18, note: '截图模式不联网' }
+    ],
     hasCustom: false, customName: null, customDatum: null
   }));
   h('map:tile', () => { throw new Error('截图模式不联网，未取瓦片'); });
@@ -524,6 +526,28 @@ async function main() {
     t('底图版权署名已就绪', /版权/.test(attr));
     return out.join('\\n');
   })()`));
+  // 真正点一次「开启地图」：上一版只断言了按钮「存在」，从没点过，
+  // 于是 render() 少传参数这种「点了完全没反应」的 bug 一路漏到用户手里。
+  console.log(await verify(win, `(async () => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const byText = (re) => [...document.querySelectorAll('.mv-map-controls .btn')].find((b) => re.test(b.textContent));
+    const btn = byText(/开启地图/);
+    t('找到「开启地图」按钮', !!btn);
+    if (!btn) return out.join('\\n');
+    btn.click();
+    await new Promise((r) => setTimeout(r, 1800));
+    t('点击后地图画布出现（说明按钮真接上了 render(host, ctx)）', !!document.querySelector('.mv-map-canvas'));
+    const ctrls = document.querySelector('.mv-map-controls');
+    t('按钮文字切换为「关闭地图」', !!ctrls && /关闭地图/.test(ctrls.textContent));
+    const status = (document.querySelector('.mv-map-status') || {}).textContent || '';
+    t('瓦片取不到时给出具体说明而不是留空白（实得：' + status.slice(0, 46) + '）', /取不回来/.test(status));
+    const off = byText(/关闭地图/);
+    if (off) { off.click(); await new Promise((r) => setTimeout(r, 1500)); }
+    t('再点一次能关掉（画布消失）', !document.querySelector('.mv-map-canvas'));
+    return out.join('\\n');
+  })()`));
+
   // 注意：这里刻意不截图。capturePage 在「刚切过路由」时会返回切换前的旧帧
   // （DOM 明确说 route-apps 是 display:block，但截出来还是上一页），
   // 留一张对不上的截图比不截更糟。上面这些断言跑在真实窗口的活 DOM 上，才是可信证据。

@@ -73,6 +73,7 @@ const checks = [
   ['瓦片走主进程代理（CSP 无需放宽）', has('map:tile') && has('map:setCustomSource') && has('data:image/png;base64,')],
   ['瓦片代理 SSRF 守卫', has('isBlockedHost') && has('assertAllowedHop') && has('validateTemplate')],
   ['内置瓦片源（OSM + 高德，含版权署名）', has('tile.openstreetmap.org') && has('is.autonavi.com')],
+  ['在线地图默认源为高德（OSM 国内实测不可达）', has("tiles.sourceId || 'amap'")],
   ['第三方数据许可声明随包分发', has('木兰宽松许可证')],
   ['agent-cli 已打进安装包', has('agent-cli/dist')],
   // 夹具不该进安装包

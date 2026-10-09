@@ -1,6 +1,6 @@
 {
   "name": "grad-resume-forge",
-  "version": "1.11.0",
+  "version": "1.11.1",
   "description": "应届生一键写简历 / 投简历桌面端 App（全专业通用）（本地优先 · 去 AI 味引擎）",
   "main": "dist/main/main.js",
   "scripts": {
@@ -26,7 +26,8 @@
     "agent:eval": "node packages/agent-cli/dist/index.js eval",
     "agent:replay": "node packages/agent-cli/dist/index.js replay",
     "eval:agent": "node evals/agent-bench.js",
-    "eval:agent:llm": "node evals/agent-bench-llm.js"
+    "eval:agent:llm": "node evals/agent-bench-llm.js",
+    "smoke:map": "electron scripts/smoke-map-live.js --no-sandbox --disable-gpu"
   },
   "author": "",
   "license": "MIT",

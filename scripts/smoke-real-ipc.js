@@ -185,6 +185,9 @@ app.whenReady().then(async () => {
     t(mapOut.unknownOk === false && /未知/.test(String(mapOut.unknownErr)), '未知瓦片源被拒（实得：' + mapOut.unknownErr + '）');
     t(mapOut.badZoomOk === false, '超范围缩放级别在联网前就被拒（不会白发请求）');
     t(mapOut.cacheOk === true && typeof mapOut.cacheFiles === 'number', '瓦片缓存统计可读（' + mapOut.cacheFiles + ' 块）');
+    // 注意：这里**不**测「真实瓦片能否显示」。本脚本只走 IPC 登录，渲染层的 state.user
+    // 始终为空，投递页的距离面板根本不会挂载（这也是本轮发现 app.js 少一次判空的原因）。
+    // 真实瓦片走的是 scripts/smoke-map-live.js：它走渲染层登录表单，端到端验证在线地图。
     // 自定义源会留在设置里，这里清掉，避免影响后续断言
     await win.webContents.executeJavaScript(`window.api.map.setCustomSource('', '', 'wgs84')`);
 

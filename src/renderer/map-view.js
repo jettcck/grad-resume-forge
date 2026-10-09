@@ -234,6 +234,8 @@
             if (!job.wasCached) { state.loaded++; }
           } else {
             state.failed++;
+            // 记下具体原因：否则界面上只会说「取不回来」，用户无法判断是没网、被墙还是源配错了
+            state.lastError = (res && res.error) || '网络不可用';
           }
         }).catch(() => { state.failed++; })
           .then(() => { state.inflight--; pump(); });
@@ -248,7 +250,9 @@
       if (state.failed > 0) bits.push('失败 ' + state.failed);
       status.textContent = bits.length ? bits.join(' · ') : '';
       if (state.loaded === 0 && state.failed > 0) {
-        status.textContent = '瓦片取不回来：' + (state.lastError || '网络不可用') + '（不影响上面的离线距离对比）';
+        // 别只说「取不回来」——用户无从判断该换源还是该查网络，直接把下一步给出来
+        status.textContent = '瓦片取不回来：' + (state.lastError || '网络不可用') +
+          '（不影响上面的离线距离对比；可在上方换个瓦片源再试，国内一般选高德）';
       }
       void total;
     }
@@ -511,7 +515,11 @@
     const card = el('div', { class: 'mv-card mv-map-card' });
     const tiles = await loadTileConfig();
     const sources = await UI.call(window.api.map.sources());
-    const currentId = tiles.sourceId || 'osm';
+    // 默认用高德：本机实测（2026-10）tile.openstreetmap.org 直连 10.7s 超时不可达，
+    // 而高德 164ms、OSM 德国镜像 807ms 正常。国内用户点开地图就该看到图，
+    // 而不是先看到一句「取不回来」再自己去猜该换哪个源。
+    // OSM 仍保留在列表里（网络能通的用户可自行切换），其版权署名照常显示。
+    const currentId = tiles.sourceId || 'amap';
     const builtin = (sources && sources.builtin) || [];
     const all = builtin.slice();
     if (sources && sources.hasCustom) {
@@ -558,9 +566,18 @@
       controls.appendChild(el('button', {
         class: 'btn btn-ghost btn-sm', type: 'button',
         onclick: async () => {
-          enabled = !enabled;
-          await saveTileConfig({ enabled: enabled });
-          render();
+          // 这里曾经写成 render()：函数签名是 render(host, ctx)，于是进函数第一句
+          // host.innerHTML 就抛 TypeError，而 async onclick 里的异常没人接 ——
+          // 表现就是「点了按钮完全没反应」。现在两个都修：
+          // 参数传对，且失败时给出可见提示而不是静默什么都不发生。
+          try {
+            enabled = !enabled;
+            await saveTileConfig({ enabled: enabled });
+            await render(host, ctx);
+          } catch (err) {
+            enabled = !enabled; // 回滚，避免按钮文字与真实状态不一致
+            UI.toast('切换地图失败：' + ((err && err.message) || err), 'err');
+          }
         }
       }, [enabled ? '关闭地图（停止联网）' : '开启地图']));
       controls.appendChild(el('button', {
