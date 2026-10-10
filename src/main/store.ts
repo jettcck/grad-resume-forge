@@ -339,26 +339,27 @@ export { createSession as _createSession };
 
 // 校验 token：有效则返回 userId，过期/无效则清理并返回 null
 function getSessionUserId(token: string): string | null {
-  // 新格式传入的是 SHA-256(token)；为迁移老库，若调用方传入旧明文 token 也尝试一次，
-  // 找到后立刻把键迁移成 digest，避免继续把 bearer token 留在 db.json。
-  const digest = token && /^[a-f0-9]{64}$/i.test(token)
-    ? token
-    : crypto.createHash('sha256').update(String(token || '')).digest('hex');
+  // 调用方传入的始终是 bearer token。它本身也是 64 位十六进制字符串，
+  // 不能用“长度/字符集”判断它已经是 digest，否则新会话永远恢复不了。
+  // 先按新格式计算 digest，再兼容旧库里直接把明文 token 当键的记录。
+  const raw = String(token || '');
+  const digest = crypto.createHash('sha256').update(raw).digest('hex');
   let key = digest;
   let s = db.sessions[key];
-  if (!s && token) {
-    const legacy = db.sessions[token];
+  if (!s && raw) {
+    const legacy = db.sessions[raw];
     if (legacy) {
       key = digest;
       s = legacy;
       db.sessions[key] = legacy;
-      delete db.sessions[token];
+      delete db.sessions[raw];
       persist();
     }
   }
   if (!s) return null;
   if (s.expiresAt && s.expiresAt < Date.now()) {
-    delete db.sessions[token];
+    // key 是实际命中的数据库键；token 可能是 bearer 原文，不能拿它删除 digest 键。
+    delete db.sessions[key];
     persist();
     return null;
   }
@@ -368,13 +369,15 @@ function getSessionUserId(token: string): string | null {
 export { getSessionUserId as _getSessionUserId };
 
 function clearSession(token: string): { removed: string } {
-  const digest = token && /^[a-f0-9]{64}$/i.test(token) ? token : crypto.createHash('sha256').update(String(token || '')).digest('hex');
+  // 与 getSessionUserId 保持一致：bearer token 即使恰好是 64 位十六进制，也必须先 hash。
+  const raw = String(token || '');
+  const digest = crypto.createHash('sha256').update(raw).digest('hex');
   if (db.sessions[digest]) {
     delete db.sessions[digest];
     persist();
-  } else if (db.sessions[token]) {
+  } else if (db.sessions[raw]) {
     // 兼容老库的明文键
-    delete db.sessions[token];
+    delete db.sessions[raw];
     persist();
   }
   return { removed: token };

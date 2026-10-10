@@ -191,7 +191,9 @@ assert(authMissing.length === 0,
 const needValidation = [
   ["profile:save", /assertSize\(profile, LIMITS\.profileJson/],
   ["resume:generate", /assertSize\(profile, LIMITS\.profileJson/],
-  ["agent:run", /assertSize\(jdText, LIMITS\.jdText/],
+  ["agent:run", /assertString\(jdText, LIMITS\.jdText/],
+  ["snapshots:save", /assertSize\(profile, LIMITS\.profileJson/],
+  ["versions:save", /assertSize\(input\.profile, LIMITS\.profileJson/],
   ["settings:save", /assertSize\(value, LIMITS\.settingJson/],
   ["resume:exportPdf", /assertSize\(html, LIMITS\.exportHtml/],
   ["applications:save", /assertSize\(application, LIMITS\.notes/]
@@ -220,6 +222,15 @@ assert(/app\.requestSingleInstanceLock\(\)/.test(mainSrc), '主进程启动即�
 assert(/app\.on\('second-instance'/.test(mainSrc) && /mainWindow\.focus\(\)/.test(mainSrc),
   '已有实例收到二次启动事件时会聚焦已有窗口');
 assert(guardCount >= 2, '第二实例的启动回调有守卫：不建窗口、不动数据、不查更新（实际 ' + guardCount + ' 处）');
+assert(/backups:restore[\s\S]{0,1400}sessions\.clear\(\)/.test(mainSrc) &&
+  /backups:restore[\s\S]{0,1600}requiresLogin: true/.test(mainSrc),
+  '整库恢复后清理内存会话并要求重新登录');
+assert(/const safeStem = path\.basename\(String\(suggestedName/.test(mainSrc) &&
+  /defaultPath: safeStem \+ '\.pdf'/.test(mainSrc),
+  'PDF 导出会净化用户可编辑的默认文件名');
+assert(/app\.whenReady\(\)\.then[\s\S]{0,700}\.catch\(\(err\) =>/.test(mainSrc) &&
+  /startup-failed/.test(mainSrc) && /showErrorBox\('简历锻造炉无法启动'/.test(mainSrc),
+  '启动初始化失败会显示可诊断错误，而不是静默退出');
 
 // ---------- 17) 技能分隔符：渲染层的计数与引擎的解析必须一致 ----------
 // 踩过的坑：导入器把技能分节各行用「、」拼起来，行内却是「·」和空格分隔的

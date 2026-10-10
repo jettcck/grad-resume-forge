@@ -54,7 +54,15 @@ assert(wrongPwd && /密码错误/.test(wrongPwd.message), '错误密码登录被
 const loggedIn = auth.login({ email, password: 'secret123' });
 assert(loggedIn.id === registered.id, '正确密码登录成功');
 
-const uid = loggedIn.id;
+// token 是 64 位十六进制 bearer 字符串，回归覆盖“误判成 digest”导致的恢复失败。
+const resumed = auth.resumeSession(loggedIn.token);
+assert(resumed && resumed.id === loggedIn.id, '64 位十六进制会话 token 可恢复登录态');
+auth.logout(loggedIn.token);
+assert(auth.resumeSession(loggedIn.token) === null, '退出登录后会话 token 立即失效');
+// 后续步骤继续使用一个新的有效会话，模拟用户重新登录。
+const activeLogin = auth.login({ email, password: 'secret123' });
+
+const uid = activeLogin.id;
 
 // 6) 保存个人信息（含明显 AI 味的原始描述）
 const profile = {

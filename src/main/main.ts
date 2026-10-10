@@ -16,7 +16,7 @@ import { createLlmClient } from '../../packages/llm-adapters/dist/index';
 import { detectLocalServices } from './local-detect';
 import * as interview from './interview';
 import * as secureStore from './secure-store';
-import { LIMITS, assertSize, assertPlainObject } from './validate';
+import { LIMITS, assertSize, assertString, assertPlainObject } from './validate';
 // 运行记录与回放来自 agent-core（与 Electron 解耦的 Agent Runtime）
 import { createFileRunStore, replayRun } from '../../packages/agent-core/dist/index';
 import type { IpcResult, Profile, LlmConfig, Application } from './types';
@@ -149,6 +149,13 @@ app.whenReady().then(() => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
+}).catch((err) => {
+  // 启动阶段的权限/磁盘/损坏数据错误不能只变成 unhandled rejection；
+  // 给用户可读的错误和诊断日志，避免“点图标没反应”无法反馈。
+  const message = err instanceof Error ? err.message : String(err);
+  console.error('[startup-failed]', err && (err as Error).stack ? (err as Error).stack : message);
+  try { dialog.showErrorBox('简历锻造炉无法启动', '本地数据目录不可用或应用初始化失败：\n' + message); } catch (_) { /* app may not have a usable UI */ }
+  app.exit(1);
 });
 
 app.on('window-all-closed', () => {
@@ -206,7 +213,8 @@ ipcMain.handle('auth:login', (_e, payload: auth.LoginPayload) => {
 ipcMain.handle('auth:session', (_e, token: string) => {
   try {
     const r = auth.resumeSession(token);
-    rememberSession(_e, (r as { id?: string }).id);
+    // 无效/过期 token 是正常的恢复失败，不应因为读取 null.id 再包装成 IPC 异常。
+    if (r) rememberSession(_e, r.id);
     return ok(r);
   } catch (err) {
     return fail((err as Error).message);
@@ -259,8 +267,10 @@ ipcMain.handle('resume:generate', (_e, profile: Profile, options: { targetRole?:
 // 渲染层不再自己实现一套 —— 两份实现漂移过一次，结果是存进档案的内容错行、重复。
 ipcMain.handle('resume:applyRewrites', (_e, profile: Partial<Profile>, accepted: unknown) => {
   try {
+    assertPlainObject(profile, '档案');
     const list = Array.isArray(accepted) ? accepted as never[] : [];
     assertSize(profile, LIMITS.profileJson, '档案');
+    assertSize(list, LIMITS.profileJson, '改写结果');
     return ok(agent.applyRewritesToProfile(profile, list));
   } catch (err) {
     return fail((err as Error).message);
@@ -269,6 +279,7 @@ ipcMain.handle('resume:applyRewrites', (_e, profile: Partial<Profile>, accepted:
 
 ipcMain.handle('resume:audit', (_e, text: string) => {
   try {
+    assertString(text, LIMITS.profileJson, '体检文本');
     return ok(engine.auditAiFlavor(text));
   } catch (err) {
     return fail((err as Error).message);
@@ -278,6 +289,9 @@ ipcMain.handle('resume:audit', (_e, text: string) => {
 // 粘贴 JD 精准匹配
 ipcMain.handle('resume:matchJd', (_e, resume: Parameters<typeof engine.matchJd>[0], jdText: string) => {
   try {
+    assertPlainObject(resume, '简历');
+    assertSize(resume, LIMITS.profileJson, '简历');
+    assertString(jdText, LIMITS.jdText, '职位描述');
     return ok(engine.matchJd(resume, jdText));
   } catch (err) {
     return fail((err as Error).message);
@@ -348,6 +362,8 @@ ipcMain.handle('snapshots:save', (_e, userId: string, label: string, profile: Pa
   try {
     userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     if (!store.findUserById(userId)) return fail('用户不存在');
+    assertPlainObject(profile, '档案');
+    assertSize(profile, LIMITS.profileJson, '档案');
     return ok(store.saveAgentSnapshot(userId, label, profile));
   } catch (err) {
     return fail((err as Error).message);
@@ -413,7 +429,15 @@ ipcMain.handle('backups:restore', (_e, name: string, confirm?: boolean) => {
     if (confirm !== true) {
       return fail('恢复备份会替换整个数据库（含所有账号与配置），需要显式确认后再执行');
     }
-    return ok(store.restoreBackup(name));
+    const restored = store.restoreBackup(name);
+    // 恢复会替换 db.json 中的 users/sessions/settings。若继续保留旧的内存会话，
+    // 当前窗口会在“已登录”状态下读写一份与原来不同的数据库，甚至复用旧的临时密钥。
+    // 整库恢复后统一要求重新登录，并终止仍在运行的 Agent。
+    sessions.clear();
+    sessionKeys.clear();
+    activeRuns.forEach((entry) => entry.ctl.abort());
+    activeRuns.clear();
+    return ok({ ...restored, requiresLogin: true });
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -455,6 +479,10 @@ ipcMain.handle('versions:save', (_e, userId: string, input: Parameters<typeof st
   try {
     userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     if (!store.findUserById(userId)) return fail('用户不存在');
+    assertPlainObject(input, '简历版本');
+    assertPlainObject(input.profile, '档案');
+    assertSize(input.profile, LIMITS.profileJson, '档案');
+    assertSize(input, LIMITS.profileJson + LIMITS.jdText + LIMITS.label, '简历版本');
     return ok(store.saveVersion(userId, input));
   } catch (err) {
     return fail((err as Error).message);
@@ -513,9 +541,16 @@ ipcMain.handle('resume:exportPdf', async (_e, html: string, suggestedName: strin
   }
 
   try {
+    // suggestedName 来自用户可编辑的姓名/岗位字段，不能直接作为路径片段交给原生对话框。
+    // 清理分隔符、控制字符和 Windows 保留字符，避免默认路径跳出用户预期目录或显示非法文件名。
+    const safeStem = path.basename(String(suggestedName || 'resume'))
+      .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '-')
+      .replace(/[. ]+$/g, '')
+      .trim()
+      .slice(0, 96) || 'resume';
     const { canceled, filePath } = await dialog.showSaveDialog(mainWindow!, {
       title: '导出简历 PDF',
-      defaultPath: (suggestedName || 'resume') + '.pdf',
+      defaultPath: safeStem + '.pdf',
       filters: [{ name: 'PDF 文档', extensions: ['pdf'] }]
     });
 
@@ -738,7 +773,7 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
     const cfg = resolveAgentConfig(userId, o as Partial<LlmConfig>);
     assertPlainObject(profile, '档案');
     assertSize(profile, LIMITS.profileJson, '档案');
-    assertSize(jdText, LIMITS.jdText, '职位描述');
+    assertString(jdText, LIMITS.jdText, '职位描述');
     // 规则通道不需要任何模型客户端
     const llm = rulesOnly
       ? undefined
@@ -794,6 +829,8 @@ ipcMain.handle('agent:detectLocal', async () => {
 // ---------------- 面试准备（全本地、零模型） ----------------
 ipcMain.handle('interview:prep', (_e, profile: Partial<Profile>, opts?: { company?: string }) => {
   try {
+    assertPlainObject(profile, '档案');
+    assertSize(profile, LIMITS.profileJson, '档案');
     return ok(interview.prepareInterview(profile, opts || {}));
   } catch (err) {
     return fail((err as Error).message);
@@ -803,6 +840,7 @@ ipcMain.handle('interview:prep', (_e, profile: Partial<Profile>, opts?: { compan
 // ---------------- 小助手（知识库问答，纯本地零模型） ----------------
 ipcMain.handle('assistant:ask', (_e, query: string, domainHint?: string) => {
   try {
+    assertString(query, LIMITS.assistantQuery, '问题');
     return ok(askAssistant(query, domainHint));
   } catch (err) {
     return fail((err as Error).message);
@@ -923,7 +961,7 @@ ipcMain.handle('settings:save', (_e, key: string, value: unknown) => {
 // 好处是刚收紧的 CSP 一行都不用改（data: 本来就在 default-src 里），渲染层继续待在沙箱中；
 // 代价是这一层必须自己做好 SSRF 防护——用户能自定义瓦片地址，不拦就等于给了个读内网的工具。
 import {
-  BUILTIN_TILE_SOURCES, fetchTile, validateTemplate, clearTileCache, tileCacheStats
+  BUILTIN_TILE_SOURCES, fetchTile, validateTemplate, clearTileCache, tileCacheStats, isBlockedHost
 } from './tile-proxy';
 import type { TileSource } from './tile-proxy';
 
@@ -1171,10 +1209,13 @@ ipcMain.handle('updater:status', () => {
 
 ipcMain.handle('updater:setMirror', (_e, mirror: string) => {
   try {
-    const m = String(mirror || '').trim();
+    assertString(mirror, 2048, '镜像地址');
+    const m = mirror.trim();
     if (m) {
       const u = new URL(m);
-      if (u.protocol !== 'https:' && u.protocol !== 'http:') throw new Error('镜像地址仅支持 http/https');
+      if (u.protocol !== 'https:') throw new Error('镜像地址只允许 https（避免更新包被中间人篡改）');
+      if (!u.hostname || isBlockedHost(u.hostname)) throw new Error('镜像地址不能指向本机或内网');
+      if (u.username || u.password || u.search || u.hash) throw new Error('镜像地址不能包含账号、密码、查询参数或片段');
     }
     store.setSetting('ghProxy', m);
     return ok({ mirror: m });

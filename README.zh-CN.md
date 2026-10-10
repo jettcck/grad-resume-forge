@@ -106,6 +106,7 @@ npm run eval:llm   # LLM 层评测（需要本机 Ollama）
 ```bash
 npm run dist        # 本地打包（release/ 下出 NSIS 安装包，显式 --publish never）
 npm run dist:local  # 国内网络一键本地构建（详见下方）
+npm run smoke:packaged # 启动 release/ 下的真实可执行文件做产物冒烟
 npm run release     # 打包并发布到 GitHub Releases（需 GH_TOKEN）
 ```
 
@@ -185,6 +186,8 @@ git config http.proxy http://127.0.0.1:7890
 | 真实 IPC 冒烟 | 加载真主进程：未登录拒绝 / 防越权 / 密钥不回显（需 Electron） | `npm run smoke:ipc` |
 | 单实例锁冒烟 | 真实双开：第二实例退出、已有窗口收到聚焦事件（需 Electron） | `npm run smoke:si` |
 | PDF 导入冒烟 | 在 **Electron 的 Node 版本**下解析真实中文简历 PDF（专治「本地绿、打包炸」） | `npm run smoke:pdf` |
+| 打包产物冒烟 | 检查 `app.asar` 关键文件，并在隔离用户目录启动真实可执行文件 | `npm run smoke:packaged` |
+| NSIS 安装器冒烟 | 仅在一次性 Windows CI runner 上安装、启动并卸载安装包，避免污染开发机 | `npm run smoke:installer` |
 | 界面截图管线 | 150+ 条 DOM 断言 + 截图（需 Electron） | `npm run smoke:ui` |
 
 ### 真实模型评测（deepseek-chat，2026-09）

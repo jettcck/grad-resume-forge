@@ -38,11 +38,14 @@ app.whenReady().then(async () => {
   await sleep(2500);
 
   const before = await win.webContents.executeJavaScript(`(async () => {
+    // 无效 token 是自动恢复登录时的正常分支，必须返回 ok(null)，不能触发 null.id 异常。
+    const session = await window.api.auth.session('not-a-valid-session-token');
     // 未登录：数据接口必须拒绝，而不是返回空数据装作正常
     const p = await window.api.profile.get('user_whatever');
     const s = await window.api.settings.get('agent');
-    return { profileOk: p.ok, profileErr: p.error, settingsOk: s.ok, settingsErr: s.error };
+    return { sessionOk: session.ok, sessionData: session.data, profileOk: p.ok, profileErr: p.error, settingsOk: s.ok, settingsErr: s.error };
   })()`);
+  t(before.sessionOk === true && before.sessionData === null, '无效会话恢复返回 ok(null)，不抛 IPC 异常');
   t(before.profileOk === false && /未登录|会话/.test(before.profileErr || ''), '未登录时档案接口被拒（' + before.profileErr + '）');
   t(before.settingsOk === false, '未登录时设置接口被拒（' + before.settingsErr + '）');
 
@@ -145,12 +148,15 @@ app.whenReady().then(async () => {
       const scoped = await window.api.settings.get('user_1787501007207_ca989c39:agent');
       const bad = await window.api.settings.get('__proto__');
       const badSave = await window.api.settings.save('evil-key', { x: 1 });
+      const httpMirror = await window.api.updater.setMirror('http://mirror.example.com');
+      const localMirror = await window.api.updater.setMirror('https://127.0.0.1');
       const okGet = await window.api.settings.get('agent');
       const okSave = await window.api.settings.save('ghProxy', 'https://gh-proxy.com');
-      return { scopedOk: scoped.ok, badOk: bad.ok, badSaveOk: badSave.ok, okGetOk: okGet.ok, okSaveOk: okSave.ok };
+      return { scopedOk: scoped.ok, badOk: bad.ok, badSaveOk: badSave.ok, httpMirrorOk: httpMirror.ok, localMirrorOk: localMirror.ok, okGetOk: okGet.ok, okSaveOk: okSave.ok };
     })()`);
     t(settingGuard.scopedOk === false, '用 `userId:agent` 这类键读设置被拒（否则可绕过脱敏拿到未处理的值）');
     t(settingGuard.badOk === false && settingGuard.badSaveOk === false, '非白名单键的读写都被拒');
+    t(settingGuard.httpMirrorOk === false && settingGuard.localMirrorOk === false, '更新镜像拒绝 HTTP 与本机地址');
     t(settingGuard.okGetOk === true && settingGuard.okSaveOk === true, '白名单内的键（agent / ghProxy）照常可用');
 
     // 2b) 地图：出发地按账号存（settings 的 map 键），瓦片代理要挡住内网
@@ -212,6 +218,22 @@ app.whenReady().then(async () => {
       return { ok: r.ok, err: r.error };
     })()`);
     t(restoreConfirm.ok === false && /确认/.test(String(restoreConfirm.err)), '恢复备份必须显式确认（实得：' + restoreConfirm.err + '）');
+
+    // 真正恢复一份可解析备份：恢复后主进程必须清掉内存会话，当前窗口的数据接口立即拒绝，
+    // 随后重新登录才能继续使用。这样覆盖“磁盘已换库、内存仍认为已登录”的升级级风险。
+    const restoreFile = path.join(tmp, 'grad-resume-data', 'backups', 'db-20990101-000000000.json');
+    const liveDb = path.join(tmp, 'grad-resume-data', 'db.json');
+    fs.mkdirSync(path.dirname(restoreFile), { recursive: true });
+    fs.copyFileSync(liveDb, restoreFile);
+    const restoreLive = await win.webContents.executeJavaScript(`(async () => {
+      const r = await window.api.backups.restore('db-20990101-000000000.json', true);
+      const p = await window.api.profile.get('ignored-after-restore');
+      const again = await window.api.auth.login({ email: 'smoke@test.local', password: 'pass123456' });
+      return { ok: r.ok, requiresLogin: r.data && r.data.requiresLogin, profileOk: p.ok, reloginOk: again.ok };
+    })()`);
+    t(restoreLive.ok === true && restoreLive.requiresLogin === true, '真实恢复返回 requiresLogin=true');
+    t(restoreLive.profileOk === false, '真实恢复后旧内存会话立即失效');
+    t(restoreLive.reloginOk === true, '真实恢复后重新登录可继续使用');
 
     // ---------- 跨账号隔离（评审要求补的测试）----------
     // 1) 模型配置按账号读：A 存了自定义模型后，agent:status 必须回显 A 的配置。

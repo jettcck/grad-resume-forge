@@ -7,6 +7,7 @@ export const LIMITS = {
   profileJson: 200 * 1024,   // 整个档案（含多段经历）200KB 足够
   jdText: 20 * 1024,         // 职位描述 20KB（正常 JD 2-5KB）
   notes: 2 * 1024,           // 投递备注
+  assistantQuery: 8 * 1024,  // 小助手问题（本地知识库不需要超长输入）
   label: 200,                // 快照/版本名称
   settingJson: 200 * 1024,   // 设置项（含加密后的密钥）
   exportHtml: 5 * 1024 * 1024, // 导出用的 HTML（含内联样式）
@@ -28,6 +29,12 @@ export function assertSize(value: unknown, limit: number, label: string): void {
   if (n > limit) {
     throw new Error(label + '过大（' + Math.round(n / 1024) + 'KB，上限 ' + Math.round(limit / 1024) + 'KB）——请精简后再试');
   }
+}
+
+/** IPC 文本字段必须真的是字符串；仅做 JSON 体积检查会让对象伪装成文本进入引擎。 */
+export function assertString(value: unknown, limit: number, label: string): asserts value is string {
+  if (typeof value !== 'string') throw new Error(label + '格式不正确');
+  assertSize(value, limit, label);
 }
 
 // 只接受普通对象，避免数组/字符串冒充结构化数据导致后续读写异常

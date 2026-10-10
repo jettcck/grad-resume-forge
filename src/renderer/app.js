@@ -468,11 +468,23 @@ async function openAbout() {
               '恢复前系统会先把当前状态也留一份备份，所以这一步同样可回滚。恢复后建议重启应用。', '恢复这份备份');
             if (!ok) return;
             try {
-              await call(window.api.backups.restore(b.name, true));
-              toast('已恢复到 ' + label + ' 的数据，建议重启应用', 'ok');
-              // 内存里的档案已变，重新拉一次并回档案页
-              try { state.profile = await call(window.api.profile.get(state.user.id)); } catch (_) { /* 忽略 */ }
-              renderProfile();
+              const restored = await call(window.api.backups.restore(b.name, true));
+              // 整库恢复会替换账号和会话，主进程会明确要求重新登录。
+              // 这里同步清理渲染层 token，避免用户继续停留在失效的“已登录”界面。
+              if (restored && restored.requiresLogin) {
+                close();
+                localStorage.removeItem(TOKEN_KEY);
+                state.user = null;
+                state.token = null;
+                state.profile = null;
+                state.applications = [];
+                appView.style.display = 'none';
+                authView.style.display = 'grid';
+                authForm.reset();
+                toast('数据已恢复，请重新登录以加载恢复后的账号', 'ok');
+              } else {
+                toast('已恢复到 ' + label + ' 的数据，建议重启应用', 'ok');
+              }
             } catch (err) { toast('恢复失败：' + err.message, 'err'); }
           }
         }, ['恢复'])
@@ -594,7 +606,7 @@ async function openAbout() {
         mirrorInput
       ]),
       el('p', { style: 'font-size:11.5px;color:var(--ink-2);line-height:1.7;' },
-        ['更新包托管在 GitHub Releases；国内网络不通时可填写加速镜像前缀（如 https://gh-proxy.com），保存后重试检查。'])
+        ['更新包托管在 GitHub Releases；国内网络不通时可填写 HTTPS 加速镜像前缀（如 https://gh-proxy.com），保存后重试检查。为保护更新安全，不接受 HTTP、本机或内网地址。'])
     ]),
     el('div', { class: 'modal-actions' }, [
       repo ? el('button', {

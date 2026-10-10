@@ -1,6 +1,6 @@
 name: Build
 
-# 构建校验：不发布，只验证三个平台的产物能正常构建出来。
+# 构建校验：不发布，验证 Windows/Linux 产物。
 # 用途：1) 发版前确认打包配置没坏  2) PR 上先发现构建问题，别等到 tag 才发现
 on:
   workflow_dispatch:
@@ -40,19 +40,34 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Install Linux display server for packaged smoke
+        if: matrix.label == 'linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb
+
       - name: Type-check & compile
         run: npm run build
 
       - name: Build packages (no publish)
+        if: github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' || inputs.platforms == matrix.label
+        shell: bash
+        run: npx electron-builder ${{ matrix.args }} --publish never
+
+      - name: Smoke test packaged executable
+        if: github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' || inputs.platforms == matrix.label
         shell: bash
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.platforms }}" != "all" ] && [ "${{ inputs.platforms }}" != "${{ matrix.label }}" ]; then
-            echo "skipped by input (${{ inputs.platforms }})"
-            exit 0
+          if [ "${{ matrix.label }}" = "linux" ]; then
+            xvfb-run -a npm run smoke:packaged
+          else
+            npm run smoke:packaged
           fi
-          npx electron-builder ${{ matrix.args }} --publish never
+
+      - name: Smoke test NSIS installer
+        if: matrix.label == 'windows' && (github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' || inputs.platforms == matrix.label)
+        run: npm run smoke:installer
 
       - name: Upload artifacts
+        if: github.event_name != 'workflow_dispatch' || inputs.platforms == 'all' || inputs.platforms == matrix.label
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.label }}-packages

@@ -1,6 +1,6 @@
 {
   "name": "grad-resume-forge",
-  "version": "1.12.0",
+  "version": "1.12.1",
   "description": "应届生一键写简历 / 投简历桌面端 App（全专业通用）（本地优先 · 去 AI 味引擎）",
   "main": "dist/main/main.js",
   "scripts": {
@@ -21,6 +21,8 @@
     "smoke:ui": "electron scripts/screenshot.js --no-sandbox --disable-gpu",
     "smoke:si": "node scripts/smoke-single-instance.js",
     "smoke:pdf": "electron scripts/smoke-pdf-import.js --no-sandbox",
+    "smoke:packaged": "node scripts/smoke-packaged.js",
+    "smoke:installer": "node scripts/smoke-installer.js",
     "build:core": "tsc -p packages/agent-core/tsconfig.json && tsc -p packages/llm-adapters/tsconfig.json && tsc -p packages/agent-cli/tsconfig.json",
     "agent:run": "node packages/agent-cli/dist/index.js run",
     "agent:eval": "node packages/agent-cli/dist/index.js eval",
@@ -32,6 +34,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@electron/asar": "^3.4.1",
     "@types/node": "^20.19.43",
     "electron": "^33.2.0",
     "electron-builder": "^24.13.3",

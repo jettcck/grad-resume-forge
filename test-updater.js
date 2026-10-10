@@ -44,6 +44,13 @@ assert(mirrorFeedUrl('https://ghproxy.cn', 'u/r').startsWith('https://ghproxy.cn
 assert(!mirrorFeedUrl('https://ghproxy.cn', 'u/r').includes('//github.com/u/r/releases/latest/download/https'),
   '拼接顺序正确（前缀在前）');
 
+// 更新镜像属于供应链入口：只允许 HTTPS 公网地址，避免明文劫持和 SSRF。
+const tileProxySrc = fs.readFileSync(path.join(__dirname, 'src', 'main', 'tile-proxy.ts'), 'utf8');
+assert(tileProxySrc.includes('export function isBlockedHost'), '共享内网地址判断可供更新器复用');
+const mirrorHandler = fs.readFileSync(path.join(__dirname, 'src', 'main', 'main.ts'), 'utf8');
+assert(/updater:setMirror[\s\S]{0,900}u\.protocol !== 'https:'/.test(mirrorHandler), '更新镜像拒绝 HTTP');
+assert(/updater:setMirror[\s\S]{0,1200}isBlockedHost\(u\.hostname\)/.test(mirrorHandler), '更新镜像拒绝本机/内网地址');
+
 // 4) main.ts 关键源码片段存在（防止后续重构悄悄破坏 updater 逻辑）
 const mainSrc = fs.readFileSync(path.join(__dirname, 'src', 'main', 'main.ts'), 'utf8');
 [
@@ -93,6 +100,14 @@ assert(relSrc.includes('--publish always'), '发布工作流执行带 --publish 
 assert(relSrc.includes('Verify tag matches'), '发布前校验 tag 与版本一致性');
 assert(pub && pub.releaseType === 'release', 'publish 配置 releaseType=release（tag 直发正式版，latest.yml 可解析）');
 assert(pkg.scripts.dist.includes('--publish never'), '本地 dist 显式 --publish never（防误发版）');
+assert(pkg.scripts['smoke:packaged'] === 'node scripts/smoke-packaged.js',
+  'package.json 注册真实打包产物冒烟命令');
+assert(typeof pkg.devDependencies['@electron/asar'] === 'string',
+  '打包产物冒烟显式声明 @electron/asar 开发依赖');
+assert(pkg.scripts['smoke:installer'] === 'node scripts/smoke-installer.js',
+  'package.json 注册 NSIS 安装器冒烟命令');
+assert(relSrc.includes('smoke:packaged') && relSrc.includes('xvfb-run -a'),
+  '发布前启动真实产物（Linux 通过 xvfb）');
 
 // 6) 跨平台支持（Linux）——防止配置被无意破坏
 const linux = pkg.build && pkg.build.linux;
@@ -127,6 +142,12 @@ if (fs.existsSync(buildYml)) {
   const buildSrc = fs.readFileSync(buildYml, 'utf8');
   assert(buildSrc.includes('workflow_dispatch'), 'build.yml 支持手动触发');
   assert(buildSrc.includes('--publish never'), 'build.yml 只构建不发布');
+  assert(buildSrc.includes('smoke:packaged') && buildSrc.includes('xvfb-run -a'),
+    '构建校验包含真实产物冒烟（Linux 通过 xvfb）');
+  assert((buildSrc.match(/if: github\.event_name != 'workflow_dispatch'/g) || []).length >= 3,
+    '手动只选一个平台时，构建/冒烟/上传会同步跳过另一个平台');
+  assert(buildSrc.includes('smoke:installer') && buildSrc.includes("matrix.label == 'windows'"),
+    'Windows 构建包含 NSIS 安装器冒烟');
 }
 
 // 7) 固定产物名 + README 永久下载直链
