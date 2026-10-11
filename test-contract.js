@@ -267,4 +267,16 @@ assert(/app\.whenReady\(\)\.then[\s\S]{0,700}\.catch\(\(err\) =>/.test(mainSrc) 
   }
 }
 
+// ---------- 14) 同步面板失败时不能留空壳 ----------
+// 实测过：platforms() 失败时，旧实现只弹一个 2.6 秒后自动消失的 toast，
+// 面板主体保持空白 —— 用户看到的是「无缘无故的空白面板」，无从排查。
+const syncViewSrc = R('src/renderer/job-sync-view.js');
+assert(/function errorBox\(/.test(syncViewSrc), '同步面板有失败态渲染（errorBox）');
+assert(/body\.appendChild\(errorBox\(errText\)\)/.test(syncViewSrc),
+  '同步面板读取失败时把原因写进面板主体（不再只弹 toast 留空壳）');
+assert(/jobSync\.platforms !== 'function'/.test(syncViewSrc),
+  '同步面板会区分「接口缺失（新旧版本不一致）」与普通业务报错');
+assert(/updater\.status\(\)/.test(syncViewSrc),
+  '同步面板显示当前运行版本，便于用户自查是否为旧版');
+
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

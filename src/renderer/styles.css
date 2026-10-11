@@ -1553,8 +1553,16 @@ em { font-style: normal; color: var(--gold); }
 @media (max-width: 720px) { .mv-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 /* ============ 招聘平台投递记录同步（复用粘贴导入的 .ji-* 视觉） ============ */
-.js-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.js-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 96px; }
 .js-list { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow: auto; }
+/* 失败态：把原因留在面板里，而不是靠一个会自动消失的 toast */
+.js-error {
+  border: 1px solid var(--line); border-left: 2px solid var(--ember);
+  border-radius: var(--radius-sm); background: var(--bg-1); padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.js-error p { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
+.js-error b { color: var(--ink-1); font-size: 13px; }
 .js-row {
   border: 1px solid var(--line); border-left: 2px solid var(--line-2);
   border-radius: var(--radius-sm); background: var(--bg-1); padding: 11px 13px;

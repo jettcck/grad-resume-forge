@@ -36,15 +36,24 @@
     const body = el('div', { class: 'js-body' });
     const close = () => overlay.remove();
     let list = [];
+    // 运行版本号：出错时直接摆给用户看，省得「我以为我是新版」这类排查成本
+    let appVersion = '';
+    try {
+      const st = await window.api.updater.status();
+      appVersion = (st && st.version) || '';
+    } catch (_) { /* 取不到版本不影响面板 */ }
 
     async function refresh() {
+      let errText = '';
       try {
-        list = await UI.call(window.api.jobSync.platforms());
+        list = await readPlatforms();
       } catch (err) {
-        UI.toast('读取平台状态失败：' + ((err && err.message) || err), 'err');
-        return;
+        errText = (err && err.message) || String(err);
       }
       body.innerHTML = '';
+      // 失败绝不留一个空壳：把原因、当前版本和重试入口直接写进面板。
+      // （旧实现在这里只弹一个 2.6 秒后自动消失的 toast，用户看到的是「无缘无故的空白」。）
+      if (errText) { body.appendChild(errorBox(errText)); return; }
       body.appendChild(el('p', { class: 'ji-hint' }, [
         '同步采用「只读旁路」：应用只打开平台首页，由你自己登录并点进投递记录页；'
         + '平台页面自己发出的数据请求会被读取下来。不逆向签名、不伪造请求、不向平台提交任何写操作，登录状态只保存在本机。'
@@ -55,6 +64,36 @@
       const grid = el('div', { class: 'js-list' });
       for (const p of list) grid.appendChild(platformRow(p));
       body.appendChild(grid);
+    }
+
+    /** 读平台列表；把「接口缺失（新旧版本不一致）」与「业务报错」区分开，便于用户自查 */
+    async function readPlatforms() {
+      if (!window.api || !window.api.jobSync || typeof window.api.jobSync.platforms !== 'function') {
+        throw new Error('当前应用没有「招聘平台同步」接口。正在运行的主进程仍是旧版本'
+          + '（或改动后没有重新编译就启动了），请更新到最新版并重启应用。');
+      }
+      const out = await UI.call(window.api.jobSync.platforms());
+      if (!Array.isArray(out)) throw new Error('平台列表返回格式异常：' + JSON.stringify(out).slice(0, 120));
+      return out;
+    }
+
+    /** 失败态：原因 + 运行版本 + 排查步骤 + 重试，全部留在面板里 */
+    function errorBox(msg) {
+      const looksLikeOldBuild = /no handler registered|不是.*函数|没有「招聘平台同步」|undefined/i.test(msg);
+      const box = el('div', { class: 'js-error' }, [
+        el('p', {}, [el('b', {}, ['无法读取平台列表'])]),
+        el('p', { class: 'js-notes' }, [el('span', {}, ['⚠ ' + msg])]),
+        el('p', { class: 'ji-hint' }, ['当前运行版本：' + (appVersion || '未知') + '。']),
+        el('p', { class: 'ji-hint' }, [
+          looksLikeOldBuild
+            ? '这通常说明应用还是旧版本：请在侧栏底部核对版本号，更新到最新版后重启。'
+            : '排查顺序：① 重启应用重试；② 到「设置 → 检查更新」升级到最新版；③ 仍失败请把上面这行错误反馈给我。'
+        ]),
+        el('div', { class: 'js-actions' }, [
+          el('button', { class: 'btn btn-primary btn-sm', type: 'button', onclick: () => refresh() }, ['重试'])
+        ])
+      ]);
+      return box;
     }
 
     function platformRow(p) {
