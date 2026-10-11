@@ -279,4 +279,18 @@ assert(/jobSync\.platforms !== 'function'/.test(syncViewSrc),
 assert(/updater\.status\(\)/.test(syncViewSrc),
   '同步面板显示当前运行版本，便于用户自查是否为旧版');
 
+// ---------- 15) 独立同步窗口不能触发应用退出，也不能白屏 ----------
+const syncMainSrc = R('src/main/job-sync.ts');
+const mainEntrySrc = R('src/main/main.ts');
+assert(/show:\s*false/.test(syncMainSrc),
+  '同步窗口先隐藏，先渲染本地加载页再展示，避免网络页初始化时出现白屏');
+assert(/win\.on\('close',\s*\(event\)/.test(syncMainSrc) && /event\.preventDefault\(\)[\s\S]{0,100}win\.hide\(\)/.test(syncMainSrc),
+  '点击同步窗口 X 只隐藏窗口，不销毁会话');
+assert(/statusPageHtml/.test(syncMainSrc) && /正在打开/.test(syncMainSrc),
+  '同步窗口有本地加载/诊断页，网络失败时不显示纯白窗口');
+assert(/s\.allowClose\s*=\s*true/.test(syncMainSrc),
+  '应用真正退出时允许主进程显式关闭同步窗口');
+assert(/let isQuitting\s*=\s*false/.test(mainEntrySrc) && /isQuitting\s*=\s*true/.test(mainEntrySrc),
+  '主进程用退出标志区分用户关辅助窗口与应用真正退出');
+
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

@@ -68,9 +68,33 @@ interface SyncSession {
   /** 最近一次页面体检结果 */
   page: { title: string; finalUrl: string; bodyText: string; blockReason: string };
   lastError: string;
+  /** 用户点击同步窗口右上角 X 时只隐藏，不销毁会话，避免触发应用退出 */
+  allowClose: boolean;
+  /** 防止空白页一直留在用户面前 */
+  emptyPageTimer?: ReturnType<typeof setTimeout>;
 }
 
 const sessions = new Map<string, SyncSession>();
+
+function statusPageHtml(platform: SyncPlatform, title: string, message: string): string {
+  const esc = (s: string): string => String(s).replace(/[&<>"']/g, (c) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c] || c));
+  return '<!doctype html><meta charset="utf-8"><title>' + esc(title) + '</title>'
+    + '<style>html,body{margin:0;height:100%;font-family:Segoe UI,Microsoft YaHei,sans-serif;background:#f7f8fa;color:#20252d}'
+    + '.box{box-sizing:border-box;max-width:720px;margin:12vh auto;padding:32px;border:1px solid #dfe3e8;border-radius:12px;background:#fff;box-shadow:0 8px 30px #00000012}'
+    + 'h1{font-size:22px;margin:0 0 14px}p{line-height:1.7;color:#59636e}.hint{font-size:13px;color:#7a8490}code{word-break:break-all}</style>'
+    + '<main class="box"><h1>' + esc(title) + '</h1><p>' + esc(message) + '</p>'
+    + '<p class="hint">平台：' + esc(platform.name) + '<br>入口：<code>' + esc(platform.entryUrl) + '</code></p>'
+    + '<p class="hint">窗口没有关闭应用。你可以关闭本窗口后回到主界面重试。</p></main>';
+}
+
+async function showStatusPage(s: SyncSession, p: SyncPlatform, title: string, message: string): Promise<void> {
+  if (s.win.isDestroyed()) return;
+  try {
+    await s.win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(statusPageHtml(p, title, message)));
+  } catch (_) { /* 窗口正在关闭 */ }
+}
 
 /** 页面体检：识别「空白页 / 滑块验证 / 404」这三类最常见失败 */
 function detectBlockReason(title: string, finalUrl: string, bodyText: string): string {
@@ -99,7 +123,8 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
   const win = new BrowserWindow({
     width: 1040,
     height: 780,
-    show: true,
+    // 先隐藏，写入本地加载页后再展示；避免网络页面尚未返回时直接出现纯白窗口
+    show: false,
     title: p.name + ' · 同步窗口',
     backgroundColor: '#ffffff',
     webPreferences: {
@@ -124,7 +149,8 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     onMessage: () => { /* 下面替换 */ },
     attached: false,
     page: { title: '', finalUrl: '', bodyText: '', blockReason: '' },
-    lastError: ''
+    lastError: '',
+    allowClose: false
   };
   sessions.set(p.id, s);
 
@@ -170,7 +196,17 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     s.lastError = '无法附加调试协议：' + ((err as Error).message || err);
   }
 
+  win.on('close', (event) => {
+    // 同步窗口不是应用主窗口：用户点 X 只隐藏，绝不能让 window-all-closed 误判为应用退出。
+    // 真正退出时 closeAll() 会先置 allowClose，再调用 destroy/close。
+    if (!s.allowClose) {
+      event.preventDefault();
+      win.hide();
+    }
+  });
+
   win.on('closed', () => {
+    if (s.emptyPageTimer) clearTimeout(s.emptyPageTimer);
     try {
       const dbg = win.webContents.debugger;
       dbg.removeListener('message', s.onMessage as never);
@@ -187,6 +223,15 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     }
   });
 
+  // 先给用户一个确定可见的本地加载页，再切到平台页面。
+  try {
+    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(statusPageHtml(
+      p, '正在打开 ' + p.name, '正在加载平台首页。网络较慢时请稍候，页面失败会显示具体原因。'
+    )));
+    win.show();
+    win.focus();
+  } catch (_) { /* 后续 loadURL 仍会给出错误 */ }
+
   try {
     await win.webContents.loadURL(p.entryUrl);
   } catch (err) {
@@ -194,7 +239,21 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     // ERR_ABORTED 常见于页面内部跳转/被站点脚本取消，不当失败处理
     if (!/ERR_ABORTED|\(-3\)/.test(msg)) navFailed = '打开入口页失败：' + msg;
   }
-  if (navFailed) s.lastError = navFailed;
+  if (navFailed) {
+    s.lastError = navFailed;
+    await showStatusPage(s, p, '平台页面加载失败', navFailed);
+  } else {
+    // 部分网络失败不会 reject loadURL，而是留下空 document；延迟体检并显示诊断页。
+    s.emptyPageTimer = setTimeout(async () => {
+      if (s.win.isDestroyed()) return;
+      await refreshPageState(s);
+      if (s.page.blockReason === 'blank' && s.bodies.length === 0) {
+        const msg = '平台首页没有返回可显示内容。可能是网络不可达、站点拦截或页面仍在加载。';
+        s.lastError = msg;
+        await showStatusPage(s, p, '平台页面为空', msg);
+      }
+    }, 5000);
+  }
   return { session: s };
 }
 
@@ -372,7 +431,10 @@ export function reset(platformId: string): { ok: boolean; error?: string } {
 
 export function close(platformId: string): { ok: boolean } {
   const s = sessions.get(platformId);
-  if (s && !s.win.isDestroyed()) s.win.close();
+  if (s && !s.win.isDestroyed()) {
+    s.allowClose = true;
+    s.win.close();
+  }
   return { ok: true };
 }
 

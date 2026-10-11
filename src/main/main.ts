@@ -22,6 +22,7 @@ import { createFileRunStore, replayRun } from '../../packages/agent-core/dist/in
 import type { IpcResult, Profile, LlmConfig, Application } from './types';
 
 let mainWindow: BrowserWindow | null = null;
+let isQuitting = false;
 
 /** 清除某个 webContents 上的登录态，并连带清掉它对应的「仅本次会话」密钥 */
 function forgetSession(webContentsId: number): void {
@@ -120,6 +121,9 @@ function createWindow(): void {
 
   mainWindow.on('closed', () => {
     mainWindow = null;
+    // 同步窗口属于辅助窗口，可能被 hide() 而仍存在；主窗口关闭时必须明确退出应用，
+    // 不能等待 window-all-closed（否则应用会留在后台，或生命周期判断混乱）。
+    if (!isQuitting) app.quit();
   });
 }
 
@@ -159,11 +163,14 @@ app.whenReady().then(() => {
 });
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  // job-sync 的辅助窗口会被 close 事件拦截并 hide；即使所有可见窗口暂时为 0，
+  // 主应用仍然不能因为用户关闭平台窗口而退出。
+  if (process.platform !== 'darwin' && mainWindow === null) app.quit();
 });
 
 // 退出时先收掉平台同步窗口：它们是独立 BrowserWindow，留着会让「关掉主窗口」退不出去
 app.on('before-quit', () => {
+  isQuitting = true;
   try { jobSync.closeAll(); } catch (_) { /* 忽略 */ }
 });
 
