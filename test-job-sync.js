@@ -23,9 +23,12 @@ const P = C.SYNC_PLATFORMS;
 assert(Array.isArray(P) && P.length >= 9, '平台表覆盖用户列出的招聘站（实得 ' + P.length + ' 个）');
 const ids = new Set(P.map((p) => p.id));
 assert(ids.size === P.length, '平台 id 不重复');
-assert(P.every((p) => p.id && p.name && p.loginUrl), '每个平台都有 id / 名称 / 登录入口');
-assert(P.every((p) => p.syncable ? !!p.applyUrl : true), '声明可同步的平台都配了投递记录页地址');
-assert(P.every((p) => p.syncable ? true : !!p.note), '不可同步的平台都给了明确原因（不静默留空）');
+assert(P.every((p) => p.id && p.name && p.entryUrl), '每个平台都有 id / 名称 / 入口地址');
+assert(P.every((p) => p.syncable ? !!p.recordHint : true), '声明可同步的平台都给了「去哪找记录」的人工指引');
+assert(P.every((p) => p.syncable ? true : !!p.recordHint), '不可同步的平台也说明了原因（不静默留空）');
+// 关键回归：入口一律是平台首页，刻意不再硬编码会 404 的「投递记录」深链接
+// （2026-10-11 实测：zhipin /web/geek/job/apply → 302 到 404，写死深链接=白屏）
+assert(P.every((p) => /^https:\/\/[^/]+\/?$/.test(p.entryUrl)), '入口统一是平台首页（不写会失效的记录页深链接）');
 const names = P.map((p) => p.name);
 ['BOSS直聘', '智联招聘', '前程无忧', '实习僧', '猎聘', '拉勾', '国聘'].forEach((n) => {
   assert(names.includes(n), '平台表包含 ' + n);

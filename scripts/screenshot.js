@@ -143,17 +143,26 @@ function registerIpc() {
     }
     return { added, updated, skipped, errors: [] };
   });
-  // 招聘平台同步：平台表直接从 job-sync-core 取，避免 mock 与主进程两处漂移
+  // 招聘平台同步：平台表直接从 job-sync-core 取，避免 mock 与主进程两处漂移。
+  // 返回结构必须与 job-sync.ts 的 PlatformStatus 一致，否则面板会读到 undefined。
   const syncCore = require(path.join(ROOT, 'dist/main/job-sync-core'));
-  h('jobsync:platforms', async () => syncCore.SYNC_PLATFORMS.map((p) => ({
-    id: p.id, name: p.name, syncable: p.syncable, note: p.note || '',
-    loginUrl: p.loginUrl, applyUrl: p.applyUrl, collectUrl: p.collectUrl,
-    loggedIn: p.id === 'boss', cookieCount: p.id === 'boss' ? 8 : 0,
-    lastSyncAt: p.id === 'boss' ? Date.now() - 3600e3 : 0,
-    lastCount: p.id === 'boss' ? 6 : 0
-  })));
-  h('jobsync:login', async () => ({ ok: true, url: '' }));
-  h('jobsync:pull', async () => ({ ok: false, error: '截图环境不联网，未执行真实同步' }));
+  h('jobsync:platforms', async () => syncCore.SYNC_PLATFORMS.map((p) => {
+    const opened = p.id === 'boss';
+    return {
+      id: p.id, name: p.name, syncable: p.syncable, note: p.note || '',
+      entryUrl: p.entryUrl, recordHint: p.recordHint,
+      open: opened, loggedIn: opened, cookieCount: opened ? 8 : 0,
+      captured: opened ? 4 : 0, pageState: '', pageTitle: opened ? p.name : '', pageUrl: '',
+      error: '',
+      lastSyncAt: opened ? Date.now() - 3600e3 : 0,
+      lastCount: opened ? 6 : 0
+    };
+  }));
+  // 同步窗口／抓取在截图环境不真跑联网：返回明确的「未执行」而不是静默失败
+  h('jobsync:open', async () => ({ ok: false, error: '截图环境不联网，未执行真实同步' }));
+  h('jobsync:collect', async () => ({ ok: false, error: '截图环境不联网，未执行真实抓取' }));
+  h('jobsync:reset', async () => ({ ok: true }));
+  h('jobsync:close', async () => ({ ok: true }));
   h('jobsync:logout', async () => ({ ok: true }));
   // 快照 IPC：缺了它们，回炉快照卡只会显示「读取失败」，回归断言会（正确地）炸
   h('snapshots:save', (uid, label, p) => store.saveAgentSnapshot(uid, label, p));

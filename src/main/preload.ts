@@ -38,8 +38,10 @@ contextBridge.exposeInMainWorld('api', {
   // 招聘平台投递记录同步：只读旁路，不向平台写入任何数据
   jobSync: {
     platforms: () => ipcRenderer.invoke('jobsync:platforms'),
-    login: (platformId: string) => ipcRenderer.invoke('jobsync:login', platformId),
-    pull: (platformId: string, kind: string) => ipcRenderer.invoke('jobsync:pull', platformId, kind),
+    open: (platformId: string) => ipcRenderer.invoke('jobsync:open', platformId),
+    collect: (platformId: string, kind: string) => ipcRenderer.invoke('jobsync:collect', platformId, kind),
+    reset: (platformId: string) => ipcRenderer.invoke('jobsync:reset', platformId),
+    close: (platformId: string) => ipcRenderer.invoke('jobsync:close', platformId),
     logout: (platformId: string) => ipcRenderer.invoke('jobsync:logout', platformId)
   },
   snapshots: {

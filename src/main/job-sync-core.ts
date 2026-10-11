@@ -11,15 +11,24 @@
 export interface SyncPlatform {
   id: string;
   name: string;
-  /** 登录入口 */
-  loginUrl: string;
-  /** 投递记录页 */
-  applyUrl: string;
-  /** 收藏 / 感兴趣列表页（没有就为 null） */
-  collectUrl: string | null;
-  /** 是否具备可同步的投递记录页；false 时只提供「打开官网」 */
+  /**
+   * 稳定入口：平台首页。
+   *
+   * 刻意**不再写「投递记录」深链接**——2026-10-11 实测结果：
+   *   zhipin  /web/geek/job/apply        → 302 到 /web/common/404.html（页面不存在）
+   *   zhaopin i.zhaopin.com              → 重定向回官网首页
+   *   51job   /userset/my_apply.php      → 重定向到登录页
+   *   shixiseng /user/deliver            → 重定向到登录页
+   *   liepin  c.liepin.com               → 重定向回首页并带 loginBackUrl
+   * 入口页面一旦改版，硬编码深链接就会 404，用户只能看到一个空白窗口。
+   * 所以这里只放实测可达的首页，记录页由用户在窗口里自己点进去。
+   */
+  entryUrl: string;
+  /** 登录后到哪里找投递记录：写给用户看的人工指引 */
+  recordHint: string;
+  /** 是否存在可查看的个人投递记录页 */
   syncable: boolean;
-  /** 入口路径随站点改版可能变化，同步面板会显示实际加载到的地址便于校正 */
+  /** 实测到的风险提示（滑块验证、站点改版等） */
   note?: string;
 }
 
@@ -27,79 +36,67 @@ export const SYNC_PLATFORMS: SyncPlatform[] = [
   {
     id: 'boss',
     name: 'BOSS直聘',
-    loginUrl: 'https://www.zhipin.com/web/user/?ka=header-login',
-    applyUrl: 'https://www.zhipin.com/web/geek/job/apply',
-    collectUrl: 'https://www.zhipin.com/web/geek/job/collect',
+    entryUrl: 'https://www.zhipin.com/',
+    recordHint: '登录后点右上角头像 → 我的 → 投递记录（或我的收藏）',
     syncable: true
   },
   {
     id: 'zhaopin',
     name: '智联招聘',
-    loginUrl: 'https://passport.zhaopin.com/login',
-    applyUrl: 'https://i.zhaopin.com/',
-    collectUrl: 'https://i.zhaopin.com/',
-    syncable: true,
-    note: '个人中心是单页应用，投递与收藏在同一入口的不同页签'
+    entryUrl: 'https://www.zhaopin.com/',
+    recordHint: '登录后进入「个人中心」→ 已投递 / 我的收藏',
+    syncable: true
   },
   {
     id: '51job',
     name: '前程无忧',
-    loginUrl: 'https://login.51job.com/login.php',
-    applyUrl: 'https://i.51job.com/userset/my_apply.php',
-    collectUrl: 'https://i.51job.com/userset/my_favorite.php',
+    entryUrl: 'https://www.51job.com/',
+    recordHint: '登录后进入「个人中心」→ 投递记录 / 我的收藏',
     syncable: true
   },
   {
     id: 'shixiseng',
     name: '实习僧',
-    loginUrl: 'https://www.shixiseng.com/login',
-    applyUrl: 'https://www.shixiseng.com/user/deliver',
-    collectUrl: 'https://www.shixiseng.com/user/collect',
+    entryUrl: 'https://www.shixiseng.com/',
+    recordHint: '登录后点右上角头像 → 我的投递 / 我的收藏',
     syncable: true
   },
   {
     id: 'liepin',
     name: '猎聘',
-    loginUrl: 'https://passport.liepin.com/',
-    applyUrl: 'https://c.liepin.com/',
-    collectUrl: 'https://c.liepin.com/',
-    syncable: true,
-    note: '个人中心入口较多；若没抓到记录，可在同步窗口里手动点到「我投递的职位」后再点同步'
+    entryUrl: 'https://www.liepin.com/',
+    recordHint: '登录后进入「我的猎聘」→ 我投递的职位 / 我的收藏',
+    syncable: true
   },
   {
     id: 'lagou',
     name: '拉勾',
-    loginUrl: 'https://passport.lagou.com/login/login.html',
-    applyUrl: 'https://www.lagou.com/mycenter/deliverRecord.html',
-    collectUrl: 'https://www.lagou.com/mycenter/collect.html',
-    syncable: true
+    entryUrl: 'https://www.lagou.com/',
+    recordHint: '通过验证并登录后 → 个人中心 → 投递记录',
+    syncable: true,
+    note: '实测首页会弹「滑动验证」：需在同步窗口里手动拖动滑块通过后再继续'
   },
   {
     id: 'iguopin',
     name: '国聘',
-    loginUrl: 'https://www.iguopin.com/login',
-    applyUrl: 'https://www.iguopin.com/personal/delivery',
-    collectUrl: 'https://www.iguopin.com/personal/collection',
-    syncable: true,
-    note: '入口路径以实际站点为准；抓不到时可在窗口内手动导航到投递记录页'
+    entryUrl: 'https://www.iguopin.com/',
+    recordHint: '登录后进入「个人中心」→ 我的投递',
+    syncable: true
   },
   {
     id: 'yingjiesheng',
     name: '应届生求职网',
-    loginUrl: 'https://www.yingjiesheng.com/',
-    applyUrl: '',
-    collectUrl: null,
-    syncable: false,
-    note: '该站是校招信息聚合与论坛，不提供个人投递记录，没有可同步的数据'
+    entryUrl: 'https://www.yingjiesheng.com/',
+    recordHint: '投递进度只在官方 APP 里（首页写着「APP 聊投递进度」），网页端没有投递记录页',
+    syncable: false
   },
   {
     id: 'chinahr',
     name: '中华英才网',
-    loginUrl: 'https://www.chinahr.com/',
-    applyUrl: '',
-    collectUrl: null,
-    syncable: false,
-    note: '该站个人投递记录页已下线，无法同步'
+    entryUrl: 'https://www.chinahr.com/',
+    recordHint: '登录后进入个人中心查看是否有投递记录',
+    syncable: true,
+    note: '站点已改版为「新华英才」，账户体系有变动；若个人中心里没有投递记录，就同步不到数据'
   }
 ];
 

@@ -9,15 +9,19 @@
 //    而是开一个独立窗口让平台页面自己完成鉴权与请求，然后用 Chromium
 //    调试协议（CDP）旁路读取它**自己发出去的 JSON 响应**。
 //
-//  这样做的好处：
-//    - 不需要猜接口签名算法（BOSS 的 __zp_stoken__ 之类的加密参数由页面自己生成）
-//    - 不需要维护脆弱的 DOM 选择器（改版时抓不到就如实报错，而不是抓到脏数据）
-//    - 请求频率与用户手动翻页一致，不构成高频抓取
+//  关键设计：不硬编码「投递记录页」深链接。
+//    2026-10-11 实测：zhipin 的 /web/geek/job/apply 直接 302 到 404 页，
+//    zhaopin / 51job / shixiseng / liepin 的记录页全部被重定向回首页或登录页。
+//    一旦写死深链接，平台改版后用户只能看到一个空白窗口，还查不出原因。
+//    所以改成：
+//      打开窗口 → 只加载实测可达的**首页** → 用户在窗口里登录并自己点进
+//      「投递记录」页 → 页面自然发出的数据请求被**持续累积** → 用户点抓取时才归一化。
+//    这样无论平台怎么改版，只要用户能看到记录，我们就能读到。
 //
 //  边界：
 //    - 每个平台一个独立持久化分区（persist:jobsync-<id>），互不串 cookie
 //    - 只读：全程不向平台提交任何写操作（不投递、不取消、不修改）
-//    - 抓不到就明确返回「需要登录 / 没识别到记录」，绝不编造记录
+//    - 抓不到就明确说清是「没登录 / 页面空白 / 撞滑块 / 改版」，绝不编造记录
 //    - 记录只在用户勾选确认后才落库（复用 applications:importAuthorized）
 //
 //  纯逻辑（平台表 / 响应体归一化）在 job-sync-core.ts，本文件只管窗口与 CDP。
@@ -34,9 +38,7 @@ import type { SyncPlatform, SyncRecord } from './job-sync-core';
 export { SYNC_PLATFORMS, findPlatform, extractRecords };
 export type { SyncPlatform, SyncRecord };
 
-// ---------------- 分区与窗口 ----------------
-const windows = new Map<string, BrowserWindow>();
-
+// ---------------- 分区 ----------------
 function partitionOf(platformId: string): string {
   return 'persist:jobsync-' + platformId;
 }
@@ -45,22 +47,60 @@ function sessionOf(platformId: string): Session {
   return session.fromPartition(partitionOf(platformId));
 }
 
+// ---------------- 同步会话（窗口 + 持续累积捕获） ----------------
+const JSON_MIME = /json|javascript|text\/plain/i;
+const MAX_BODY_BYTES = 4 * 1024 * 1024;
+/** 累积响应条数上限：够覆盖分页，又不会把内存吃满 */
+const MAX_CAPTURED = 400;
+
+interface SyncSession {
+  platformId: string;
+  win: BrowserWindow;
+  /** 累积捕获到的 JSON 响应（跨页面导航保留） */
+  bodies: Array<{ url: string; json: unknown }>;
+  /** 已取过响应体的 requestId，避免重复 */
+  seen: Set<string>;
+  /** requestId → URL */
+  urlById: Map<string, string>;
+  /** CDP 消息回调，关闭时用于解绑 */
+  onMessage: (ev: unknown, method: string, params: Record<string, unknown>) => void;
+  attached: boolean;
+  /** 最近一次页面体检结果 */
+  page: { title: string; finalUrl: string; bodyText: string; blockReason: string };
+  lastError: string;
+}
+
+const sessions = new Map<string, SyncSession>();
+
+/** 页面体检：识别「空白页 / 滑块验证 / 404」这三类最常见失败 */
+function detectBlockReason(title: string, finalUrl: string, bodyText: string): string {
+  const t = String(title || '');
+  const u = String(finalUrl || '');
+  const body = String(bodyText || '');
+  if (/404|页面不存在|无法找到|出错|错误/i.test(t) || /\/404|404\.html/i.test(u)) return 'notfound';
+  if (/验证|滑动|人机|安全校验|captcha/i.test(t) || /按住滑块|拖动到最右/.test(body)) return 'captcha';
+  if (body.replace(/\s+/g, '').length < 30) return 'blank';
+  return '';
+}
+
 /**
- * 取（或创建）该平台的同步窗口。
+ * 取（或创建）该平台的同步会话并开始持续累积捕获。
  * 刻意用独立 BrowserWindow 而不是内置 <webview>：它不继承应用页面的 CSP，
  * 也不挂我们的 preload —— 平台页面跑的就是它自己的脚本，边界更干净。
  */
-function getWindow(p: SyncPlatform, show: boolean): BrowserWindow {
-  const existing = windows.get(p.id);
-  if (existing && !existing.isDestroyed()) {
-    if (show && !existing.isVisible()) existing.show();
-    return existing;
+async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; error?: string }> {
+  const existing = sessions.get(p.id);
+  if (existing && !existing.win.isDestroyed()) {
+    if (!existing.win.isVisible()) existing.win.show();
+    existing.win.focus();
+    return { session: existing };
   }
+
   const win = new BrowserWindow({
     width: 1040,
     height: 780,
-    show,
-    title: p.name + ' · 投递记录同步',
+    show: true,
+    title: p.name + ' · 同步窗口',
     backgroundColor: '#ffffff',
     webPreferences: {
       partition: partitionOf(p.id),
@@ -71,59 +111,25 @@ function getWindow(p: SyncPlatform, show: boolean): BrowserWindow {
       backgroundThrottling: false
     }
   });
-  windows.set(p.id, win);
-  win.on('closed', () => { windows.delete(p.id); });
-  return win;
-}
+  // 去掉 Electron 默认的 File/Edit/View/Window/Help 菜单栏：
+  // 这是个给用户看平台页面的窗口，顶上挂一排应用菜单既没意义也让人以为点错了
+  win.setMenu(null);
 
-export function closeWindow(platformId: string): void {
-  const w = windows.get(platformId);
-  if (w && !w.isDestroyed()) w.close();
-}
-
-export function closeAll(): void {
-  for (const id of Array.from(windows.keys())) closeWindow(id);
-}
-
-// ---------------- 网络响应旁路捕获 ----------------
-const JSON_MIME = /json|javascript|text\/plain/i;
-const LOGIN_WALL_RE = /(\/login|\/passport|\/signin|login\.php|passport\.)/i;
-const MAX_BODY_BYTES = 4 * 1024 * 1024;
-
-interface CaptureResult {
-  bodies: Array<{ url: string; json: unknown }>;
-  finalUrl: string;
-  loginWall: boolean;
-  timedOut: boolean;
-  error?: string;
-}
-
-/**
- * 打开目标页，旁路读取它自己发出的 JSON 响应。
- * 用 CDP 的 Network 域而不是 webRequest：webRequest 拿不到响应体。
- */
-async function captureJson(
-  win: BrowserWindow,
-  targetUrl: string,
-  opts: { maxMs?: number; idleMs?: number } = {}
-): Promise<CaptureResult> {
-  const maxMs = opts.maxMs || 30000;
-  const idleMs = opts.idleMs || 2000;
-  const dbg = win.webContents.debugger;
-  const bodies: Array<{ url: string; json: unknown }> = [];
-  const urlById = new Map<string, string>();
-  const seen = new Set<string>();
-  let timedOut = false;
-
-  let idleTimer: NodeJS.Timeout | null = null;
-  let resolveIdle: (() => void) | null = null;
-  const idle = new Promise<void>((res) => { resolveIdle = res; });
-  const bump = () => {
-    if (idleTimer) clearTimeout(idleTimer);
-    idleTimer = setTimeout(() => { if (resolveIdle) resolveIdle(); }, idleMs);
+  const s: SyncSession = {
+    platformId: p.id,
+    win,
+    bodies: [],
+    seen: new Set(),
+    urlById: new Map(),
+    onMessage: () => { /* 下面替换 */ },
+    attached: false,
+    page: { title: '', finalUrl: '', bodyText: '', blockReason: '' },
+    lastError: ''
   };
+  sessions.set(p.id, s);
 
-  const onMessage = async (_ev: unknown, method: string, params: Record<string, unknown>): Promise<void> => {
+  // ---- CDP 旁路捕获：窗口活着就一直累积 ----
+  s.onMessage = async (_ev, method, params) => {
     try {
       if (method === 'Network.responseReceived') {
         const requestId = String(params.requestId);
@@ -131,149 +137,247 @@ async function captureJson(
         const type = String(params.type || '');
         const url = String((response && response.url) || '');
         const mime = String((response && response.mimeType) || '');
-        if (url) urlById.set(requestId, url);
-        // 只关心可能带结构化数据的响应，其它（图片/字体/CSS）直接不取体
-        if (type !== 'XHR' && type !== 'Fetch' && !JSON_MIME.test(mime)) {
-          urlById.delete(requestId);
+        // 只留可能带结构化数据的响应，其它（图片/字体/CSS）不进表
+        if (url && (type === 'XHR' || type === 'Fetch' || JSON_MIME.test(mime))) {
+          s.urlById.set(requestId, url);
         }
       } else if (method === 'Network.loadingFinished') {
         const requestId = String(params.requestId);
-        const url = urlById.get(requestId);
-        if (!url || seen.has(requestId)) return;
-        seen.add(requestId);
+        const url = s.urlById.get(requestId);
+        if (!url || s.seen.has(requestId)) return;
+        s.seen.add(requestId);
+        if (s.bodies.length >= MAX_CAPTURED) return;
         try {
-          const r = await dbg.sendCommand('Network.getResponseBody', { requestId });
+          const r = await s.win.webContents.debugger.sendCommand('Network.getResponseBody', { requestId });
           const raw = r && r.base64Encoded
             ? Buffer.from(String(r.body || ''), 'base64').toString('utf8')
             : String((r && r.body) || '');
           if (!raw || raw.length > MAX_BODY_BYTES) return;
           const trimmed = raw.trim();
           if (trimmed[0] !== '{' && trimmed[0] !== '[') return;
-          bodies.push({ url, json: JSON.parse(trimmed) });
-          bump();
+          s.bodies.push({ url, json: JSON.parse(trimmed) });
         } catch (_) { /* 响应体取不到（跨域 / 已被回收）：跳过，不影响其它请求 */ }
       }
     } catch (_) { /* CDP 回调里绝不能让异常冒泡 */ }
   };
 
-  let attached = false;
   try {
-    if (!dbg.isAttached()) { dbg.attach('1.3'); attached = true; }
-    dbg.on('message', onMessage as never);
+    const dbg = win.webContents.debugger;
+    if (!dbg.isAttached()) { dbg.attach('1.3'); s.attached = true; }
+    dbg.on('message', s.onMessage as never);
     await dbg.sendCommand('Network.enable');
   } catch (err) {
-    return {
-      bodies: [], finalUrl: win.webContents.getURL(), loginWall: false, timedOut: false,
-      error: '无法附加调试协议：' + ((err as Error).message || err)
-    };
+    s.lastError = '无法附加调试协议：' + ((err as Error).message || err);
   }
 
+  win.on('closed', () => {
+    try {
+      const dbg = win.webContents.debugger;
+      dbg.removeListener('message', s.onMessage as never);
+      if (s.attached && dbg.isAttached()) dbg.detach();
+    } catch (_) { /* 忽略 */ }
+    sessions.delete(p.id);
+  });
+
+  // ---- 导航失败必须能报出来，不能白屏了事 ----
+  let navFailed = '';
+  win.webContents.on('did-fail-load', (_e, code, desc, _url, isMainFrame) => {
+    if (isMainFrame && code !== -3 /* -3 = ERR_ABORTED，用户自己中断的，不算错 */) {
+      navFailed = '页面加载失败（' + desc + '，错误码 ' + code + '）';
+    }
+  });
+
   try {
-    await win.webContents.loadURL(targetUrl);
-  } catch (_) { /* 页面加载失败也继续：可能已经拿到部分响应 */ }
+    await win.webContents.loadURL(p.entryUrl);
+  } catch (err) {
+    const msg = String((err as Error).message || err);
+    // ERR_ABORTED 常见于页面内部跳转/被站点脚本取消，不当失败处理
+    if (!/ERR_ABORTED|\(-3\)/.test(msg)) navFailed = '打开入口页失败：' + msg;
+  }
+  if (navFailed) s.lastError = navFailed;
+  return { session: s };
+}
 
-  bump();
-  const timeout = new Promise<'timeout'>((res) => setTimeout(() => res('timeout'), maxMs));
-  const raced = await Promise.race([idle.then(() => 'idle' as const), timeout]);
-  timedOut = raced === 'timeout';
-
-  // 停一会让收尾的请求落地
-  if (!timedOut) await new Promise((r) => setTimeout(r, 400));
-
+/** 刷新页面体检结果（标题/正文/是否撞验证或 404） */
+async function refreshPageState(s: SyncSession): Promise<void> {
   try {
-    dbg.removeListener('message', onMessage as never);
-    if (attached) dbg.detach();
-  } catch (_) { /* 忽略 */ }
-  if (idleTimer) clearTimeout(idleTimer);
-
-  const finalUrl = win.webContents.getURL();
-  return { bodies, finalUrl, loginWall: LOGIN_WALL_RE.test(finalUrl), timedOut };
+    s.page.finalUrl = s.win.webContents.getURL();
+    s.page.title = s.win.webContents.getTitle();
+  } catch (_) { /* 窗口已销毁 */ }
+  try {
+    const r = await s.win.webContents.executeJavaScript(
+      'JSON.stringify({ text: (document.body ? document.body.innerText : "").slice(0, 400) })'
+    );
+    const parsed = JSON.parse(String(r));
+    s.page.bodyText = String((parsed && parsed.text) || '');
+  } catch (_) {
+    s.page.bodyText = '';
+  }
+  s.page.blockReason = detectBlockReason(s.page.title, s.page.finalUrl, s.page.bodyText);
 }
 
 // ---------------- 对外操作 ----------------
-export interface PullResult {
+export interface PlatformStatus {
+  id: string;
+  name: string;
+  syncable: boolean;
+  note: string;
+  entryUrl: string;
+  recordHint: string;
+  /** 同步窗口是否已打开 */
+  open: boolean;
+  /** 是否已有登录态（只看 cookie，不额外发请求） */
+  loggedIn: boolean;
+  cookieCount: number;
+  /** 已累积捕获到的 JSON 响应数 */
+  captured: number;
+  /** 页面体检：'' 正常，其余为 notfound / captcha / blank */
+  pageState: string;
+  pageTitle: string;
+  pageUrl: string;
+  /** 打开窗口/加载页面时的错误 */
+  error: string;
+  lastSyncAt: number;
+  lastCount: number;
+}
+
+export async function status(platformId: string): Promise<PlatformStatus | null> {
+  const p = findPlatform(platformId);
+  if (!p) return null;
+  const s = sessions.get(p.id);
+  const open = !!(s && !s.win.isDestroyed());
+  if (open && s) await refreshPageState(s);
+
+  let cookieCount = 0;
+  try { cookieCount = (await sessionOf(p.id).cookies.get({})).length; } catch (_) { /* 忽略 */ }
+  const state = readSyncState()[p.id];
+
+  return {
+    id: p.id,
+    name: p.name,
+    syncable: p.syncable,
+    note: p.note || '',
+    entryUrl: p.entryUrl,
+    recordHint: p.recordHint,
+    open,
+    loggedIn: cookieCount > 0,
+    cookieCount,
+    captured: open && s ? s.bodies.length : 0,
+    pageState: open && s ? s.page.blockReason : '',
+    pageTitle: open && s ? s.page.title : '',
+    pageUrl: open && s ? s.page.finalUrl : '',
+    error: (open && s && s.lastError) || '',
+    lastSyncAt: (state && state.lastSyncAt) || 0,
+    lastCount: (state && state.lastCount) || 0
+  };
+}
+
+export async function statusAll(): Promise<PlatformStatus[]> {
+  const out: PlatformStatus[] = [];
+  for (const p of SYNC_PLATFORMS) {
+    const st = await status(p.id);
+    if (st) out.push(st);
+  }
+  return out;
+}
+
+/** 打开同步窗口：只加载实测可达的首页，之后由用户自己走到记录页 */
+export async function open(platformId: string): Promise<{ ok: boolean; error?: string; hint?: string }> {
+  const p = findPlatform(platformId);
+  if (!p) return { ok: false, error: '未知平台：' + platformId };
+  const { session: s, error } = await openSession(p);
+  await refreshPageState(s);
+  if (error) return { ok: false, error, hint: p.recordHint };
+  if (s.page.blockReason === 'notfound') {
+    return { ok: false, error: '入口页返回「页面不存在」，站点结构可能已调整', hint: p.recordHint };
+  }
+  if (s.page.blockReason === 'captcha') {
+    return { ok: false, error: '页面要求人机验证：请在同步窗口里拖动滑块通过，然后重试', hint: p.recordHint };
+  }
+  return { ok: true, hint: p.recordHint };
+}
+
+export interface CollectResult {
   ok: boolean;
   items?: SyncRecord[];
-  /** 抓到的 JSON 响应条数与其中识别出记录的条数：便于区分「没登录」还是「站点改版」 */
-  diagnostics?: { jsonResponses: number; matchedResponses: number; finalUrl: string };
   error?: string;
   needLogin?: boolean;
+  hint?: string;
+  diagnostics?: { jsonResponses: number; matchedResponses: number; pageTitle: string; pageUrl: string; pageState: string };
 }
 
-/** 打开登录窗口；登录状态由平台页面完成，保存在该平台独立分区里 */
-export async function openLogin(platformId: string): Promise<{ ok: boolean; url?: string; error?: string }> {
+/**
+ * 抓取当前累积到的数据。
+ * 注意：这里**不重新加载页面**，完全依赖用户已经在该窗口里翻到的记录页所发出的请求。
+ */
+export async function collect(platformId: string, kind: 'applied' | 'collected'): Promise<CollectResult> {
   const p = findPlatform(platformId);
   if (!p) return { ok: false, error: '未知平台：' + platformId };
-  try {
-    const win = getWindow(p, true);
-    win.setTitle(p.name + ' · 请在此登录（登录状态只保存在本机）');
-    await win.webContents.loadURL(p.loginUrl);
-    return { ok: true, url: win.webContents.getURL() };
-  } catch (err) {
-    return { ok: false, error: '打开登录页失败：' + ((err as Error).message || err) };
+  if (!p.syncable) return { ok: false, error: p.name + '：' + p.recordHint };
+
+  const s = sessions.get(p.id);
+  if (!s || s.win.isDestroyed()) {
+    return { ok: false, error: '同步窗口还没打开。请先点「打开同步窗口」，登录并进入记录页。', hint: p.recordHint };
   }
-}
+  await refreshPageState(s);
+  const diag = {
+    jsonResponses: s.bodies.length,
+    matchedResponses: 0,
+    pageTitle: s.page.title,
+    pageUrl: s.page.finalUrl,
+    pageState: s.page.blockReason
+  };
 
-/** 轻量判断该平台分区是否已有登录态（只看 cookie，不额外发请求） */
-export async function loginState(platformId: string): Promise<{ loggedIn: boolean; cookieCount: number }> {
-  const p = findPlatform(platformId);
-  if (!p) return { loggedIn: false, cookieCount: 0 };
-  try {
-    const cookies = await sessionOf(p.id).cookies.get({});
-    const meaningful = cookies.filter((c) => /token|login|auth|session|ticket|uid|user/i.test(c.name));
-    return { loggedIn: meaningful.length > 0 || cookies.length > 6, cookieCount: cookies.length };
-  } catch (_) {
-    return { loggedIn: false, cookieCount: 0 };
+  if (s.page.blockReason === 'notfound') {
+    return { ok: false, error: '当前窗口停在「页面不存在」上，请回到平台首页再走进投递记录页。', hint: p.recordHint, diagnostics: diag };
   }
-}
+  if (s.page.blockReason === 'captcha') {
+    return { ok: false, error: '当前窗口停在人机验证页：请在窗口里拖动滑块通过，再点抓取。', hint: p.recordHint, diagnostics: diag };
+  }
 
-/** 同步一次：打开记录页并旁路读取数据 */
-export async function pull(platformId: string, kind: 'applied' | 'collected'): Promise<PullResult> {
-  const p = findPlatform(platformId);
-  if (!p) return { ok: false, error: '未知平台：' + platformId };
-  if (!p.syncable) return { ok: false, error: p.name + ' 不提供个人投递记录，无法同步' };
-  const target = kind === 'collected' ? (p.collectUrl || p.applyUrl) : p.applyUrl;
-  if (!target) return { ok: false, error: p.name + ' 没有配置记录页地址' };
+  const items = extractRecords(s.bodies, kind);
+  diag.matchedResponses = s.bodies.filter((b) => extractRecords([b], kind).length > 0).length;
 
-  const win = getWindow(p, true);
-  try {
-    win.setTitle(p.name + ' · 正在读取记录（请勿关闭本窗口）');
-    const cap = await captureJson(win, target);
-    if (cap.error) return { ok: false, error: cap.error };
-
-    const items = extractRecords(cap.bodies, kind);
-    const matched = cap.bodies.filter((b) => extractRecords([b], kind).length > 0).length;
-    win.setTitle(p.name + ' · 同步完成');
-
-    if (cap.loginWall && items.length === 0) {
+  if (items.length === 0) {
+    if (s.bodies.length === 0) {
       return {
         ok: false,
         needLogin: true,
-        error: '需要先登录：请在同步窗口里完成登录，然后回到应用点「同步」重试',
-        diagnostics: { jsonResponses: cap.bodies.length, matchedResponses: 0, finalUrl: cap.finalUrl }
-      };
-    }
-    if (items.length === 0) {
-      const label = kind === 'collected' ? '收藏' : '投递';
-      return {
-        ok: false,
-        error: cap.timedOut
-          ? '等待页面数据超时，没有读到记录。可在同步窗口内手动翻到「' + label + '记录」页再点一次同步。'
-          : '页面已加载，但没有识别到' + label + '记录。'
-            + (cap.bodies.length === 0
-              ? '（本次没有捕获到任何 JSON 数据响应，最常见原因是未登录或站点改版）'
-              : '（捕获到 ' + cap.bodies.length + ' 个 JSON 响应，但字段结构与预期不符，可能是站点改版）'),
-        diagnostics: { jsonResponses: cap.bodies.length, matchedResponses: 0, finalUrl: cap.finalUrl }
+        error: '还没有捕获到任何数据请求。最常见的原因是尚未登录，或还没点到「' + (kind === 'collected' ? '我的收藏' : '投递记录') + '」页面。',
+        hint: p.recordHint,
+        diagnostics: diag
       };
     }
     return {
-      ok: true,
-      items,
-      diagnostics: { jsonResponses: cap.bodies.length, matchedResponses: matched, finalUrl: cap.finalUrl }
+      ok: false,
+      error: '已捕获 ' + s.bodies.length + ' 个数据响应，但里面没有识别出' + (kind === 'collected' ? '收藏' : '投递') + '记录。'
+        + '请确认窗口里打开的确实是「' + (kind === 'collected' ? '我的收藏' : '投递记录') + '」页，而不是首页或职位搜索页。',
+      hint: p.recordHint,
+      diagnostics: diag
     };
-  } catch (err) {
-    return { ok: false, error: '同步失败：' + ((err as Error).message || err) };
   }
+  return { ok: true, items, hint: p.recordHint, diagnostics: diag };
+}
+
+/** 清空累积缓冲：换账号或走错页面时用，避免把旧数据一起带进来 */
+export function reset(platformId: string): { ok: boolean; error?: string } {
+  const s = sessions.get(platformId);
+  if (!s || s.win.isDestroyed()) return { ok: false, error: '同步窗口未打开' };
+  s.bodies = [];
+  s.seen = new Set();
+  s.urlById = new Map();
+  s.lastError = '';
+  return { ok: true };
+}
+
+export function close(platformId: string): { ok: boolean } {
+  const s = sessions.get(platformId);
+  if (s && !s.win.isDestroyed()) s.win.close();
+  return { ok: true };
+}
+
+export function closeAll(): void {
+  for (const id of Array.from(sessions.keys())) close(id);
 }
 
 /** 解除该平台的登录态：清空整个分区的存储并关闭窗口 */
@@ -281,7 +385,7 @@ export async function logout(platformId: string): Promise<{ ok: boolean; error?:
   const p = findPlatform(platformId);
   if (!p) return { ok: false, error: '未知平台：' + platformId };
   try {
-    closeWindow(platformId);
+    close(platformId);
     const ses = sessionOf(platformId);
     await ses.clearStorageData();
     await ses.clearCache();

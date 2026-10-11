@@ -1127,39 +1127,46 @@ import * as jobSync from './job-sync';
 ipcMain.handle('jobsync:platforms', async (_e) => {
   try {
     sessionUserId(_e);
-    const state = jobSync.readSyncState();
-    const list = await Promise.all(jobSync.SYNC_PLATFORMS.map(async (p) => {
-      const st = await jobSync.loginState(p.id);
-      const s = state[p.id];
-      return {
-        id: p.id, name: p.name, syncable: p.syncable, note: p.note || '',
-        loginUrl: p.loginUrl, applyUrl: p.applyUrl, collectUrl: p.collectUrl,
-        loggedIn: st.loggedIn, cookieCount: st.cookieCount,
-        lastSyncAt: (s && s.lastSyncAt) || 0, lastCount: (s && s.lastCount) || 0
-      };
-    }));
-    return ok(list);
+    return ok(await jobSync.statusAll());
   } catch (err) {
     return fail((err as Error).message);
   }
 });
 
-ipcMain.handle('jobsync:login', async (_e, platformId: string) => {
+ipcMain.handle('jobsync:open', async (_e, platformId: string) => {
   try {
     sessionUserId(_e);
-    return ok(await jobSync.openLogin(String(platformId || '')));
+    return ok(await jobSync.open(String(platformId || '')));
   } catch (err) {
     return fail((err as Error).message);
   }
 });
 
-ipcMain.handle('jobsync:pull', async (_e, platformId: string, kind: string) => {
+ipcMain.handle('jobsync:collect', async (_e, platformId: string, kind: string) => {
   try {
     sessionUserId(_e);
     const k = kind === 'collected' ? 'collected' : 'applied';
-    const res = await jobSync.pull(String(platformId || ''), k);
+    const res = await jobSync.collect(String(platformId || ''), k);
     if (res.ok && res.items) jobSync.writeSyncState(String(platformId || ''), res.items.length);
     return ok(res);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('jobsync:reset', (_e, platformId: string) => {
+  try {
+    sessionUserId(_e);
+    return ok(jobSync.reset(String(platformId || '')));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('jobsync:close', (_e, platformId: string) => {
+  try {
+    sessionUserId(_e);
+    return ok(jobSync.close(String(platformId || '')));
   } catch (err) {
     return fail((err as Error).message);
   }

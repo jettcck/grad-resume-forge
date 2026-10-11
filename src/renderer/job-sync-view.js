@@ -3,13 +3,25 @@
 // ============================================================
 //  招聘平台投递记录同步（渲染层面板）
 //
-//  交互原则与粘贴导入一致：**先预览、可勾选、可编辑，再落库**。
-//  同步本身是只读的（主进程旁路读取平台页面自己的数据响应），
-//  本模块只负责把结果呈现给用户确认。
+//  交互模型（与旧版的关键差别）：
+//    旧版：点「同步」→ 应用自动打开一个硬编码的「投递记录」深链接 → 抓完。
+//          但实测该深链接在多个平台已 404 / 被重定向，用户只看到空白窗口。
+//    新版：点「打开同步窗口」→ 只加载平台首页 → 用户在窗口里登录并自己点到
+//          「投递记录」页 → 回到应用点「抓取已打开的页面」。
+//          窗口存活期间，平台页面发出的数据请求被持续累积，因此不依赖任何
+//          会失效的深链接。
+//
+//  落库仍然遵守项目的共同约定：**先预览、可勾选、可编辑，再写入**。
 // ============================================================
 (function () {
   const UI = window.UI;
   const el = UI.el;
+
+  const PAGE_STATE_TEXT = {
+    notfound: '停在「页面不存在」上',
+    captcha: '停在人机验证页（请在窗口里拖动滑块通过）',
+    blank: '页面内容为空'
+  };
 
   function fmtTime(ts) {
     if (!ts) return '从未';
@@ -20,26 +32,25 @@
   }
 
   async function openPanel(ctx) {
-    let list;
-    try {
-      list = await UI.call(window.api.jobSync.platforms());
-    } catch (err) {
-      UI.toast('读取平台列表失败：' + ((err && err.message) || err), 'err');
-      return;
-    }
-
     const overlay = el('div', { class: 'modal-overlay' });
     const body = el('div', { class: 'js-body' });
     const close = () => overlay.remove();
+    let list = [];
 
     async function refresh() {
       try {
         list = await UI.call(window.api.jobSync.platforms());
-      } catch (_) { /* 保留上一次结果 */ }
+      } catch (err) {
+        UI.toast('读取平台状态失败：' + ((err && err.message) || err), 'err');
+        return;
+      }
       body.innerHTML = '';
       body.appendChild(el('p', { class: 'ji-hint' }, [
-        '同步采用「只读旁路」：应用会打开一个独立窗口，由你自己的账号登录后，由平台页面自行发起请求，应用只读取它返回的数据。'
-        + '不逆向签名、不伪造请求、不会向平台提交任何写操作。登录状态只保存在本机。'
+        '同步采用「只读旁路」：应用只打开平台首页，由你自己登录并点进投递记录页；'
+        + '平台页面自己发出的数据请求会被读取下来。不逆向签名、不伪造请求、不向平台提交任何写操作，登录状态只保存在本机。'
+      ]));
+      body.appendChild(el('p', { class: 'ji-hint' }, [
+        '使用顺序：① 打开同步窗口 → ② 在窗口里登录 → ③ 在窗口里点进「投递记录 / 我的收藏」→ ④ 回到这里点「抓取已打开的页面」。'
       ]));
       const grid = el('div', { class: 'js-list' });
       for (const p of list) grid.appendChild(platformRow(p));
@@ -47,29 +58,41 @@
     }
 
     function platformRow(p) {
-      const status = !p.syncable
+      const stateTag = !p.syncable
         ? el('span', { class: 'js-tag js-tag-off' }, ['不支持同步'])
-        : (p.loggedIn
-          ? el('span', { class: 'js-tag js-tag-on' }, ['已登录'])
-          : el('span', { class: 'js-tag' }, ['未登录']));
+        : (p.open
+          ? el('span', { class: 'js-tag js-tag-on' }, ['窗口已打开 · 已捕获 ' + p.captured + ' 个响应'])
+          : el('span', { class: 'js-tag' }, ['未打开']));
+
+      const loginTag = p.cookieCount > 0
+        ? el('span', { class: 'js-tag js-tag-on' }, ['已有登录状态'])
+        : el('span', { class: 'js-tag' }, ['未登录']);
 
       const actions = [];
       if (p.syncable) {
         actions.push(el('button', {
           class: 'btn btn-ghost btn-sm', type: 'button',
-          onclick: () => doLogin(p)
-        }, [p.loggedIn ? '重新登录' : '登录']));
+          onclick: () => doOpen(p)
+        }, [p.open ? '显示同步窗口' : '打开同步窗口']));
         actions.push(el('button', {
           class: 'btn btn-primary btn-sm', type: 'button',
-          onclick: () => doSync(p, 'applied')
-        }, ['同步投递记录']));
-        if (p.collectUrl) {
+          onclick: () => doCollect(p, 'applied')
+        }, ['抓取投递记录']));
+        actions.push(el('button', {
+          class: 'btn btn-ghost btn-sm', type: 'button',
+          onclick: () => doCollect(p, 'collected')
+        }, ['抓取收藏']));
+        if (p.open) {
           actions.push(el('button', {
             class: 'btn btn-ghost btn-sm', type: 'button',
-            onclick: () => doSync(p, 'collected')
-          }, ['同步收藏']));
+            onclick: () => doReset(p)
+          }, ['清空已捕获']));
+          actions.push(el('button', {
+            class: 'btn btn-ghost btn-sm', type: 'button',
+            onclick: () => doClose(p)
+          }, ['关闭窗口']));
         }
-        if (p.loggedIn) {
+        if (p.cookieCount > 0) {
           actions.push(el('button', {
             class: 'btn btn-ghost btn-sm', type: 'button',
             onclick: () => doLogout(p)
@@ -78,29 +101,47 @@
       } else {
         actions.push(el('button', {
           class: 'btn btn-ghost btn-sm', type: 'button',
-          onclick: () => window.api.shell.openExternal(p.loginUrl)
+          onclick: () => window.api.shell.openExternal(p.entryUrl)
         }, ['打开官网']));
       }
 
       return el('div', { class: 'js-row' }, [
         el('div', { class: 'js-row-top' }, [
           el('b', {}, [p.name]),
-          status,
-          p.lastSyncAt ? el('span', { class: 'js-tag' }, ['上次同步 ' + fmtTime(p.lastSyncAt) + ' · ' + p.lastCount + ' 条']) : null
+          stateTag,
+          loginTag,
+          p.lastSyncAt ? el('span', { class: 'js-tag' }, ['上次导入 ' + fmtTime(p.lastSyncAt) + ' · ' + p.lastCount + ' 条']) : null
         ]),
+        p.recordHint ? el('div', { class: 'ji-notes js-hint-text' }, [el('span', {}, ['操作指引：' + p.recordHint])]) : null,
         p.note ? el('div', { class: 'ji-notes' }, [el('span', {}, ['⚠ ' + p.note])]) : null,
+        p.error ? el('div', { class: 'ji-notes' }, [el('span', {}, ['⚠ ' + p.error])]) : null,
+        p.pageState ? el('div', { class: 'ji-notes' }, [el('span', {}, ['⚠ 同步窗口' + (PAGE_STATE_TEXT[p.pageState] || '状态异常') + (p.pageTitle ? '：' + p.pageTitle.slice(0, 40) : '')])]) : null,
         el('div', { class: 'js-actions' }, actions)
       ]);
     }
 
-    async function doLogin(p) {
+    async function doOpen(p) {
       try {
-        const res = await UI.call(window.api.jobSync.login(p.id));
-        if (!res || !res.ok) { UI.toast('打开登录窗口失败：' + ((res && res.error) || '未知原因'), 'err'); return; }
-        UI.toast('请在刚打开的窗口里登录 ' + p.name + '，登录后回到这里点「同步投递记录」', 'ok');
-      } catch (err) {
-        UI.toast(err.message, 'err');
-      }
+        const res = await UI.call(window.api.jobSync.open(p.id));
+        if (!res || !res.ok) {
+          UI.toast('打开同步窗口：' + ((res && res.error) || '未知原因'), 'err');
+        } else {
+          UI.toast('已打开 ' + p.name + ' 首页。请在窗口里登录并点进「' + (p.recordHint || '投递记录') + '」，然后回来点抓取。', 'ok');
+        }
+        await refresh();
+      } catch (err) { UI.toast(err.message, 'err'); }
+    }
+
+    async function doClose(p) {
+      try { await UI.call(window.api.jobSync.close(p.id)); await refresh(); } catch (err) { UI.toast(err.message, 'err'); }
+    }
+
+    async function doReset(p) {
+      try {
+        await UI.call(window.api.jobSync.reset(p.id));
+        UI.toast('已清空 ' + p.name + ' 的已捕获数据', 'ok');
+        await refresh();
+      } catch (err) { UI.toast(err.message, 'err'); }
     }
 
     async function doLogout(p) {
@@ -108,24 +149,20 @@
         await UI.call(window.api.jobSync.logout(p.id));
         UI.toast('已解除 ' + p.name + ' 的本机登录状态', 'ok');
         await refresh();
-      } catch (err) {
-        UI.toast(err.message, 'err');
-      }
+      } catch (err) { UI.toast(err.message, 'err'); }
     }
 
-    async function doSync(p, kind) {
-      UI.toast('正在读取 ' + p.name + ' 的' + (kind === 'collected' ? '收藏' : '投递记录') + '，请勿关闭刚打开的窗口…', 'ok');
+    async function doCollect(p, kind) {
       let res;
       try {
-        res = await UI.call(window.api.jobSync.pull(p.id, kind));
+        res = await UI.call(window.api.jobSync.collect(p.id, kind));
       } catch (err) {
-        UI.toast('同步失败：' + ((err && err.message) || err), 'err');
+        UI.toast('抓取失败：' + ((err && err.message) || err), 'err');
         return;
       }
       if (!res || !res.ok) {
-        const msg = (res && res.error) || '未知原因';
-        UI.toast(msg, 'err');
-        if (res && res.needLogin) await refresh();
+        UI.toast((res && res.error) || '未识别到记录', 'err');
+        await refresh();
         return;
       }
       const picked = await showPreview(res.items, p.name, kind);
@@ -143,12 +180,15 @@
       await refresh();
     }
 
-    const title = el('h3', { class: 'modal-title' }, ['从招聘平台同步投递记录']);
     const foot = el('div', { class: 'modal-actions' }, [
       el('button', { class: 'btn btn-ghost', type: 'button', onclick: close }, ['关闭'])
     ]);
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
-    overlay.appendChild(el('div', { class: 'modal-box ji-box' }, [title, body, foot]));
+    overlay.appendChild(el('div', { class: 'modal-box ji-box' }, [
+      el('h3', { class: 'modal-title' }, ['从招聘平台同步投递记录']),
+      body,
+      foot
+    ]));
     document.body.appendChild(overlay);
     await refresh();
   }
@@ -183,7 +223,7 @@
               field('岗位名称', 'position'),
               field('公司所在地', 'place')
             ]),
-            c.notes ? el('div', { class: 'ji-notes' }, [el('span', {}, ['ℹ ' + c.notes])]) : null,
+            c.notes ? el('div', { class: 'ji-notes js-hint-text' }, [el('span', {}, ['ℹ ' + c.notes])]) : null,
             !c.place ? el('div', { class: 'ji-notes' }, [el('span', {}, ['⚠ 平台没给地点，填上才能算距离'])]) : null
           ])
         ]);
@@ -226,6 +266,6 @@
   window.JobSync = {
     openPanel,
     // 供测试用
-    _internal: { fmtTime }
+    _internal: { fmtTime, PAGE_STATE_TEXT }
   };
 })();
