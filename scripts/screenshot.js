@@ -119,6 +119,30 @@ function registerIpc() {
   h('applications:list', (uid) => store.listApplications(uid));
   h('applications:save', (uid, a) => store.saveApplication(uid, a));
   h('applications:delete', (uid, id) => store.deleteApplication(uid, id));
+  // 官方授权导入：与主进程保持同一套去重规则（source+externalId 优先，其次公司+岗位）
+  h('applications:importAuthorized', (uid, payload) => {
+    const source = String((payload && payload.source) || '').trim();
+    const items = Array.isArray(payload && payload.items) ? payload.items : [];
+    const existing = store.listApplications(uid);
+    let added = 0, updated = 0, skipped = 0;
+    for (const raw of items) {
+      if (!raw || typeof raw !== 'object') { skipped++; continue; }
+      const company = String(raw.company || '').trim();
+      const position = String(raw.position || '').trim();
+      if (!company && !position) { skipped++; continue; }
+      const externalId = String(raw.externalId || raw.id || '').trim();
+      const hit = externalId
+        ? existing.find((a) => a.source === source && a.externalId === externalId)
+        : existing.find((a) => a.company === company && (a.position || '') === position);
+      const saved = store.saveApplication(uid, Object.assign({}, hit ? { id: hit.id } : {}, {
+        company: company || '(未填公司)', position, place: String(raw.place || ''),
+        url: String(raw.url || ''), stage: String(raw.stage || 'applied'),
+        source, externalId, syncStatus: 'synced', lastSyncedAt: Date.now()
+      }));
+      if (hit) updated++; else { added++; existing.unshift(saved); }
+    }
+    return { added, updated, skipped, errors: [] };
+  });
   // 快照 IPC：缺了它们，回炉快照卡只会显示「读取失败」，回归断言会（正确地）炸
   h('snapshots:save', (uid, label, p) => store.saveAgentSnapshot(uid, label, p));
   h('snapshots:list', (uid) => store.listAgentSnapshots(uid));

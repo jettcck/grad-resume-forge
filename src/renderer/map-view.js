@@ -756,16 +756,15 @@
         el('button', { class: 'mv-mini', type: 'button', title: '放大', onclick: () => map.zoomBy(1) }, ['＋']),
         el('button', { class: 'mv-mini', type: 'button', onclick: () => map.fitAll() }, ['显示全部投递点']),
         el('button', {
-             el('button', {
-        class: 'mv-mini', type: 'button',
-        onclick: () => origin
-          ? map.recenter(origin.coords ? origin.coords[0] : origin.lat, origin.coords ? origin.coords[1] : origin.lng, 12)
-          : map.recenter(35, 105, 4)
-      }, [origin ? '回到出发地' : '回到全国']),
-      el('button', {
-        class: 'mv-mini', type: 'button', title: '使用浏览器定位设置我的位置',
-        onclick: () => locateUser(host, ctx)
-      }, ['定位我'])
+          class: 'mv-mini', type: 'button',
+          onclick: () => origin
+            ? map.recenter(origin.coords ? origin.coords[0] : origin.lat, origin.coords ? origin.coords[1] : origin.lng, 12)
+            : map.recenter(35, 105, 4)
+        }, [origin ? '回到出发地' : '回到全国']),
+        el('button', {
+          class: 'mv-mini', type: 'button', title: '使用浏览器定位设置我的位置',
+          onclick: () => locateUser(host, ctx)
+        }, ['定位我'])
       ]);
       mapHost.appendChild(nav);
       // 每家公司一个「定到地图上」按钮
