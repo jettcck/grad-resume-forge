@@ -38,32 +38,14 @@ export interface TileSource {
 
 export const BUILTIN_TILE_SOURCES: TileSource[] = [
   {
-    id: 'osm',
-    name: 'OpenStreetMap（国际，WGS-84）',
-    datum: 'wgs84',
-    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-    attribution: '© OpenStreetMap contributors',
-    maxZoom: 19,
-    note: '官方公开瓦片，个人低流量使用；已做本地缓存以减少重复请求。国内访问可能较慢。'
-  },
-  {
-    id: 'osm-de',
-    name: 'OSM 德国镜像（WGS-84）',
-    datum: 'wgs84',
-    url: 'https://tile.openstreetmap.de/{z}/{x}/{y}.png',
-    attribution: '© OpenStreetMap contributors',
-    maxZoom: 19,
-    note: '备用镜像，主站不通时可切换。'
-  },
-  {
-    id: 'amap',
-    name: '高德地图（国内，GCJ-02）',
+    id: 'tencent',
+    name: '腾讯地图（国内，GCJ-02）',
     datum: 'gcj02',
-    url: 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
-    subdomains: ['1', '2', '3', '4'],
-    attribution: '© 高德地图',
+    url: 'https://rt{s}.map.gtimg.com/tile?z={z}&x={x}&y={y}&styleid=1',
+    subdomains: ['0', '1', '2', '3'],
+    attribution: '© 腾讯地图',
     maxZoom: 18,
-    note: '国内访问快、路网新。注意：这是高德面向网页的公开瓦片，非官方开放 API，仅供个人查看，请勿高频抓取。'
+    note: '默认官方地图源；地址解析与定位优先使用用户授权的腾讯位置服务能力。'
   }
 ];
 

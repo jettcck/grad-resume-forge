@@ -32,7 +32,8 @@ contextBridge.exposeInMainWorld('api', {
   applications: {
     list: (userId: string) => ipcRenderer.invoke('applications:list', userId),
     save: (userId: string, application: unknown) => ipcRenderer.invoke('applications:save', userId, application),
-    remove: (userId: string, appId: string) => ipcRenderer.invoke('applications:delete', userId, appId)
+    remove: (userId: string, appId: string) => ipcRenderer.invoke('applications:delete', userId, appId),
+    importAuthorized: (userId: string, payload: unknown) => ipcRenderer.invoke('applications:importAuthorized', userId, payload)
   },
   snapshots: {
     save: (userId: string, label: string, profile: unknown) => ipcRenderer.invoke('snapshots:save', userId, label, profile),

@@ -336,6 +336,51 @@ ipcMain.handle('applications:list', (_e, userId: string) => {
 
 // 新增/编辑投递（此前只在 preload 暴露、主进程漏注册 → 真实应用里存投递会报
 // 「No handler registered」，看板实际是只读的；截图 mock 里注册了所以测试没发现）
+// 仅接收用户通过招聘平台官方导出或官方授权接口获得的数据；不抓取登录态页面。
+ipcMain.handle('applications:importAuthorized', (_e, userId: string, payload: unknown) => {
+  try {
+    userId = sessionUserId(_e);
+    assertPlainObject(payload, '授权投递数据');
+    assertSize(payload, LIMITS.profileJson, '授权投递数据');
+    const p = payload as { source?: unknown; items?: unknown };
+    const source = String(p.source || '').trim().slice(0, 40);
+    if (!source) throw new Error('缺少数据来源');
+    if (!Array.isArray(p.items)) throw new Error('授权数据缺少 items 数组');
+    const existing = store.listApplications(userId);
+    const byKey = new Map(existing.filter((a) => a.source && a.externalId).map((a) => [String(a.source) + '|' + String(a.externalId), a]));
+    let added = 0, updated = 0, skipped = 0;
+    for (const raw of p.items.slice(0, 1000)) {
+      if (!raw || typeof raw !== 'object') { skipped++; continue; }
+      const x = raw as Record<string, unknown>;
+      const company = String(x.company || '').trim().slice(0, 120);
+      const position = String(x.position || '').trim().slice(0, 120);
+      if (!company && !position) { skipped++; continue; }
+      const externalId = String(x.externalId || x.id || '').trim().slice(0, 160);
+      const key = externalId ? source + '|' + externalId : '';
+      const hit = key ? byKey.get(key) : existing.find((a) => a.company === company && (a.position || '') === position);
+      const patch: Application = {
+        company: company || '(未填公司)', position,
+        url: String(x.url || '').trim().slice(0, 1000),
+        stage: String(x.stage || 'applied').slice(0, 30),
+        place: String(x.place || '').trim().slice(0, 120),
+        address: String(x.address || '').trim().slice(0, 240),
+        notes: String(x.notes || '').trim().slice(0, 2000),
+        source, externalId, syncStatus: 'synced', syncError: '', lastSyncedAt: Date.now()
+      };
+      const saved = store.saveApplication(userId, hit ? { ...patch, id: hit.id } : patch);
+      if (hit) {
+        const i = existing.findIndex((a) => a.id === hit.id);
+        if (i >= 0) existing[i] = saved;
+        updated++;
+      } else { existing.unshift(saved); added++; }
+      if (key) byKey.set(key, saved);
+    }
+    return ok({ added, updated, skipped, errors: [] });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
 ipcMain.handle('applications:save', (_e, userId: string, application: Application) => {
   try {
     userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId

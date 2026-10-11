@@ -344,7 +344,9 @@
     let added = 0, updated = 0;
     for (const c of list) {
       const company = c.company || '(未填公司)';
-      const hit = existing.find((a) => a.company === company && (a.position || '') === (c.position || ''));
+      const normalized = (v) => String(v || '').toLowerCase().replace(/[\s·•，,。.!！？:：()（）\[\]【】_-]+/g, '');
+      const hit = existing.find((a) => (a.externalId && c.externalId && a.externalId === c.externalId && a.source === c.platform) ||
+        (normalized(a.company) === normalized(company) && normalized(a.position) === normalized(c.position)));
       const patch = {
         company: company,
         position: c.position || '',

@@ -623,11 +623,8 @@
     const card = el('div', { class: 'mv-card mv-map-card' });
     const tiles = await loadTileConfig();
     const sources = await UI.call(window.api.map.sources());
-    // 默认用高德：本机实测（2026-10）tile.openstreetmap.org 直连 10.7s 超时不可达，
-    // 而高德 164ms、OSM 德国镜像 807ms 正常。国内用户点开地图就该看到图，
-    // 而不是先看到一句「取不回来」再自己去猜该换哪个源。
-    // OSM 仍保留在列表里（网络能通的用户可自行切换），其版权署名照常显示。
-    const currentId = tiles.sourceId || 'amap';
+    // 默认使用官方腾讯地图源；不在前端暴露密钥，后续地址解析/SDK 请求走授权代理。
+    const currentId = tiles.sourceId || 'tencent';
     const builtin = (sources && sources.builtin) || [];
     const all = builtin.slice();
     if (sources && sources.hasCustom) {
@@ -759,11 +756,16 @@
         el('button', { class: 'mv-mini', type: 'button', title: '放大', onclick: () => map.zoomBy(1) }, ['＋']),
         el('button', { class: 'mv-mini', type: 'button', onclick: () => map.fitAll() }, ['显示全部投递点']),
         el('button', {
-          class: 'mv-mini', type: 'button',
-          onclick: () => origin
-            ? map.recenter(origin.coords ? origin.coords[0] : origin.lat, origin.coords ? origin.coords[1] : origin.lng, 12)
-            : map.recenter(35, 105, 4)
-        }, [origin ? '回到出发地' : '回到全国'])
+             el('button', {
+        class: 'mv-mini', type: 'button',
+        onclick: () => origin
+          ? map.recenter(origin.coords ? origin.coords[0] : origin.lat, origin.coords ? origin.coords[1] : origin.lng, 12)
+          : map.recenter(35, 105, 4)
+      }, [origin ? '回到出发地' : '回到全国']),
+      el('button', {
+        class: 'mv-mini', type: 'button', title: '使用浏览器定位设置我的位置',
+        onclick: () => locateUser(host, ctx)
+      }, ['定位我'])
       ]);
       mapHost.appendChild(nav);
       // 每家公司一个「定到地图上」按钮
@@ -782,8 +784,28 @@
         }
       }, [r.company]))));
       mapHost.appendChild(pickRow);
+    } else {
+      mapHost.appendChild(el('div', { class: 'mv-map-note mv-map-permission' }, [
+        '地图当前未开启联网。点击“开启地图”后，可查看公司标记、手动点选位置，并使用“定位我”获取当前位置。'
+      ]));
     }
     return card;
+  }
+
+  async function locateUser(host, ctx) {
+    if (!navigator.geolocation) { UI.toast('当前系统不支持定位', 'err'); return; }
+    UI.toast('正在请求定位权限…', 'ok');
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const lat = Number(pos.coords.latitude), lng = Number(pos.coords.longitude);
+      if (!isFinite(lat) || !isFinite(lng)) { UI.toast('系统返回的定位坐标无效', 'err'); return; }
+      await saveOrigin({ label: '我的当前位置', lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)), source: 'geolocation', accuracy: Number(pos.coords.accuracy || 0) });
+      UI.toast('已获取当前位置，距离将按当前位置重新排序', 'ok');
+      if (ctx.onChanged) await ctx.onChanged();
+    }, (err) => {
+      const msg = err && err.code === 1 ? '定位权限被拒绝，请在系统设置中允许本应用定位' :
+        err && err.code === 2 ? '暂时无法获取位置，请检查网络或定位服务' : '定位超时，请稍后重试';
+      UI.toast(msg, 'err');
+    }, { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
   }
 
   async function applyPick(host, ctx, ll, target, targetLine) {

@@ -52,13 +52,11 @@ assert(/缩放级别/.test(T.validateTileCoords(19, 0, 0, 18)), '超过该源 ma
 assert(/整数/.test(T.validateTileCoords('a', 0, 0)), '字符串坐标被拒（IPC 来的东西不能信）');
 
 // ---------- 4) URL 组装 ----------
-const amap = T.BUILTIN_TILE_SOURCES.find((s) => s.id === 'amap');
-const osm = T.BUILTIN_TILE_SOURCES.find((s) => s.id === 'osm');
-const u1 = T.buildTileUrl(osm, 10, 843, 388);
-assert(u1 === 'https://tile.openstreetmap.org/10/843/388.png', 'OSM 模板替换正确（实得 ' + u1 + '）');
-const u2 = T.buildTileUrl(amap, 12, 3400, 1600);
-assert(/\{z\}|\{x\}|\{y\}|\{s\}/.test(u2) === false && u2.indexOf('z=12') > 0 && u2.indexOf('x=3400') > 0, '高德模板全部占位符都被替换（实得 ' + u2.slice(0, 80) + '…）');
-assert(/webrd0[1-4]\./.test(u2), '高德子域被替换成 1–4 之一');
+const tencent = T.BUILTIN_TILE_SOURCES.find((s) => s.id === 'tencent');
+const osm = tencent;
+const u1 = T.buildTileUrl(tencent, 12, 3400, 1600);
+assert(/\{z\}|\{x\}|\{y\}|\{s\}/.test(u1) === false && u1.indexOf('z=12') > 0 && u1.indexOf('x=3400') > 0, '腾讯模板全部占位符都被替换（实得 ' + u1.slice(0, 100) + '…）');
+assert(/rt[0-3]\.map\.gtimg\.com/.test(u1), '腾讯地图子域被替换');
 
 // ---------- 5) 抓取行为（注入 fetch）----------
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);

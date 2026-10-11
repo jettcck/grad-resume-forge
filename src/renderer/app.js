@@ -2533,6 +2533,24 @@ async function openPasteImport() {
   }
 }
 
+async function openAuthorizedImport() {
+  const data = await modalForm('导入官方授权数据', [
+    { name: 'source', label: '招聘平台名称', placeholder: '如：BOSS直聘 / 智联招聘' },
+    { name: 'json', label: '平台官方导出 JSON', placeholder: '{"items":[{"externalId":"...","company":"...","position":"...","stage":"applied"}]}' }
+  ], '导入');
+  if (!data || !String(data.source || '').trim() || !String(data.json || '').trim()) return;
+  let payload;
+  try { payload = JSON.parse(String(data.json)); } catch (_) { toast('JSON 格式错误，请粘贴平台官方导出的 JSON', 'err'); return; }
+  payload.source = String(data.source).trim();
+  if (!Array.isArray(payload.items)) { toast('授权数据必须包含 items 数组', 'err'); return; }
+  try {
+    const res = await call(window.api.applications.importAuthorized(state.user.id, payload));
+    toast('官方授权导入完成：新增 ' + res.added + ' 条 / 更新 ' + res.updated + ' 条' + (res.skipped ? ' / 跳过 ' + res.skipped + ' 条' : ''), 'ok');
+    state.applications = await call(window.api.applications.list(state.user.id));
+    renderApps();
+  } catch (err) { toast('官方授权导入失败：' + ((err && err.message) || err), 'err'); }
+}
+
 async function openAddApplication() {
   const data = await modalForm('新增投递', [
     { name: 'company', label: '公司名称', placeholder: '如：字节跳动' },
@@ -2630,6 +2648,7 @@ async function renderApps() {
     el('button', { class: 'btn btn-primary', type: 'button', onclick: openAddApplication }, [window.Icons.icon('plus', 15), '新增投递']),
     // 粘贴导入：把招聘网站上复制来的岗位信息在本机解析成记录（不联网、不抓取）
     el('button', { class: 'btn btn-ghost', type: 'button', onclick: openPasteImport }, ['粘贴导入']),
+    el('button', { class: 'btn btn-ghost', type: 'button', onclick: openAuthorizedImport }, ['官方授权导入']),
     el('div', { class: 'spacer' }),
     pipeline
   ]);

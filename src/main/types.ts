@@ -318,4 +318,11 @@ export interface Application {
   placeSource?: string;
   /** 备注：粘贴导入时把识别到的薪资/平台/学历/经验写在这里，不丢信息 */
   notes?: string;
+  /** 招聘平台同步字段：仅接受用户授权导出的数据或官方接口返回值 */
+  source?: string;
+  externalId?: string;
+  syncStatus?: 'manual' | 'synced' | 'stale' | 'error';
+  syncError?: string;
+  lastSyncedAt?: number;
+  address?: string;
 }
