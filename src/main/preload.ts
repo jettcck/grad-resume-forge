@@ -35,6 +35,13 @@ contextBridge.exposeInMainWorld('api', {
     remove: (userId: string, appId: string) => ipcRenderer.invoke('applications:delete', userId, appId),
     importAuthorized: (userId: string, payload: unknown) => ipcRenderer.invoke('applications:importAuthorized', userId, payload)
   },
+  // 招聘平台投递记录同步：只读旁路，不向平台写入任何数据
+  jobSync: {
+    platforms: () => ipcRenderer.invoke('jobsync:platforms'),
+    login: (platformId: string) => ipcRenderer.invoke('jobsync:login', platformId),
+    pull: (platformId: string, kind: string) => ipcRenderer.invoke('jobsync:pull', platformId, kind),
+    logout: (platformId: string) => ipcRenderer.invoke('jobsync:logout', platformId)
+  },
   snapshots: {
     save: (userId: string, label: string, profile: unknown) => ipcRenderer.invoke('snapshots:save', userId, label, profile),
     list: (userId: string) => ipcRenderer.invoke('snapshots:list', userId),
@@ -117,8 +124,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   map: {
     // 可用瓦片源（内置 + 是否已配自定义）。模板里可能带用户自己的 key，所以主进程不回传模板
-    sources: () => ipcRenderer.invoke('map:sources'),
-    // 取一块瓦片：主进程负责联网 + SSRF 校验 + 磁盘缓存，回传 data: URL（因此 CSP 无需放宽）
+    sources: () => ipcRenderer.invoke('map:sources'),    // 取一块瓦片：主进程负责联网 + SSRF 校验 + 磁盘缓存，回传 data: URL（因此 CSP 无需放宽）
     tile: (sourceId: string, z: number, x: number, y: number) =>
       ipcRenderer.invoke('map:tile', sourceId, z, x, y),
     cacheStats: () => ipcRenderer.invoke('map:cacheStats'),

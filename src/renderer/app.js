@@ -2533,6 +2533,22 @@ async function openPasteImport() {
   }
 }
 
+// 从招聘平台同步投递记录：只读旁路，让平台页面自己鉴权，应用读取其返回的数据。
+async function openPlatformSync() {
+  if (!window.JobSync) { toast('同步模块没加载成功，请重启应用', 'err'); return; }
+  try {
+    await window.JobSync.openPanel({
+      userId: state.user.id,
+      onChanged: async () => {
+        try { state.applications = await call(window.api.applications.list(state.user.id)); } catch (_) { /* 忽略 */ }
+        renderApps();
+      }
+    });
+  } catch (err) {
+    toast('同步面板打开失败：' + ((err && err.message) || err), 'err');
+  }
+}
+
 async function openAuthorizedImport() {
   const data = await modalForm('导入官方授权数据', [
     { name: 'source', label: '招聘平台名称', placeholder: '如：BOSS直聘 / 智联招聘' },
@@ -2648,6 +2664,7 @@ async function renderApps() {
     el('button', { class: 'btn btn-primary', type: 'button', onclick: openAddApplication }, [window.Icons.icon('plus', 15), '新增投递']),
     // 粘贴导入：把招聘网站上复制来的岗位信息在本机解析成记录（不联网、不抓取）
     el('button', { class: 'btn btn-ghost', type: 'button', onclick: openPasteImport }, ['粘贴导入']),
+    el('button', { class: 'btn btn-ghost', type: 'button', onclick: openPlatformSync }, ['从平台同步']),
     el('button', { class: 'btn btn-ghost', type: 'button', onclick: openAuthorizedImport }, ['官方授权导入']),
     el('div', { class: 'spacer' }),
     pipeline

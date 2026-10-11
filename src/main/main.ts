@@ -162,6 +162,11 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+// 退出时先收掉平台同步窗口：它们是独立 BrowserWindow，留着会让「关掉主窗口」退不出去
+app.on('before-quit', () => {
+  try { jobSync.closeAll(); } catch (_) { /* 忽略 */ }
+});
+
 function ok<T>(data: T): IpcResult<T> {
   return { ok: true, data };
 }
@@ -1109,6 +1114,61 @@ ipcMain.handle('map:setCustomSource', (_e, name: string, url: string, datum: str
     });
     store.setSetting('map', Object.assign({}, cfg, { tiles }), userId);
     return ok({ saved: true });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// ---------------- 招聘平台投递记录同步 ----------------
+// 只读旁路：让平台页面自己完成鉴权与请求，我们从 CDP 侧读取它自己发出去的 JSON。
+// 不逆向签名、不伪造请求、不写入平台侧任何数据。
+import * as jobSync from './job-sync';
+
+ipcMain.handle('jobsync:platforms', async (_e) => {
+  try {
+    sessionUserId(_e);
+    const state = jobSync.readSyncState();
+    const list = await Promise.all(jobSync.SYNC_PLATFORMS.map(async (p) => {
+      const st = await jobSync.loginState(p.id);
+      const s = state[p.id];
+      return {
+        id: p.id, name: p.name, syncable: p.syncable, note: p.note || '',
+        loginUrl: p.loginUrl, applyUrl: p.applyUrl, collectUrl: p.collectUrl,
+        loggedIn: st.loggedIn, cookieCount: st.cookieCount,
+        lastSyncAt: (s && s.lastSyncAt) || 0, lastCount: (s && s.lastCount) || 0
+      };
+    }));
+    return ok(list);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('jobsync:login', async (_e, platformId: string) => {
+  try {
+    sessionUserId(_e);
+    return ok(await jobSync.openLogin(String(platformId || '')));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('jobsync:pull', async (_e, platformId: string, kind: string) => {
+  try {
+    sessionUserId(_e);
+    const k = kind === 'collected' ? 'collected' : 'applied';
+    const res = await jobSync.pull(String(platformId || ''), k);
+    if (res.ok && res.items) jobSync.writeSyncState(String(platformId || ''), res.items.length);
+    return ok(res);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('jobsync:logout', async (_e, platformId: string) => {
+  try {
+    sessionUserId(_e);
+    return ok(await jobSync.logout(String(platformId || '')));
   } catch (err) {
     return fail((err as Error).message);
   }

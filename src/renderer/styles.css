@@ -1551,3 +1551,21 @@ em { font-style: normal; color: var(--gold); }
 .ji-notes.ok { color: var(--teal); }
 @media (max-width: 720px) { .ji-grid { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .mv-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* ============ 招聘平台投递记录同步（复用粘贴导入的 .ji-* 视觉） ============ */
+.js-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.js-list { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow: auto; }
+.js-row {
+  border: 1px solid var(--line); border-left: 2px solid var(--line-2);
+  border-radius: var(--radius-sm); background: var(--bg-1); padding: 11px 13px;
+}
+.js-row-top { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.js-row-top b { color: var(--ink-1); font-size: 13px; }
+.js-tag {
+  font-style: normal; font-size: 10.5px; padding: 1px 7px; border-radius: 999px;
+  border: 1px solid var(--line-2); color: var(--ink-3, var(--ink-1));
+}
+.js-tag-on { border-color: var(--teal); color: var(--teal); }
+.js-tag-off { opacity: .6; }
+.js-actions { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+@media (max-width: 720px) { .js-row-top { align-items: flex-start; } }

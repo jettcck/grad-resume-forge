@@ -143,6 +143,18 @@ function registerIpc() {
     }
     return { added, updated, skipped, errors: [] };
   });
+  // 招聘平台同步：平台表直接从 job-sync-core 取，避免 mock 与主进程两处漂移
+  const syncCore = require(path.join(ROOT, 'dist/main/job-sync-core'));
+  h('jobsync:platforms', async () => syncCore.SYNC_PLATFORMS.map((p) => ({
+    id: p.id, name: p.name, syncable: p.syncable, note: p.note || '',
+    loginUrl: p.loginUrl, applyUrl: p.applyUrl, collectUrl: p.collectUrl,
+    loggedIn: p.id === 'boss', cookieCount: p.id === 'boss' ? 8 : 0,
+    lastSyncAt: p.id === 'boss' ? Date.now() - 3600e3 : 0,
+    lastCount: p.id === 'boss' ? 6 : 0
+  })));
+  h('jobsync:login', async () => ({ ok: true, url: '' }));
+  h('jobsync:pull', async () => ({ ok: false, error: '截图环境不联网，未执行真实同步' }));
+  h('jobsync:logout', async () => ({ ok: true }));
   // 快照 IPC：缺了它们，回炉快照卡只会显示「读取失败」，回归断言会（正确地）炸
   h('snapshots:save', (uid, label, p) => store.saveAgentSnapshot(uid, label, p));
   h('snapshots:list', (uid) => store.listAgentSnapshots(uid));
