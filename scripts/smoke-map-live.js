@@ -87,12 +87,14 @@ app.whenReady().then(async () => {
       hasRoot: !!mv, rows: rows.length,
       first: rows.length ? rows[0].textContent.replace(/\\s+/g, ' ').trim().slice(0, 60) : '',
       hasSvg: !!document.querySelector('.mv-svg'),
+      statCards: document.querySelectorAll('.mv-stat').length,
       attr: attr.slice(0, 46),
       hasToggle: !!([...document.querySelectorAll('.mv-map-controls .btn')].find((b) => /开启地图/.test(b.textContent)))
     };
   })()`);
   t(panel.hasRoot === true && panel.rows >= 2, '距离面板挂载并算出距离（' + panel.rows + ' 行）');
   t(panel.hasSvg === true, '离线相对位置图已渲染');
+  t(panel.statCards === 4, '距离摘要包含定位覆盖率、最近、平均、最远四项');
   t(/阿里|腾讯/.test(panel.first), '距离行内容正常（' + panel.first + '）');
   t(/高德/.test(panel.attr), '默认瓦片源是高德（署名：' + panel.attr + '）—— OSM 在部分国内网络不可达');
   t(panel.hasToggle === true, '「开启地图」按钮存在');
@@ -108,9 +110,13 @@ app.whenReady().then(async () => {
     const status = (document.querySelector('.mv-map-status') || {}).textContent || '';
     const canvas = document.querySelector('.mv-map-canvas');
     const firstSrc = (document.querySelector('.mv-map-tiles img.mv-tile') || {}).src || '';
-    return { clicked: true, tiles: imgs, status: status, hasCanvas: !!canvas, isDataUrl: firstSrc.indexOf('data:image/png;base64,') === 0 };
+    const nav = document.querySelector('.mv-map-nav');
+    const fit = nav && [...nav.querySelectorAll('button')].find((b) => /显示全部/.test(b.textContent));
+    if (fit) fit.click();
+    return { clicked: true, tiles: imgs, status: status, hasCanvas: !!canvas, hasNav: !!nav, isDataUrl: firstSrc.indexOf('data:image/png;base64,') === 0 };
   })()`);
   t(live.hasCanvas === true, '点击后地图画布出现（按钮真的接上了渲染）');
+  t(live.hasNav === true, '地图提供缩放、显示全部和回到出发地控制');
   t(live.tiles > 0 || /取不回来/.test(String(live.status)),
     '真实瓦片显示了 ' + live.tiles + ' 块' +
     (live.tiles > 0 ? '（' + (live.isDataUrl ? '经主进程代理的 data: URL' : '直接 URL —— 不应发生') + '）'

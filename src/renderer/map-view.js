@@ -88,6 +88,31 @@
     return { located: located, unlocated: unlocated, all: rows };
   }
 
+  /** 给地图顶部的「一眼看懂」摘要用的统计。所有数字都基于直线距离。 */
+  function distanceSummary(rows) {
+    const located = (rows && rows.located) || [];
+    const distances = located.map((r) => r.km).filter((km) => isFinite(km));
+    const total = (rows && rows.all ? rows.all.length : 0);
+    const sum = distances.reduce((a, b) => a + b, 0);
+    return {
+      total: total,
+      located: located.length,
+      missing: Math.max(0, total - located.length),
+      coverage: total ? Math.round(located.length / total * 100) : 0,
+      averageKm: distances.length ? sum / distances.length : NaN,
+      nearest: located[0] || null,
+      farthest: located[located.length - 1] || null
+    };
+  }
+
+  function summaryCard(label, value, hint, tone) {
+    return el('div', { class: 'mv-stat mv-stat-' + (tone || 'neutral') }, [
+      el('span', { class: 'mv-stat-label' }, [label]),
+      el('b', { class: 'mv-stat-value' }, [value]),
+      hint ? el('span', { class: 'mv-stat-hint' }, [hint]) : null
+    ]);
+  }
+
   // ---------------- 离线对比图（SVG）----------------
   function buildCompareSvg(origin, located, width, height) {
     const NS = 'http://www.w3.org/2000/svg';
@@ -179,7 +204,12 @@
       renderTimer: null,
       clickHandled: false,
       inflight: 0,
-      queue: []
+      queue: [],
+      renderToken: 0,
+      loaded: 0,
+      failed: 0,
+      queued: 0,
+      lastError: ''
     };
     const W = 768, H = 420;
     const NS = 'http://www.w3.org/2000/svg';
@@ -225,19 +255,26 @@
         const job = state.queue.shift();
         state.inflight++;
         window.api.map.tile(state.sourceId, job.z, job.x, job.y).then((res) => {
+          // 缩放、拖动或切换底图后，旧请求可能晚于新一轮返回；旧瓦片不能再写入当前图层。
+          if (job.token !== state.renderToken) return;
           if (res && res.ok && res.data && res.data.dataUrl) {
             const img = el('img', { class: 'mv-tile', src: res.data.dataUrl, alt: '' });
             img.style.left = job.left + 'px';
             img.style.top = job.top + 'px';
             layer.appendChild(img);
             state.tiles.set(job.key, img);
-            if (!job.wasCached) { state.loaded++; }
+            state.loaded++;
           } else {
             state.failed++;
             // 记下具体原因：否则界面上只会说「取不回来」，用户无法判断是没网、被墙还是源配错了
             state.lastError = (res && res.error) || '网络不可用';
           }
-        }).catch(() => { state.failed++; })
+        }).catch((err) => {
+          if (job.token === state.renderToken) {
+            state.failed++;
+            state.lastError = (err && err.message) || '网络不可用';
+          }
+        })
           .then(() => { state.inflight--; pump(); });
       }
       updateStatus();
@@ -258,10 +295,10 @@
     }
 
     function renderTiles() {
+      state.renderToken++;
       layer.innerHTML = '';
       state.tiles.clear();
       state.queue = [];
-      state.inflight = 0;
       state.loaded = 0;
       state.failed = 0;
       const z = state.zoom;
@@ -278,7 +315,8 @@
           const wrapX = ((x % n) + n) % n; // 经度方向环绕
           state.queue.push({
             key: z + '/' + wrapX + '/' + y, z: z, x: wrapX, y: y,
-            left: Math.round(x * 256 - originX), top: Math.round(y * 256 - originY)
+            left: Math.round(x * 256 - originX), top: Math.round(y * 256 - originY),
+            token: state.renderToken
           });
           queued++;
         }
@@ -286,6 +324,39 @@
       state.queued = queued;
       pump();
       drawOverlay();
+    }
+
+    function zoomBy(delta) {
+      const next = Math.max(3, Math.min(state.maxZoom, state.zoom + delta));
+      if (next === state.zoom) return false;
+      state.zoom = next;
+      renderTiles();
+      return true;
+    }
+
+    function fitAll() {
+      const points = [];
+      if (_origin) points.push([_origin.coords ? _origin.coords[0] : _origin.lat, _origin.coords ? _origin.coords[1] : _origin.lng]);
+      (ctx.located || []).forEach((r) => { if (r.coords) points.push(r.coords); });
+      if (!points.length) return false;
+      let best = 3;
+      let center = points[0];
+      for (let z = 3; z <= state.maxZoom; z++) {
+        const ps = points.map((ll) => {
+          const d = window.Geo.fromWgs84(ll[0], ll[1], state.datum);
+          return window.Geo.lngLatToWorldPixel(d[1], d[0], z);
+        });
+        const xs = ps.map((p) => p[0]), ys = ps.map((p) => p[1]);
+        const fits = Math.max(...xs) - Math.min(...xs) <= W - 72 && Math.max(...ys) - Math.min(...ys) <= H - 72;
+        if (!fits) break;
+        best = z;
+        const mid = window.Geo.worldPixelToLngLat((Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2, z);
+        center = window.Geo.toWgs84(mid[0], mid[1], state.datum);
+      }
+      state.center = center;
+      state.zoom = best;
+      renderTiles();
+      return true;
     }
 
     function drawOverlay() {
@@ -320,13 +391,14 @@
     }
 
     // 拖动
-    canvas.addEventListener('mousedown', (e) => {
+    const onPointerDown = (e) => {
       state.dragging = true;
       state.last = [e.clientX, e.clientY];
       state.moved = 0;
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) { /* older WebView */ }
       canvas.classList.add('dragging');
-    });
-    window.addEventListener('mousemove', (e) => {
+    };
+    const onPointerMove = (e) => {
       if (!state.dragging) return;
       const dx = e.clientX - state.last[0], dy = e.clientY - state.last[1];
       state.last = [e.clientX, e.clientY];
@@ -338,8 +410,8 @@
       drawOverlay();
       layer.style.transform = 'translate(' + 0 + 'px,' + 0 + 'px)';
       scheduleRender();
-    });
-    window.addEventListener('mouseup', (e) => {
+    };
+    const onPointerUp = (e) => {
       if (!state.dragging) return;
       state.dragging = false;
       canvas.classList.remove('dragging');
@@ -351,18 +423,25 @@
         const ll = unproject(px, py);
         ctx.onPick(ll, state.target);
       }
-    });
-    canvas.addEventListener('wheel', (e) => {
+    };
+    const onWheel = (e) => {
       e.preventDefault();
       const before = state.zoom;
       state.zoom = Math.max(3, Math.min(state.maxZoom, state.zoom + (e.deltaY < 0 ? 1 : -1)));
       if (state.zoom !== before) { scheduleRender(); }
-    }, { passive: false });
+    };
+    canvas.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp);
+    canvas.addEventListener('wheel', onWheel, { passive: false });
 
     state.center = ctx.center || [35.0, 105.0];
     state.zoom = ctx.zoom || 11;
     if (ctx.center) state.zoom = ctx.zoom || 12;
-    renderTiles();
+    if (ctx.fitAll) {
+      // 没有任何已定位点时，仍需显示全国默认视野。
+      if (!fitAll()) renderTiles();
+    } else renderTiles();
 
     return {
       state: state,
@@ -376,12 +455,22 @@
         if (zoom) state.zoom = Math.max(3, Math.min(state.maxZoom, zoom));
         renderTiles();
       },
-      destroy: () => { clearTimeout(state.renderTimer); }
+      zoomBy: zoomBy,
+      fitAll: fitAll,
+      destroy: () => {
+        clearTimeout(state.renderTimer);
+        canvas.removeEventListener('pointerdown', onPointerDown);
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerup', onPointerUp);
+        canvas.removeEventListener('wheel', onWheel);
+      }
     };
   }
 
   // ---------------- 主渲染 ----------------
   async function render(host, ctx) {
+    if (host._mvMap && typeof host._mvMap.destroy === 'function') host._mvMap.destroy();
+    host._mvMap = null;
     host.innerHTML = '';
     const origin = await loadOrigin();
     const apps = ctx.applications || [];
@@ -411,15 +500,29 @@
         '先设置出发地（你的学校或住处），下面就会列出每家公司到它的直线距离并排好序。',
         '出发地可以按城市选，也可以在地图上点选精确位置。'
       ]));
+      // 没有出发地时也保留地图入口：用户可以先打开底图，再直接点选出发地，
+      // 不必在「设置出发地 → 保存 → 回到页面」之间来回切换。
+      let mapSection = null;
+      try {
+        mapSection = await buildMapSection(host, ctx, null, located);
+      } catch (err) {
+        mapSection = el('div', { class: 'mv-card' }, [
+          el('div', { class: 'mv-card-head' }, [el('h4', {}, ['在线地图（可选）'])]),
+          el('p', { class: 'mv-map-note' }, ['地图模块暂时不可用：' + ((err && err.message) || '未知原因') + '。'])
+        ]);
+      }
+      host.appendChild(mapSection);
       return;
     }
 
     // 概览
     const nearest = located[0];
+    const stats = distanceSummary(rows);
     const summary = el('div', { class: 'mv-summary' }, [
-      el('span', {}, ['已定位 ' + located.length + ' 家']),
-      unlocated.length ? el('span', { class: 'mv-warn' }, ['缺位置 ' + unlocated.length + ' 家']) : null,
-      nearest ? el('span', {}, ['最近：' + nearest.company + ' ' + window.Geo.formatDistance(nearest.km)]) : null
+      summaryCard('已定位', stats.located + ' / ' + stats.total, stats.coverage + '% 的投递记录有坐标', stats.coverage >= 80 ? 'good' : 'neutral'),
+      summaryCard('最近机会', nearest ? window.Geo.formatDistance(nearest.km) : '—', nearest ? nearest.company : '暂无可计算记录', 'good'),
+      summaryCard('平均距离', isFinite(stats.averageKm) ? window.Geo.formatDistance(stats.averageKm) : '—', '所有已定位公司的直线距离', 'neutral'),
+      summaryCard('最远机会', stats.farthest ? window.Geo.formatDistance(stats.farthest.km) : '—', stats.farthest ? stats.farthest.company : '暂无可计算记录', stats.farthest ? 'warn' : 'neutral')
     ]);
     host.appendChild(summary);
 
@@ -434,7 +537,12 @@
           el('h4', {}, ['相对位置']),
           el('span', { class: 'mv-hint' }, ['以出发地为原点；圈距按比例，仅示意方向与远近'])
         ]),
-        buildCompareSvg(origin, located, 720, 380)
+        buildCompareSvg(origin, located, 720, 380),
+        el('div', { class: 'mv-legend' }, window.Geo.BANDS.map((b) =>
+          el('span', { class: 'mv-legend-item' }, [
+            el('i', { class: 'mv-legend-dot mv-band-' + b.key }), b.label
+          ])
+        ))
       ]);
       host.appendChild(chartCard);
 
@@ -547,6 +655,8 @@
     card.appendChild(cacheLine);
 
     let map = null;
+    let targetState = null;
+    let targetLine = null;
 
     function rebuildControls() {
       controls.innerHTML = '';
@@ -586,8 +696,25 @@
       }, ['自定义瓦片源']));
       controls.appendChild(el('button', {
         class: 'btn btn-ghost btn-sm', type: 'button',
-        onclick: () => openOriginDialog(host, ctx, 'pick')
-      }, ['在地图上点选出发地']));
+        onclick: async () => {
+          if (!enabled) {
+            // 关闭状态下按钮要完成用户说的「点选」前置动作，而不是打开一个
+            // 仍然不能点地图的表单；开启后重新渲染会自动进入出发地点选目标。
+            try {
+              await saveTileConfig({ enabled: true });
+              await render(host, ctx);
+            } catch (err) {
+              UI.toast('开启地图失败：' + ((err && err.message) || err), 'err');
+            }
+            return;
+          }
+          if (map && targetState && targetLine) {
+            targetState.type = 'origin';
+            targetLine.textContent = '当前点选目标：出发地（点地图即可改）';
+            map.setTarget(targetState);
+          }
+        }
+      }, [enabled ? '在地图上点选出发地' : '开启地图并点选出发地']));
       controls.appendChild(el('span', { class: 'mv-hint' }, [enabled ? '' : '（未开启，不发起网络请求）']));
     }
 
@@ -615,17 +742,30 @@
 
     if (enabled) {
       const center = origin ? [origin.coords ? origin.coords[0] : origin.lat, origin.coords ? origin.coords[1] : origin.lng] : [35, 105];
-      const targetState = { type: 'origin' };
-      const targetLine = el('div', { class: 'mv-target' }, ['当前点选目标：出发地']);
+      targetState = { type: 'origin' };
+      targetLine = el('div', { class: 'mv-target' }, ['当前点选目标：出发地']);
       mapHost.appendChild(targetLine);
       map = createMap(mapHost, {
         center: center, zoom: located.length ? 10 : 12, sourceId: cur.id, datum: cur.datum,
-        maxZoom: cur.maxZoom, located: located, target: targetState,
+        maxZoom: cur.maxZoom, located: located, fitAll: true, target: targetState,
         onPick: async (ll, target) => {
           await applyPick(host, ctx, ll, target, targetLine);
         }
       });
       host._mvMap = map;
+      const nav = el('div', { class: 'mv-map-nav' }, [
+        el('span', { class: 'mv-map-nav-label' }, ['视野']),
+        el('button', { class: 'mv-mini', type: 'button', title: '缩小', onclick: () => map.zoomBy(-1) }, ['−']),
+        el('button', { class: 'mv-mini', type: 'button', title: '放大', onclick: () => map.zoomBy(1) }, ['＋']),
+        el('button', { class: 'mv-mini', type: 'button', onclick: () => map.fitAll() }, ['显示全部投递点']),
+        el('button', {
+          class: 'mv-mini', type: 'button',
+          onclick: () => origin
+            ? map.recenter(origin.coords ? origin.coords[0] : origin.lat, origin.coords ? origin.coords[1] : origin.lng, 12)
+            : map.recenter(35, 105, 4)
+        }, [origin ? '回到出发地' : '回到全国'])
+      ]);
+      mapHost.appendChild(nav);
       // 每家公司一个「定到地图上」按钮
       const pickRow = el('div', { class: 'mv-chips' }, [
         el('button', {
@@ -745,6 +885,7 @@
   window.MapView = {
     render: render,
     distanceRows: distanceRows,
+    distanceSummary: distanceSummary,
     resolveAppCoords: resolveAppCoords,
     loadOrigin: loadOrigin,
     saveOrigin: saveOrigin

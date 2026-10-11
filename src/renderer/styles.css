@@ -1452,7 +1452,15 @@ em { font-style: normal; color: var(--gold); }
 .mv-origin-text { font-size: 15px; color: var(--ink-0); }
 .mv-origin-src { font-size: 12px; color: var(--ink-2); }
 .mv-empty { margin: 12px 0 0; padding: 14px 16px; font-size: 13px; line-height: 1.7; color: var(--ink-2); background: var(--bg-1); border: 1px dashed var(--line); border-radius: var(--radius); }
-.mv-summary { display: flex; flex-wrap: wrap; gap: 16px; margin: 12px 0 4px; font-size: 13px; color: var(--ink-1); }
+.mv-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 12px 0 4px; }
+.mv-stat { min-width: 0; display: flex; flex-direction: column; gap: 2px; padding: 11px 12px; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.mv-stat-label { font-size: 11px; color: var(--ink-2); }
+.mv-stat-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 17px; color: var(--ink-0); }
+.mv-stat-hint { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--ink-2); }
+.mv-stat-good { border-color: color-mix(in srgb, var(--teal) 45%, var(--line)); }
+.mv-stat-good .mv-stat-value { color: var(--teal); }
+.mv-stat-warn { border-color: color-mix(in srgb, var(--ember) 45%, var(--line)); }
+.mv-stat-warn .mv-stat-value { color: var(--ember); }
 .mv-warn { color: var(--gold); }
 
 .mv-card { margin-top: 14px; padding: 14px 16px 16px; background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius); }
@@ -1466,6 +1474,9 @@ em { font-style: normal; color: var(--gold); }
 .mv-label { font-family: var(--font-mono); font-size: 11px; fill: var(--ink-1); }
 .mv-sublabel { font-size: 10px; fill: var(--ink-2); }
 .mv-origin-label { font-size: 11px; fill: var(--gold); font-weight: 700; }
+.mv-legend { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-top: 9px; color: var(--ink-2); font-size: 11px; }
+.mv-legend-item { display: inline-flex; align-items: center; gap: 5px; }
+.mv-legend-dot { width: 8px; height: 8px; display: inline-block; border-radius: 50%; }
 .mv-dot { stroke: var(--bg-0); stroke-width: 1.5; }
 .mv-origin { fill: var(--gold); stroke: var(--bg-0); stroke-width: 2; }
 .mv-band-very-close { fill: var(--teal); background: var(--teal); }
@@ -1501,12 +1512,14 @@ em { font-style: normal; color: var(--gold); }
 .mv-attr { font-size: 11.5px; color: var(--ink-2); line-height: 1.6; margin-bottom: 8px; }
 .mv-map-host { position: relative; }
 .mv-map-wrap { overflow: auto; padding-bottom: 4px; }
-.mv-map-canvas { position: relative; width: 768px; height: 420px; background: var(--bg-0); border: 1px solid var(--line); border-radius: var(--radius); cursor: crosshair; overflow: hidden; }
+.mv-map-canvas { position: relative; width: 768px; height: 420px; background: var(--bg-0); border: 1px solid var(--line); border-radius: var(--radius); cursor: crosshair; overflow: hidden; touch-action: none; }
 .mv-map-canvas.dragging { cursor: grabbing; }
 .mv-map-tiles { position: absolute; left: 0; top: 0; }
 .mv-tile { position: absolute; width: 256px; height: 256px; user-select: none; -webkit-user-drag: none; }
 .mv-map-overlay { position: absolute; left: 0; top: 0; width: 768px; height: 420px; pointer-events: none; }
 .mv-map-status { margin-top: 6px; font-size: 12px; color: var(--ink-2); min-height: 16px; }
+.mv-map-nav { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 2px; }
+.mv-map-nav-label { margin-right: 2px; font-size: 11.5px; color: var(--ink-2); }
 .mv-target { margin: 8px 0 0; font-size: 12.5px; color: var(--gold); font-family: var(--font-mono); }
 .mv-cache { margin-top: 10px; font-size: 11.5px; color: var(--ink-2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
@@ -1537,3 +1550,4 @@ em { font-style: normal; color: var(--gold); }
 .ji-notes { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 10px; font-size: 11.5px; color: var(--ember); }
 .ji-notes.ok { color: var(--teal); }
 @media (max-width: 720px) { .ji-grid { grid-template-columns: 1fr; } }
+@media (max-width: 720px) { .mv-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
