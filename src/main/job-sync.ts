@@ -6,8 +6,9 @@
 //  为什么不是「爬 HTML」：
 //    招聘平台的投递记录在登录态后面，前端自己会带着 cookie、token 和
 //    请求签名去调它自己的数据接口。我们**不逆向签名、不伪造请求**，
-//    而是开一个独立窗口让平台页面自己完成鉴权与请求，然后用 Chromium
-//    调试协议（CDP）旁路读取它**自己发出去的 JSON 响应**。
+//    而是开一个独立窗口让平台页面自己完成鉴权与请求，再用一个轻量
+//    preload 钩住页面自己的 fetch / XMLHttpRequest，把它**自己发出去的
+//    JSON 响应**抄一份回主进程。
 //
 //  关键设计：不硬编码「投递记录页」深链接。
 //    2026-10-11 实测：zhipin 的 /web/geek/job/apply 直接 302 到 404 页，
@@ -24,10 +25,10 @@
 //    - 抓不到就明确说清是「没登录 / 页面空白 / 撞滑块 / 改版」，绝不编造记录
 //    - 记录只在用户勾选确认后才落库（复用 applications:importAuthorized）
 //
-//  纯逻辑（平台表 / 响应体归一化）在 job-sync-core.ts，本文件只管窗口与 CDP。
+//  纯逻辑（平台表 / 响应体归一化）在 job-sync-core.ts，本文件只管窗口与采集。
 // ============================================================
 
-import { app, BrowserWindow, BrowserView, session } from 'electron';
+import { app, BrowserWindow, BrowserView, session, ipcMain } from 'electron';
 import type { Session, WebContents } from 'electron';
 import fs from 'fs';
 import path from 'path';
@@ -48,10 +49,14 @@ function sessionOf(platformId: string): Session {
 }
 
 // ---------------- 同步会话（窗口 + 持续累积捕获） ----------------
-const JSON_MIME = /json|javascript|text\/plain/i;
 const MAX_BODY_BYTES = 4 * 1024 * 1024;
 /** 累积响应条数上限：够覆盖分页，又不会把内存吃满 */
 const MAX_CAPTURED = 400;
+
+/** 注入到平台页面的采集 preload 路径（开发态与打包态都在 app.asar 内） */
+function capturePreloadPath(): string {
+  return path.join(__dirname, '..', 'renderer', 'jobsync-capture-preload.js');
+}
 
 interface SyncSession {
   platformId: string;
@@ -61,13 +66,10 @@ interface SyncSession {
   platformContents: WebContents;
   /** 累积捕获到的 JSON 响应（跨页面导航保留） */
   bodies: Array<{ url: string; json: unknown }>;
-  /** 已取过响应体的 requestId，避免重复 */
+  /** 已收录的 URL，避免同一响应重复入库 */
   seen: Set<string>;
-  /** requestId → URL */
-  urlById: Map<string, string>;
-  /** CDP 消息回调，关闭时用于解绑 */
-  onMessage: (ev: unknown, method: string, params: Record<string, unknown>) => void;
-  attached: boolean;
+  /** 收到采集 IPC 时按 platformId 找到会话用 */
+  ipcListener?: (ev: unknown, payload: { url?: string; body?: string }) => void;
   /** 最近一次页面体检结果 */
   page: { title: string; finalUrl: string; bodyText: string; blockReason: string };
   lastError: string;
@@ -117,6 +119,10 @@ async function showStatusPage(s: SyncSession, p: SyncPlatform, title: string, me
   // 挂起状态下也会让导航 Promise 卡住，窗口最终只剩系统绘制的纯白背景。
   // about:blank 的 webContents 可以直接执行 document.open/write，无需导航。
   s.win.setBrowserView(null);
+  // 先无条件把窗口显示出来，并同步写一份兜底内容。
+  // 之前的 8 秒超时分支调用的正是本函数，而本函数自己会 await 一个卡住的
+  // executeJavaScript —— 于是窗口停在 show:false，用户看到"标题栏有、客户区全白"。
+  try { s.win.show(); s.win.focus(); } catch (_) { /* 窗口正在关闭 */ }
   for (let i = 0; i < 6 && !s.win.isDestroyed(); i += 1) {
     if (await executeWithTimeout(s.win.webContents, script, 1200)) break;
     await waitMs(180);
@@ -165,8 +171,11 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
   const view = new BrowserView({
     webPreferences: {
       partition: partitionOf(p.id),
+      preload: capturePreloadPath(),
       contextIsolation: true,
       nodeIntegration: false,
+      // preload 需要能读 ipcRenderer 才能把抓到的响应回传主进程；
+      // sandbox:true 下 preload 仍可 require('electron')，保持沙箱更安全。
       sandbox: true,
       backgroundThrottling: false
     }
@@ -199,56 +208,40 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     platformContents,
     bodies: [],
     seen: new Set(),
-    urlById: new Map(),
-    onMessage: () => { /* 下面替换 */ },
-    attached: false,
     page: { title: '', finalUrl: '', bodyText: '', blockReason: '' },
     lastError: '',
     allowClose: false
   };
   sessions.set(p.id, s);
 
-  // ---- CDP 旁路捕获：窗口活着就一直累积 ----
-  s.onMessage = async (_ev, method, params) => {
+  // ---- 数据采集：页面内注入 fetch/XHR 钩子（不用 CDP）----
+  //
+  // 为什么放弃 CDP：实测 debugger.attach('1.3') 之后，该 webContents 的
+  // 首帧产出与脚本执行通道会一起冻结 —— loadURL 永不 resolve、executeJavaScript
+  // 永不返回、连 win.show() 都会阻塞主进程。表现就是纯白窗口。
+  // 改用 preload 注入钩子：页面自己发的每个 XHR/fetch 响应都被记下来，
+  // 完全不碰调试器，窗口渲染与导航都不受影响。
+  s.ipcListener = (_ev, payload) => {
+    if (!payload || typeof payload.body !== 'string') return;
+    const body = payload.body;
+    if (body.length > MAX_BODY_BYTES) return;
+    const head = body.trimStart().charAt(0);
+    if (head !== '{' && head !== '[') return; // 只收 JSON
+    const url = String(payload.url || '');
+    if (s.seen.has(url) && s.bodies.some((b) => b.url === url)) {
+      // 同一 URL 已有记录则覆盖最新一份（价格/状态这类字段会变）
+      const idx = s.bodies.findIndex((b) => b.url === url);
+      if (idx >= 0) { try { s.bodies[idx] = { url, json: JSON.parse(body) }; } catch (_) { /* 忽略 */ } }
+      return;
+    }
     try {
-      if (method === 'Network.responseReceived') {
-        const requestId = String(params.requestId);
-        const response = params.response as { url?: string; mimeType?: string } | undefined;
-        const type = String(params.type || '');
-        const url = String((response && response.url) || '');
-        const mime = String((response && response.mimeType) || '');
-        // 只留可能带结构化数据的响应，其它（图片/字体/CSS）不进表
-        if (url && (type === 'XHR' || type === 'Fetch' || JSON_MIME.test(mime))) {
-          s.urlById.set(requestId, url);
-        }
-      } else if (method === 'Network.loadingFinished') {
-        const requestId = String(params.requestId);
-        const url = s.urlById.get(requestId);
-        if (!url || s.seen.has(requestId)) return;
-        s.seen.add(requestId);
-        if (s.bodies.length >= MAX_CAPTURED) return;
-        try {
-          const r = await s.platformContents.debugger.sendCommand('Network.getResponseBody', { requestId });
-          const raw = r && r.base64Encoded
-            ? Buffer.from(String(r.body || ''), 'base64').toString('utf8')
-            : String((r && r.body) || '');
-          if (!raw || raw.length > MAX_BODY_BYTES) return;
-          const trimmed = raw.trim();
-          if (trimmed[0] !== '{' && trimmed[0] !== '[') return;
-          s.bodies.push({ url, json: JSON.parse(trimmed) });
-        } catch (_) { /* 响应体取不到（跨域 / 已被回收）：跳过，不影响其它请求 */ }
-      }
-    } catch (_) { /* CDP 回调里绝不能让异常冒泡 */ }
+      const json = JSON.parse(body);
+      s.seen.add(url);
+      s.bodies.push({ url, json });
+      if (s.bodies.length > MAX_CAPTURED) s.bodies.splice(0, s.bodies.length - MAX_CAPTURED);
+    } catch (_) { /* 非合法 JSON，丢弃 */ }
   };
-
-  try {
-    const dbg = platformContents.debugger;
-    if (!dbg.isAttached()) { dbg.attach('1.3'); s.attached = true; }
-    dbg.on('message', s.onMessage as never);
-    await dbg.sendCommand('Network.enable');
-  } catch (err) {
-    s.lastError = '无法附加调试协议：' + ((err as Error).message || err);
-  }
+  ipcMain.on('jobsync:captured', s.ipcListener as never);
 
   win.on('close', (event) => {
     // 同步窗口不是应用主窗口：用户点 X 只隐藏，绝不能让 window-all-closed 误判为应用退出。
@@ -261,33 +254,44 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
 
   win.on('closed', () => {
     if (s.emptyPageTimer) clearTimeout(s.emptyPageTimer);
-    try {
-      const dbg = platformContents.debugger;
-      dbg.removeListener('message', s.onMessage as never);
-      if (s.attached && dbg.isAttached()) dbg.detach();
-    } catch (_) { /* 忽略 */ }
+    if (s.ipcListener) {
+      try { ipcMain.removeListener('jobsync:captured', s.ipcListener as never); } catch (_) { /* 忽略 */ }
+    }
     sessions.delete(p.id);
   });
 
   // ---- 导航失败必须能报出来，不能白屏了事 ----
   let navFailed = '';
-  platformContents.on('did-finish-load', () => {
-    if (platformContents.getURL() === p.entryUrl || platformContents.getURL().startsWith(p.entryUrl + '/')) {
-      showPlatformView();
-    }
+  // 关键：只要主框架开始产出首帧就立刻把平台视图显示出来。
+  // 之前只在 did-finish-load 才显示，而招聘首页常年带大量异步请求/长连接，
+  // did-finish-load 可能十几秒都不来 —— 用户在这段时间里看到的正是
+  // 「标题栏有、客户区全白」。页面的首帧是可以立即显示的，不该再等。
+  const revealOnFirstPaint = (): void => { showPlatformView(); };
+  platformContents.on('dom-ready', revealOnFirstPaint);
+  platformContents.on('did-frame-finish-load', (_e, isMainFrame) => {
+    if (isMainFrame) revealOnFirstPaint();
   });
+  platformContents.on('did-finish-load', revealOnFirstPaint);
   platformContents.on('did-fail-load', (_e, code, desc, _url, isMainFrame) => {
     if (isMainFrame && code !== -3 /* -3 = ERR_ABORTED，用户自己中断的，不算错 */) {
       navFailed = '页面加载失败（' + desc + '，错误码 ' + code + '）';
     }
   });
 
-  // 先给用户一个确定可见的本地加载页，再切到平台页面。加载页本身也不能无限等待。
-  await showStatusPage(s, p, '正在打开 ' + p.name,
+  // ---- 顺序在这里是决定性的，也是"白屏"的真正根因 ----
+  //
+  // 反直觉但可复现：一旦先 debugger.attach() 再导航，该 webContents 的首帧就再也
+  // 不会产出。于是 loadURL 的 Promise 永不 resolve、主进程首帧等待把事件循环卡死
+  // （实测 setImmediate / setTimeout 全不触发），window 停在 show:false ——
+  // 用户看到的就是"标题栏有、客户区全白"。
+  //
+  // 现在全程不再使用 CDP：窗口先显示、平台导航在其后进行、采集靠 preload 钩子。
+  if (process.env.GRF_JOBSYNC_DEBUG) console.log('[jobsync] show window before navigation');
+  try { win.show(); win.focus(); } catch (_) { /* 窗口正在关闭 */ }
+  void showStatusPage(s, p, '正在打开 ' + p.name,
     '正在加载平台首页。网络较慢时请稍候，页面失败会显示具体原因。');
   // 本地诊断页写入后仍保持平台视图隐藏；平台视图只有 did-finish-load 才会显示。
   hidePlatformView();
-  try { win.show(); win.focus(); } catch (_) { /* 窗口正在关闭 */ }
 
   // 导航超时必须在调用 loadURL 前启动：某些网络失败会让 loadURL 一直 pending，
   // 若把定时器放在 await 后面，诊断页永远没有机会显示。
@@ -302,8 +306,10 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     hidePlatformView();
     await showStatusPage(s, p, '平台页面加载超时', msg);
   }, 8000);
+  s.emptyPageTimer.unref?.();
 
   try {
+    // 平台视图尚未挂载到窗口，但它的 webContents 依然会正常导航。
     await Promise.race([
       platformContents.loadURL(p.entryUrl),
       new Promise<void>((resolve) => setTimeout(resolve, 8500))
@@ -320,16 +326,19 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     await showStatusPage(s, p, '平台页面加载失败', navFailed);
   } else if (!timedOut) {
     // loadURL 已返回但页面可能仍是空 document，再做一次体检。
+    // 注意：窗口可能已失去焦点并被 Chromium 冻结渲染，此时 innerText 会误报为空，
+    // 所以只要「标题非空」或「已有捕获」就认定页面起来了，不显示误导性的诊断页。
     s.emptyPageTimer = setTimeout(async () => {
       if (s.win.isDestroyed()) return;
       await refreshPageState(s);
-      if (s.page.blockReason === 'blank' && s.bodies.length === 0) {
+      const hasTitle = !!(s.page.title && s.page.title.trim());
+      if (s.page.blockReason === 'blank' && !hasTitle && s.bodies.length === 0) {
         const msg = '平台首页没有返回可显示内容。可能是网络不可达、站点拦截或页面仍在加载。';
         s.lastError = msg;
         hidePlatformView();
         await showStatusPage(s, p, '平台页面为空', msg);
       }
-    }, 1500);
+    }, 2500);
   }
   return { session: s };
 }
@@ -501,7 +510,6 @@ export function reset(platformId: string): { ok: boolean; error?: string } {
   if (!s || s.win.isDestroyed()) return { ok: false, error: '同步窗口未打开' };
   s.bodies = [];
   s.seen = new Set();
-  s.urlById = new Map();
   s.lastError = '';
   return { ok: true };
 }

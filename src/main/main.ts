@@ -1127,8 +1127,9 @@ ipcMain.handle('map:setCustomSource', (_e, name: string, url: string, datum: str
 });
 
 // ---------------- 招聘平台投递记录同步 ----------------
-// 只读旁路：让平台页面自己完成鉴权与请求，我们从 CDP 侧读取它自己发出去的 JSON。
-// 不逆向签名、不伪造请求、不写入平台侧任何数据。
+// 只读旁路：让平台页面自己完成鉴权与请求，用注入的 preload 钩住页面自己的
+// fetch/XHR，把它自己发出去的 JSON 抄一份回来。
+// 不逆向签名、不伪造请求、不写入平台侧任何数据，也不使用 CDP。
 import * as jobSync from './job-sync';
 
 ipcMain.handle('jobsync:platforms', async (_e) => {

@@ -305,4 +305,24 @@ assert(/s\.allowClose\s*=\s*true/.test(syncMainSrc),
 assert(/let isQuitting\s*=\s*false/.test(mainEntrySrc) && /isQuitting\s*=\s*true/.test(mainEntrySrc),
   '主进程用退出标志区分用户关辅助窗口与应用真正退出');
 
+// ---- 采集通道：必须靠 preload 钩子，绝不使用 CDP ----
+assert(!/\.debugger\.attach\s*\(/.test(syncMainSrc) && !/attachCapture/.test(syncMainSrc),
+  '同步采集不再使用 CDP debugger.attach，避免冻结 webContents 首帧导致纯白窗口');
+assert(/preload:\s*capturePreloadPath\(\)/.test(syncMainSrc)
+  && /jobsync-capture-preload\.js/.test(syncMainSrc),
+  '平台视图通过 preload 注入采集钩子');
+assert(/ipcMain\.on\('jobsync:captured'/.test(syncMainSrc)
+  && /ipcMain\.removeListener\('jobsync:captured'/.test(syncMainSrc),
+  '主进程注册并按会话解绑采集 IPC，会话关闭后不泄漏监听');
+const capturePreloadSrc = fs.readFileSync('src/renderer/jobsync-capture-preload.js', 'utf8');
+assert(/window\.fetch\s*=/.test(capturePreloadSrc) && /XMLHttpRequest\.prototype\.send/.test(capturePreloadSrc)
+  && /'jobsync:captured'/.test(capturePreloadSrc) && /ipcRenderer\.send\(/.test(capturePreloadSrc),
+  '采集 preload 钩住 fetch 与 XHR 并把 JSON 响应回传主进程');
+
+assert(/dom-ready/.test(syncMainSrc) && /did-frame-finish-load/.test(syncMainSrc)
+  && /revealOnFirstPaint/.test(syncMainSrc),
+  '平台视图在主框架开始渲染时就显示，不再死等 did-finish-load（否则首页异步请求期间会长时间白屏）');
+assert(/hasTitle/.test(syncMainSrc),
+  '页面空内容判定会排除「仅渲染被冻结导致 innerText 为空」的误报（标题非空即视为已加载）');
+
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
