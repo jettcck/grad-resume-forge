@@ -27,8 +27,8 @@
 //  纯逻辑（平台表 / 响应体归一化）在 job-sync-core.ts，本文件只管窗口与 CDP。
 // ============================================================
 
-import { app, BrowserWindow, session } from 'electron';
-import type { Session } from 'electron';
+import { app, BrowserWindow, BrowserView, session } from 'electron';
+import type { Session, WebContents } from 'electron';
 import fs from 'fs';
 import path from 'path';
 
@@ -56,6 +56,9 @@ const MAX_CAPTURED = 400;
 interface SyncSession {
   platformId: string;
   win: BrowserWindow;
+  view: BrowserView;
+  /** 当前平台页面的 webContents，独立于本地诊断容器 */
+  platformContents: WebContents;
   /** 累积捕获到的 JSON 响应（跨页面导航保留） */
   bodies: Array<{ url: string; json: unknown }>;
   /** 已取过响应体的 requestId，避免重复 */
@@ -93,10 +96,10 @@ function waitMs(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function executeWithTimeout(win: BrowserWindow, code: string, ms: number): Promise<boolean> {
+async function executeWithTimeout(contents: WebContents, code: string, ms: number): Promise<boolean> {
   try {
     await Promise.race([
-      win.webContents.executeJavaScript(code, true),
+      contents.executeJavaScript(code, true),
       waitMs(ms).then(() => { throw new Error('executeJavaScript timeout'); })
     ]);
     return true;
@@ -109,11 +112,17 @@ async function showStatusPage(s: SyncSession, p: SyncPlatform, title: string, me
   if (s.win.isDestroyed()) return;
   const html = statusPageHtml(p, title, message);
   const script = 'document.open();document.write(' + JSON.stringify(html) + ');document.close();';
+  // 本地容器从不加载远端页面，独立导航不会受平台请求影响。
+  s.win.setBrowserView(null);
+  await Promise.race([
+    s.win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html)),
+    waitMs(2000).then(() => { throw new Error('本地容器加载超时'); })
+  ]);
 
   // 不再用 loadURL(data:) 绘制诊断页：第三方导航挂起时，同一个 webContents 的
-  // 第二次导航也可能一直 pending。直接写当前 document，并对执行本身加超时。
+  // 第二次导航也可能一直 pending。直接写本地容器 document，并对执行本身加超时。
   for (let i = 0; i < 3 && !s.win.isDestroyed(); i += 1) {
-    if (await executeWithTimeout(s.win, script, 700)) break;
+    if (await executeWithTimeout(s.win.webContents, script, 700)) break;
     await waitMs(120);
   }
   try { s.win.show(); s.win.focus(); } catch (_) { /* 窗口正在关闭 */ }
@@ -146,19 +155,43 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
   const win = new BrowserWindow({
     width: 1040,
     height: 780,
-    // 先隐藏，写入本地加载页后再展示；避免网络页面尚未返回时直接出现纯白窗口
+    // 本地容器先显示；第三方页面放进独立 BrowserView，不能清空容器页面。
     show: false,
     title: p.name + ' · 同步窗口',
     backgroundColor: '#ffffff',
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false
+    }
+  });
+  const view = new BrowserView({
     webPreferences: {
       partition: partitionOf(p.id),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // 隐藏/后台窗口若被节流，页面可能不发请求，会导致「什么都抓不到」
       backgroundThrottling: false
     }
   });
+  win.setBrowserView(view);
+  view.setBounds({ x: 0, y: 0, width: 1040, height: 0 });
+  view.setAutoResize({ width: true, height: false });
+  // 初始阶段平台视图不占用可见区域，直到本地加载页已经完成绘制；
+  // 这样第三方导航无论如何挂起，都不会把窗口变成纯白。
+  const showPlatformView = (): void => {
+    if (!win.isDestroyed() && !platformContents.isDestroyed()) {
+      win.setBrowserView(view);
+      const [width, height] = win.getContentSize();
+      view.setBounds({ x: 0, y: 0, width, height });
+    }
+  };
+  const hidePlatformView = (): void => {
+    if (!win.isDestroyed()) view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+  };
+  const platformContents = view.webContents;
+  platformContents.on('did-finish-load', showPlatformView);
   // 去掉 Electron 默认的 File/Edit/View/Window/Help 菜单栏：
   // 这是个给用户看平台页面的窗口，顶上挂一排应用菜单既没意义也让人以为点错了
   win.setMenu(null);
@@ -166,6 +199,8 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
   const s: SyncSession = {
     platformId: p.id,
     win,
+    view,
+    platformContents,
     bodies: [],
     seen: new Set(),
     urlById: new Map(),
@@ -197,7 +232,7 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
         s.seen.add(requestId);
         if (s.bodies.length >= MAX_CAPTURED) return;
         try {
-          const r = await s.win.webContents.debugger.sendCommand('Network.getResponseBody', { requestId });
+          const r = await s.platformContents.debugger.sendCommand('Network.getResponseBody', { requestId });
           const raw = r && r.base64Encoded
             ? Buffer.from(String(r.body || ''), 'base64').toString('utf8')
             : String((r && r.body) || '');
@@ -211,7 +246,7 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
   };
 
   try {
-    const dbg = win.webContents.debugger;
+    const dbg = platformContents.debugger;
     if (!dbg.isAttached()) { dbg.attach('1.3'); s.attached = true; }
     dbg.on('message', s.onMessage as never);
     await dbg.sendCommand('Network.enable');
@@ -231,7 +266,7 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
   win.on('closed', () => {
     if (s.emptyPageTimer) clearTimeout(s.emptyPageTimer);
     try {
-      const dbg = win.webContents.debugger;
+      const dbg = platformContents.debugger;
       dbg.removeListener('message', s.onMessage as never);
       if (s.attached && dbg.isAttached()) dbg.detach();
     } catch (_) { /* 忽略 */ }
@@ -240,7 +275,7 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
 
   // ---- 导航失败必须能报出来，不能白屏了事 ----
   let navFailed = '';
-  win.webContents.on('did-fail-load', (_e, code, desc, _url, isMainFrame) => {
+  platformContents.on('did-fail-load', (_e, code, desc, _url, isMainFrame) => {
     if (isMainFrame && code !== -3 /* -3 = ERR_ABORTED，用户自己中断的，不算错 */) {
       navFailed = '页面加载失败（' + desc + '，错误码 ' + code + '）';
     }
@@ -249,6 +284,8 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
   // 先给用户一个确定可见的本地加载页，再切到平台页面。加载页本身也不能无限等待。
   await showStatusPage(s, p, '正在打开 ' + p.name,
     '正在加载平台首页。网络较慢时请稍候，页面失败会显示具体原因。');
+  // 本地诊断页写入后仍保持平台视图隐藏；平台视图只有 did-finish-load 才会显示。
+  hidePlatformView();
   try { win.show(); win.focus(); } catch (_) { /* 窗口正在关闭 */ }
 
   // 导航超时必须在调用 loadURL 前启动：某些网络失败会让 loadURL 一直 pending，
@@ -259,14 +296,15 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     timedOut = true;
     const msg = '平台首页加载超过 8 秒。可能是网络不可达、站点拦截或页面响应挂起。';
     s.lastError = msg;
-    // 终止仍在 pending 的第三方导航，避免它晚到后覆盖本地诊断页。
-    try { win.webContents.stop(); } catch (_) { /* 窗口正在关闭 */ }
+    // 终止独立平台视图中的挂起导航；本地容器页面不会被清空。
+    try { platformContents.stop(); } catch (_) { /* 窗口正在关闭 */ }
+    hidePlatformView();
     await showStatusPage(s, p, '平台页面加载超时', msg);
   }, 8000);
 
   try {
     await Promise.race([
-      win.webContents.loadURL(p.entryUrl),
+      platformContents.loadURL(p.entryUrl),
       new Promise<void>((resolve) => setTimeout(resolve, 8500))
     ]);
   } catch (err) {
@@ -277,6 +315,7 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
   if (s.emptyPageTimer) { clearTimeout(s.emptyPageTimer); s.emptyPageTimer = undefined; }
   if (!timedOut && navFailed) {
     s.lastError = navFailed;
+    hidePlatformView();
     await showStatusPage(s, p, '平台页面加载失败', navFailed);
   } else if (!timedOut) {
     // loadURL 已返回但页面可能仍是空 document，再做一次体检。
@@ -286,6 +325,7 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
       if (s.page.blockReason === 'blank' && s.bodies.length === 0) {
         const msg = '平台首页没有返回可显示内容。可能是网络不可达、站点拦截或页面仍在加载。';
         s.lastError = msg;
+        hidePlatformView();
         await showStatusPage(s, p, '平台页面为空', msg);
       }
     }, 1500);
@@ -296,11 +336,11 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
 /** 刷新页面体检结果（标题/正文/是否撞验证或 404） */
 async function refreshPageState(s: SyncSession): Promise<void> {
   try {
-    s.page.finalUrl = s.win.webContents.getURL();
-    s.page.title = s.win.webContents.getTitle();
+    s.page.finalUrl = s.platformContents.getURL();
+    s.page.title = s.platformContents.getTitle();
   } catch (_) { /* 窗口已销毁 */ }
   try {
-    const r = await s.win.webContents.executeJavaScript(
+    const r = await s.platformContents.executeJavaScript(
       'JSON.stringify({ text: (document.body ? document.body.innerText : "").slice(0, 400) })'
     );
     const parsed = JSON.parse(String(r));

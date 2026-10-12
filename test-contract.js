@@ -284,6 +284,11 @@ const syncMainSrc = R('src/main/job-sync.ts');
 const mainEntrySrc = R('src/main/main.ts');
 assert(/show:\s*false/.test(syncMainSrc),
   '同步窗口先隐藏，先渲染本地加载页再展示，避免网络页初始化时出现白屏');
+assert(/BrowserView/.test(syncMainSrc) && /platformContents/.test(syncMainSrc),
+  '同步窗口使用本地容器与独立平台视图，第三方导航不会清空诊断页');
+assert(/showPlatformView/.test(syncMainSrc) && /hidePlatformView/.test(syncMainSrc)
+  && /did-finish-load/.test(syncMainSrc),
+  '平台视图仅在加载完成后显示，失败或超时恢复本地诊断页');
 assert(/win\.on\('close',\s*\(event\)/.test(syncMainSrc) && /event\.preventDefault\(\)[\s\S]{0,100}win\.hide\(\)/.test(syncMainSrc),
   '点击同步窗口 X 只隐藏窗口，不销毁会话');
 assert(/statusPageHtml/.test(syncMainSrc) && /正在打开/.test(syncMainSrc),
@@ -292,8 +297,8 @@ assert(/document\.open\(\);document\.write\(/.test(syncMainSrc)
   && /executeWithTimeout/.test(syncMainSrc)
   && !/s\.win\.loadURL\(dataUrl\)/.test(syncMainSrc),
   '诊断页直接写入当前文档并带执行超时，不再依赖第二次 data URL 导航');
-assert(/Promise\.race\(\[\s*win\.webContents\.loadURL\(p\.entryUrl\)/.test(syncMainSrc)
-  && /win\.webContents\.stop\(\)/.test(syncMainSrc),
+assert(/Promise\.race\(\[\s*platformContents\.loadURL\(p\.entryUrl\)/.test(syncMainSrc)
+  && /platformContents\.stop\(\)/.test(syncMainSrc),
   '第三方导航有硬超时并会停止挂起请求，诊断页不会被迟到响应覆盖');
 assert(/s\.allowClose\s*=\s*true/.test(syncMainSrc),
   '应用真正退出时允许主进程显式关闭同步窗口');
