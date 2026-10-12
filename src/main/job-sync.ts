@@ -191,7 +191,7 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     if (!win.isDestroyed()) view.setBounds({ x: 0, y: 0, width: 0, height: 0 });
   };
   const platformContents = view.webContents;
-  platformContents.on('did-finish-load', showPlatformView);
+  // 平台视图只在目标导航完成后显示，不能监听初始 about:blank 的完成事件。
   // 去掉 Electron 默认的 File/Edit/View/Window/Help 菜单栏：
   // 这是个给用户看平台页面的窗口，顶上挂一排应用菜单既没意义也让人以为点错了
   win.setMenu(null);
@@ -275,6 +275,11 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
 
   // ---- 导航失败必须能报出来，不能白屏了事 ----
   let navFailed = '';
+  platformContents.on('did-finish-load', () => {
+    if (platformContents.getURL() === p.entryUrl || platformContents.getURL().startsWith(p.entryUrl + '/')) {
+      showPlatformView();
+    }
+  });
   platformContents.on('did-fail-load', (_e, code, desc, _url, isMainFrame) => {
     if (isMainFrame && code !== -3 /* -3 = ERR_ABORTED，用户自己中断的，不算错 */) {
       navFailed = '页面加载失败（' + desc + '，错误码 ' + code + '）';
