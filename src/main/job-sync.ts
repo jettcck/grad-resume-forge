@@ -113,17 +113,13 @@ async function showStatusPage(s: SyncSession, p: SyncPlatform, title: string, me
   const html = statusPageHtml(p, title, message);
   const script = 'document.open();document.write(' + JSON.stringify(html) + ');document.close();';
   // 本地容器从不加载远端页面，独立导航不会受平台请求影响。
+  // 这里不能再调用 loadURL(data:)：即使是本地 data URL，在某些 Chromium/网络
+  // 挂起状态下也会让导航 Promise 卡住，窗口最终只剩系统绘制的纯白背景。
+  // about:blank 的 webContents 可以直接执行 document.open/write，无需导航。
   s.win.setBrowserView(null);
-  await Promise.race([
-    s.win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html)),
-    waitMs(2000).then(() => { throw new Error('本地容器加载超时'); })
-  ]);
-
-  // 不再用 loadURL(data:) 绘制诊断页：第三方导航挂起时，同一个 webContents 的
-  // 第二次导航也可能一直 pending。直接写本地容器 document，并对执行本身加超时。
-  for (let i = 0; i < 3 && !s.win.isDestroyed(); i += 1) {
-    if (await executeWithTimeout(s.win.webContents, script, 700)) break;
-    await waitMs(120);
+  for (let i = 0; i < 6 && !s.win.isDestroyed(); i += 1) {
+    if (await executeWithTimeout(s.win.webContents, script, 1200)) break;
+    await waitMs(180);
   }
   try { s.win.show(); s.win.focus(); } catch (_) { /* 窗口正在关闭 */ }
 }
