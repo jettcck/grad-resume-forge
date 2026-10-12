@@ -288,6 +288,9 @@ assert(/win\.on\('close',\s*\(event\)/.test(syncMainSrc) && /event\.preventDefau
   '点击同步窗口 X 只隐藏窗口，不销毁会话');
 assert(/statusPageHtml/.test(syncMainSrc) && /正在打开/.test(syncMainSrc),
   '同步窗口有本地加载/诊断页，网络失败时不显示纯白窗口');
+assert(/document\.open\(\);document\.write\(/.test(syncMainSrc)
+  && /Promise\.race\(\[\s* s?\.win\.loadURL|Promise\.race\(\[\s*s\.win\.loadURL/.test(syncMainSrc),
+  '诊断页有导航超时与 document.write 兜底，避免诊断导航本身再次白屏');
 assert(/Promise\.race\(\[\s*win\.webContents\.loadURL\(p\.entryUrl\)/.test(syncMainSrc)
   && /win\.webContents\.stop\(\)/.test(syncMainSrc),
   '第三方导航有硬超时并会停止挂起请求，诊断页不会被迟到响应覆盖');

@@ -91,9 +91,24 @@ function statusPageHtml(platform: SyncPlatform, title: string, message: string):
 
 async function showStatusPage(s: SyncSession, p: SyncPlatform, title: string, message: string): Promise<void> {
   if (s.win.isDestroyed()) return;
+  const html = statusPageHtml(p, title, message);
+  const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
   try {
-    await s.win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(statusPageHtml(p, title, message)));
+    // 诊断页也必须有自己的硬超时：导航被 Chromium 卡住时，不能再次 await 一个永不返回的 loadURL。
+    await Promise.race([
+      s.win.loadURL(dataUrl),
+      new Promise<void>((resolve) => setTimeout(resolve, 1200))
+    ]);
   } catch (_) { /* 窗口正在关闭 */ }
+  if (s.win.isDestroyed()) return;
+  // 最后的兜底不依赖导航完成：直接把当前 document 替换成诊断 HTML，确保窗口不会只剩白色背景。
+  try {
+    await s.win.webContents.executeJavaScript(
+      'document.open();document.write(' + JSON.stringify(html) + ');document.close();',
+      true
+    );
+  } catch (_) { /* 页面正在销毁或渲染进程不可用 */ }
+  try { s.win.show(); s.win.focus(); } catch (_) { /* 窗口正在关闭 */ }
 }
 
 /** 页面体检：识别「空白页 / 滑块验证 / 404」这三类最常见失败 */
@@ -223,14 +238,10 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     }
   });
 
-  // 先给用户一个确定可见的本地加载页，再切到平台页面。
-  try {
-    await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(statusPageHtml(
-      p, '正在打开 ' + p.name, '正在加载平台首页。网络较慢时请稍候，页面失败会显示具体原因。'
-    )));
-    win.show();
-    win.focus();
-  } catch (_) { /* 后续 loadURL 仍会给出错误 */ }
+  // 先给用户一个确定可见的本地加载页，再切到平台页面。加载页本身也不能无限等待。
+  await showStatusPage(s, p, '正在打开 ' + p.name,
+    '正在加载平台首页。网络较慢时请稍候，页面失败会显示具体原因。');
+  try { win.show(); win.focus(); } catch (_) { /* 窗口正在关闭 */ }
 
   // 导航超时必须在调用 loadURL 前启动：某些网络失败会让 loadURL 一直 pending，
   // 若把定时器放在 await 后面，诊断页永远没有机会显示。
