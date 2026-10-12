@@ -66,7 +66,9 @@ function cdpEval(wsUrl, expr) {
   // Electron 43+ 要求 Chromium 开关放在 `--` 之后，否则会被当成非法参数直接退出
   const env = { ...process.env };
   delete env.ELECTRON_RUN_AS_NODE; // 不删掉它，exe 会退化成普通 Node，把参数当脚本路径
-  const child = spawn(EXE, ['--', '--no-sandbox', '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--remote-debugging-port=' + PORT], {
+  // 本机（无可用 GPU）由应用内置 SwiftShader 兜底，启动方不需要额外传参。
+  // 远程调试端口要放在 `--` 之前，Chromium 才认（Electron 43+ 的参数解析顺序）。
+  const child = spawn(EXE, ['--remote-debugging-port=' + PORT, '--', '--no-sandbox'], {
     cwd: path.dirname(EXE), env, stdio: ['ignore', 'pipe', 'pipe']
   });
   child.stdout.on('data', (d) => log('out>', String(d).trim().slice(0, 160)));

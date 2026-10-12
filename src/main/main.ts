@@ -16,8 +16,12 @@ import { pathToFileURL } from 'url';
 // 这里只做一件事：允许回退到 SwiftShader 软件渲染，保证「没显卡也能用」。
 // 显式传了 --use-gl / --disable-gpu 的环境不加干预，尊重使用者/CI 的选择。
 if (!process.argv.some((a) => /^--(use-gl|use-angle|disable-gpu)/.test(a))) {
+  // Vulkan/SwiftShader 软件栈；同时禁用 GPU 合成，让 Chromium 完全走软件光栅。
+  // 只加 swiftshader 不足以在「没有可用 GPU 进程」的机器上过关：仍需关掉合成器。
   app.commandLine.appendSwitch('enable-unsafe-swiftshader');
   app.commandLine.appendSwitch('use-angle', 'swiftshader');
+  app.commandLine.appendSwitch('disable-gpu-compositing');
+  app.commandLine.appendSwitch('in-process-gpu');
 }
 // 渲染进程连续崩溃时不再无限重试，直接如实报错，避免用户面对一个反复闪退的黑窗口。
 app.on('render-process-gone', (_e, _wc, details) => {
