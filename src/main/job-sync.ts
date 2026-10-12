@@ -89,25 +89,33 @@ function statusPageHtml(platform: SyncPlatform, title: string, message: string):
     + '<p class="hint">窗口没有关闭应用。你可以关闭本窗口后回到主界面重试。</p></main>';
 }
 
+function waitMs(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function executeWithTimeout(win: BrowserWindow, code: string, ms: number): Promise<boolean> {
+  try {
+    await Promise.race([
+      win.webContents.executeJavaScript(code, true),
+      waitMs(ms).then(() => { throw new Error('executeJavaScript timeout'); })
+    ]);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
 async function showStatusPage(s: SyncSession, p: SyncPlatform, title: string, message: string): Promise<void> {
   if (s.win.isDestroyed()) return;
   const html = statusPageHtml(p, title, message);
-  const dataUrl = 'data:text/html;charset=utf-8,' + encodeURIComponent(html);
-  try {
-    // 诊断页也必须有自己的硬超时：导航被 Chromium 卡住时，不能再次 await 一个永不返回的 loadURL。
-    await Promise.race([
-      s.win.loadURL(dataUrl),
-      new Promise<void>((resolve) => setTimeout(resolve, 1200))
-    ]);
-  } catch (_) { /* 窗口正在关闭 */ }
-  if (s.win.isDestroyed()) return;
-  // 最后的兜底不依赖导航完成：直接把当前 document 替换成诊断 HTML，确保窗口不会只剩白色背景。
-  try {
-    await s.win.webContents.executeJavaScript(
-      'document.open();document.write(' + JSON.stringify(html) + ');document.close();',
-      true
-    );
-  } catch (_) { /* 页面正在销毁或渲染进程不可用 */ }
+  const script = 'document.open();document.write(' + JSON.stringify(html) + ');document.close();';
+
+  // 不再用 loadURL(data:) 绘制诊断页：第三方导航挂起时，同一个 webContents 的
+  // 第二次导航也可能一直 pending。直接写当前 document，并对执行本身加超时。
+  for (let i = 0; i < 3 && !s.win.isDestroyed(); i += 1) {
+    if (await executeWithTimeout(s.win, script, 700)) break;
+    await waitMs(120);
+  }
   try { s.win.show(); s.win.focus(); } catch (_) { /* 窗口正在关闭 */ }
 }
 
