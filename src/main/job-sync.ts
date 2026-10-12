@@ -232,18 +232,35 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     win.focus();
   } catch (_) { /* 后续 loadURL 仍会给出错误 */ }
 
+  // 导航超时必须在调用 loadURL 前启动：某些网络失败会让 loadURL 一直 pending，
+  // 若把定时器放在 await 后面，诊断页永远没有机会显示。
+  let timedOut = false;
+  s.emptyPageTimer = setTimeout(async () => {
+    if (s.win.isDestroyed()) return;
+    timedOut = true;
+    const msg = '平台首页加载超过 8 秒。可能是网络不可达、站点拦截或页面响应挂起。';
+    s.lastError = msg;
+    // 终止仍在 pending 的第三方导航，避免它晚到后覆盖本地诊断页。
+    try { win.webContents.stop(); } catch (_) { /* 窗口正在关闭 */ }
+    await showStatusPage(s, p, '平台页面加载超时', msg);
+  }, 8000);
+
   try {
-    await win.webContents.loadURL(p.entryUrl);
+    await Promise.race([
+      win.webContents.loadURL(p.entryUrl),
+      new Promise<void>((resolve) => setTimeout(resolve, 8500))
+    ]);
   } catch (err) {
     const msg = String((err as Error).message || err);
     // ERR_ABORTED 常见于页面内部跳转/被站点脚本取消，不当失败处理
     if (!/ERR_ABORTED|\(-3\)/.test(msg)) navFailed = '打开入口页失败：' + msg;
   }
-  if (navFailed) {
+  if (s.emptyPageTimer) { clearTimeout(s.emptyPageTimer); s.emptyPageTimer = undefined; }
+  if (!timedOut && navFailed) {
     s.lastError = navFailed;
     await showStatusPage(s, p, '平台页面加载失败', navFailed);
-  } else {
-    // 部分网络失败不会 reject loadURL，而是留下空 document；延迟体检并显示诊断页。
+  } else if (!timedOut) {
+    // loadURL 已返回但页面可能仍是空 document，再做一次体检。
     s.emptyPageTimer = setTimeout(async () => {
       if (s.win.isDestroyed()) return;
       await refreshPageState(s);
@@ -252,7 +269,7 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
         s.lastError = msg;
         await showStatusPage(s, p, '平台页面为空', msg);
       }
-    }, 5000);
+    }, 1500);
   }
   return { session: s };
 }

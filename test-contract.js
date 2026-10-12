@@ -288,6 +288,9 @@ assert(/win\.on\('close',\s*\(event\)/.test(syncMainSrc) && /event\.preventDefau
   '点击同步窗口 X 只隐藏窗口，不销毁会话');
 assert(/statusPageHtml/.test(syncMainSrc) && /正在打开/.test(syncMainSrc),
   '同步窗口有本地加载/诊断页，网络失败时不显示纯白窗口');
+assert(/Promise\.race\(\[\s*win\.webContents\.loadURL\(p\.entryUrl\)/.test(syncMainSrc)
+  && /win\.webContents\.stop\(\)/.test(syncMainSrc),
+  '第三方导航有硬超时并会停止挂起请求，诊断页不会被迟到响应覆盖');
 assert(/s\.allowClose\s*=\s*true/.test(syncMainSrc),
   '应用真正退出时允许主进程显式关闭同步窗口');
 assert(/let isQuitting\s*=\s*false/.test(mainEntrySrc) && /isQuitting\s*=\s*true/.test(mainEntrySrc),
