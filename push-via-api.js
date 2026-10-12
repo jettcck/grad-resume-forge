@@ -4,8 +4,8 @@ const { execFileSync } = require('child_process');
 
 const owner = 'jettcck';
 const repo = 'grad-resume-forge';
-const commit = '1f00d06';
-const tag = 'v1.12.14';
+const commit = '77c67a3';
+const tag = 'v1.12.15';
 const token = process.env.GITHUB_TOKEN;
 if (!token) throw new Error('GITHUB_TOKEN missing');
 const headers = { 'Accept': 'application/vnd.github+json', 'Authorization': `Bearer ${token}`, 'X-GitHub-Api-Version': '2022-11-28', 'Content-Type': 'application/json' };

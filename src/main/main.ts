@@ -9,6 +9,23 @@ import path from 'path';
 import fs from 'fs';
 import { pathToFileURL } from 'url';
 
+// ---------------- GPU 兜底（必须在 app ready 之前） ----------------
+// 为什么需要：离线导出 PDF 用的离屏窗口（webPreferences.offscreen）硬依赖 GPU 进程。
+// 在显卡驱动异常、远程桌面/虚拟机、或无 GPU 的服务器环境里，GPU 进程会反复崩溃，
+// Chromium 最终直接 FATAL: "GPU process isn't usable. Goodbye."，应用连主窗口都开不出来。
+// 这里只做一件事：允许回退到 SwiftShader 软件渲染，保证「没显卡也能用」。
+// 显式传了 --use-gl / --disable-gpu 的环境不加干预，尊重使用者/CI 的选择。
+if (!process.argv.some((a) => /^--(use-gl|use-angle|disable-gpu)/.test(a))) {
+  app.commandLine.appendSwitch('enable-unsafe-swiftshader');
+  app.commandLine.appendSwitch('use-angle', 'swiftshader');
+}
+// 渲染进程连续崩溃时不再无限重试，直接如实报错，避免用户面对一个反复闪退的黑窗口。
+app.on('render-process-gone', (_e, _wc, details) => {
+  if (details && details.reason && details.reason !== 'clean-exit') {
+    console.error('[render-process-gone]', details.reason, details.exitCode);
+  }
+});
+
 import * as store from './store';
 import * as auth from './auth';
 import * as engine from './resume-engine';

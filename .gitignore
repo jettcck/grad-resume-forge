@@ -36,3 +36,7 @@ Thumbs.db
 
 # TypeScript ±àÒë²úÎï£¨npm run build / ¸÷½Å±¾×Ô¶¯Éú³É£©
 dist/
+
+# æœ¬åœ°æ‰‹å·¥ç»„è£… asar / è§£åŒ…ç¼“å­˜ï¼ˆä¸æäº¤ï¼‰
+build-asar/
+extract-old/

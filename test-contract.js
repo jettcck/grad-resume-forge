@@ -325,4 +325,10 @@ assert(/dom-ready/.test(syncMainSrc) && /did-frame-finish-load/.test(syncMainSrc
 assert(/hasTitle/.test(syncMainSrc),
   '页面空内容判定会排除「仅渲染被冻结导致 innerText 为空」的误报（标题非空即视为已加载）');
 
+// ---- GPU 兜底：没显卡的环境也要能起来 ----
+assert(/enable-unsafe-swiftshader/.test(mainEntrySrc) && /'use-angle',\s*'swiftshader'/.test(mainEntrySrc),
+  '主进程带 SwiftShader 软件渲染兜底，GPU 不可用时不会因离屏窗口直接崩溃退出');
+assert(/render-process-gone/.test(mainEntrySrc),
+  '渲染进程异常退出会被记录，不再表现为无声黑屏');
+
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
