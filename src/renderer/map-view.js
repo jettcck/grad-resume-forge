@@ -20,6 +20,7 @@
   const ORIGIN_FALLBACK_HINT = '还没有设置出发地';
 
   let _origin = null;        // { label, lat, lng, source }
+  let _effectiveOrigin = null; // 当前生效的出发地：可能是 _origin，也可能是按简历学校派生的值（不落库）
   let _tileSources = null;   // { builtin:[...], hasCustom, customName }
   let _map = null;           // 在线地图状态（懒创建）
 
@@ -39,7 +40,61 @@
     const cfg = (await UI.call(window.api.settings.get(SETTINGS_KEY))) || {};
     await UI.call(window.api.settings.save(SETTINGS_KEY, Object.assign({}, cfg, { origin: origin })));
     _origin = origin;
+    _effectiveOrigin = origin;
     return origin;
+  }
+
+  // ---------------- 出发地默认值：简历学校 ----------------
+  // 用户原话：「出发地能否默认填简历学校的位置」。
+  // 实现口径：
+  //   1) 只派生、不落库——用户以后改了简历里的学校，这里自动跟着变；
+  //      只有用户显式搜过/点过，才写进 settings（那时以 settings 为准）。
+  //   2) 学校名走 PlaceSearch 的学校库（全国 2820 所，名称 → 所在地 → CityGeo 坐标）；
+  //      库里没有（培训机构/海外学校/写法太简）时退到简历里的 city 字段。
+  //   3) 精度只到城市级（学校库的所在地是市级文本），UI 上如实标注「按简历学校自动定位」，
+  //      想要更准就走搜索选区县或地图点选。
+  async function deriveOriginFromProfile(ctx) {
+    if (!ctx || !ctx.userId) return null;
+    let profile = null;
+    try {
+      profile = await UI.call(window.api.profile.get(ctx.userId));
+    } catch (_) {
+      return null;
+    }
+    if (!profile) return null;
+    const school = firstSchoolName(profile);
+    if (school && window.PlaceSearch) {
+      const hit = window.PlaceSearch.schoolLocation(school);
+      if (hit) {
+        return {
+          label: school, place: hit.locText,
+          lat: hit.lat, lng: hit.lng,
+          source: 'school', level: hit.level || 'city'
+        };
+      }
+    }
+    const city = String(profile.city || '').trim();
+    if (city) {
+      const p = window.Geo.parseLocation(city);
+      if (p) {
+        return {
+          label: city, place: city,
+          lat: p.coords[0], lng: p.coords[1],
+          source: 'profile-city', level: p.level || 'city'
+        };
+      }
+    }
+    return null;
+  }
+
+  function firstSchoolName(profile) {
+    const edu = profile && profile.education;
+    if (!Array.isArray(edu)) return '';
+    for (const e of edu) {
+      const s = e && String(e.school || '').trim();
+      if (s) return s;
+    }
+    return '';
   }
 
   async function loadTileConfig() {
@@ -539,7 +594,7 @@
 
     function fitAll() {
       const points = [];
-      if (_origin) points.push([_origin.coords ? _origin.coords[0] : _origin.lat, _origin.coords ? _origin.coords[1] : _origin.lng]);
+      if (_effectiveOrigin) points.push([_effectiveOrigin.coords ? _effectiveOrigin.coords[0] : _effectiveOrigin.lat, _effectiveOrigin.coords ? _effectiveOrigin.coords[1] : _effectiveOrigin.lng]);
       (ctx.located || []).forEach((r) => { if (r.coords) points.push(r.coords); });
       if (!points.length) return false;
       let best = 3;
@@ -569,12 +624,12 @@
         if (text != null) n.textContent = text;
         return n;
       };
-      // 出发点
-      if (_origin) {
-        const p = project(_origin.coords ? _origin.coords[0] : _origin.lat, _origin.coords ? _origin.coords[1] : _origin.lng);
+      // 出发点（含按简历学校派生的生效值——派生值不落库，但地图上必须画出来）
+      if (_effectiveOrigin) {
+        const p = project(_effectiveOrigin.coords ? _effectiveOrigin.coords[0] : _effectiveOrigin.lat, _effectiveOrigin.coords ? _effectiveOrigin.coords[1] : _effectiveOrigin.lng);
         if (p[0] > -40 && p[0] < W + 40 && p[1] > -40 && p[1] < H + 40) {
           const c = mk('circle', { cx: p[0], cy: p[1], r: 7, class: 'mv-origin' });
-          c.appendChild(mk('title', {}, '出发地：' + (_origin.label || '')));
+          c.appendChild(mk('title', {}, '出发地：' + (_effectiveOrigin.label || '')));
           overlay.appendChild(c);
           overlay.appendChild(mk('text', { x: p[0], y: p[1] - 13, class: 'mv-origin-label', 'text-anchor': 'middle' }, '出发地'));
         }
@@ -955,7 +1010,11 @@
     if (host._mvMap && typeof host._mvMap.destroy === 'function') host._mvMap.destroy();
     host._mvMap = null;
     host.innerHTML = '';
-    const origin = await loadOrigin();
+    // 出发地优先级：用户显式设置 > 简历学校自动定位 > 简历城市自动定位 > 未设置。
+    // 自动定位只派生不落库——用户改了简历里的学校，这里跟着变；
+    // 只有用户自己搜过/点过，才写进 settings。
+    const origin = (await loadOrigin()) || await deriveOriginFromProfile(ctx);
+    _effectiveOrigin = origin;
     const apps = ctx.applications || [];
     const rows = distanceRows(apps, origin);
     const located = rows.located, unlocated = rows.unlocated;
@@ -981,7 +1040,7 @@
     if (!origin) {
       host.appendChild(el('p', { class: 'mv-empty' }, [
         '先设置出发地（你的学校或住处），下面就会列出每家公司到它的直线距离并排好序。',
-        '出发地可以按城市选，也可以在地图上点选精确位置。'
+        '填了简历里的学校会自动定位；也可以搜索城市/区县，或在地图上点选精确位置。'
       ]));
       // 没有出发地时也保留地图入口：用户可以先打开底图，再直接点选出发地，
       // 不必在「设置出发地 → 保存 → 回到页面」之间来回切换。
@@ -1096,6 +1155,9 @@
   function originSourceText(o) {
     if (o.source === 'map') return '地图点选';
     if (o.source === 'manual') return '手动经纬度';
+    if (o.source === 'school') return '按简历学校自动定位（可修改）';
+    if (o.source === 'profile-city') return '按简历城市自动定位（可修改）';
+    if (o.source === 'search') return '搜索选点';
     return '按城市近似（' + (o.level === 'district' ? '区级' : '城市中心') + '）';
   }
   function levelText(level) {
@@ -1358,19 +1420,21 @@
       })));
       UI.toast('已把「' + app.company + '」定到 ' + where + '（' + lat.toFixed(4) + ', ' + lng.toFixed(4) + '）', 'ok');
     } else {
-      const prev = _origin
-        ? [(_origin.coords ? _origin.coords[0] : _origin.lat), (_origin.coords ? _origin.coords[1] : _origin.lng)]
+      //  prev 用「当前生效的出发地」：按简历学校派生出来的值同样受 >30km 确认保护
+      //（否则默认出发地是学校时，地图上随手一点就把出发地甩到几百公里外，没人拦）
+      const prev = _effectiveOrigin
+        ? [(_effectiveOrigin.coords ? _effectiveOrigin.coords[0] : _effectiveOrigin.lat), (_effectiveOrigin.coords ? _effectiveOrigin.coords[1] : _effectiveOrigin.lng)]
         : null;
-      if (!(await confirmFarPick('出发地', (_origin && _origin.label) || '原位置', prev, lat, lng))) {
+      if (!(await confirmFarPick('出发地', (_effectiveOrigin && _effectiveOrigin.label) || '原位置', prev, lat, lng))) {
         if (targetLine) targetLine.textContent = '已取消，出发地未变';
         return;
       }
       // 标签跟着坐标走：30km 内算微调、沿用旧名；隔得远就用反查城市名——
       // 绝不能再出现「标签写着成都、坐标在陕西」这种错位
       const km = prev ? window.Geo.haversineKm(prev, [lat, lng]) : Infinity;
-      const keepLabel = prev && isFinite(km) && km <= 30 && _origin && _origin.label;
+      const keepLabel = prev && isFinite(km) && km <= 30 && _effectiveOrigin && _effectiveOrigin.label;
       const o = {
-        label: keepLabel ? _origin.label : (near ? near.cityKey : '地图点选'),
+        label: keepLabel ? _effectiveOrigin.label : (near ? near.cityKey : '地图点选'),
         place: near ? near.cityKey : '',
         lat: Number(lat.toFixed(6)), lng: Number(lng.toFixed(6)), source: 'map'
       };
@@ -1383,62 +1447,161 @@
   }
 
   // ---------------- 弹窗：设置出发地 ----------------
-  async function openOriginDialog(host, ctx, mode) {
-    const cur = (await loadOrigin()) || {};
-    const data = await UI.modalForm('设置出发地', [
-      { name: 'label', label: '名称', value: cur.label || '', placeholder: '如：我的学校 / 住的地方' },
-      { name: 'place', label: '所在城市或区县', value: cur.place || '', placeholder: '如：绵阳 / 北京·朝阳区 / 杭州' },
-      { name: 'lat', label: '纬度（选填，填了就用它）', value: cur.source === 'manual' && cur.lat ? String(cur.lat) : '', placeholder: '如：31.4289' },
-      { name: 'lng', label: '经度（选填）', value: cur.source === 'manual' && cur.lng ? String(cur.lng) : '', placeholder: '如：104.7555' }
-    ], '保存');
+  // 出发地设置：高德式「搜索选点」——不出现经纬度输入框。
+  // 用户原话：「不要用经纬度，换成高德地图那种搜索型的数据库」。
+  // 候选来自本地离线索引（PlaceSearch：2820 所学校 + 全国城市/区县 + 34 省级），
+  // 搜索结果带坐标，选中即存；更精确的位置走地图点选（在地图区块里点）。
+  async function openOriginDialog(host, ctx) {
+    const cur = (await loadOrigin()) || (await deriveOriginFromProfile(ctx)) || {};
+    const data = await placeSearchModal({
+      title: '设置出发地',
+      current: cur,
+      note: '没有经纬度输入：坐标由本地地名库自动带出。想要更精确，保存后在地图区块里直接点选。'
+    });
     if (!data) return;
-    const label = String(data.label || '').trim() || '出发地';
-    const latRaw = String(data.lat || '').trim(), lngRaw = String(data.lng || '').trim();
-    let coords = null, source = 'city', level = 'city';
-    if (latRaw && lngRaw) {
-      const la = Number(latRaw), ln = Number(lngRaw);
-      if (!isFinite(la) || !isFinite(ln) || la < -90 || la > 90 || ln < -180 || ln > 180) {
-        UI.toast('经纬度不在合法范围', 'err'); return;
-      }
-      coords = [la, ln]; source = 'manual'; level = 'manual';
-    } else {
-      const p = window.Geo.parseLocation(data.place);
-      if (!p) {
-        UI.toast('认不出「' + String(data.place || '') + '」在哪里，请换个写法或直接填经纬度', 'err');
-        return;
-      }
-      coords = p.coords; level = p.level; source = p.level;
-    }
-    await saveOrigin({ label: label, place: String(data.place || '').trim(), lat: coords[0], lng: coords[1], source: source, level: level });
-    UI.toast('出发地已保存', 'ok');
-    if (mode === 'pick') UI.toast('可以在地图上点选来改成精确位置', 'ok');
+    const label = String(data.label || '').trim() || data.name || '出发地';
+    await saveOrigin({
+      label: label,
+      place: data.place,
+      lat: data.lat, lng: data.lng,
+      source: 'search',
+      level: data.level || 'city'
+    });
+    UI.toast('出发地已保存：' + label, 'ok');
     if (ctx.onChanged) await ctx.onChanged();
   }
 
+  // 搜索选点模态（出发地 / 公司位置共用）：输入框 + 候选列表 + 名称输入。
+  // opts: { title, current:{label,place}, note }
+  // 返回 { name, place, lat, lng, level, label } 或 null（取消）。
+  function placeSearchModal(opts) {
+    const cur = opts.current || {};
+    return new Promise((resolve) => {
+      let picked = null; // 当前选中的候选
+      let items = [];    // 当前候选数组
+
+      const input = el('input', {
+        type: 'text', class: 'mv-search-input',
+        placeholder: '搜学校 / 城市 / 区县：如 电子科技大学、成都、朝阳区',
+        autocomplete: 'off'
+      });
+      const listBox = el('div', { class: 'mv-suggest', role: 'listbox' });
+      const autoLabel = cur.source !== 'school' && cur.source !== 'profile-city' ? (cur.label || '') : '';
+      const nameInput = el('input', {
+        type: 'text', name: 'label',
+        value: autoLabel,
+        placeholder: '如：我的学校 / 住的地方（留空则用上面的名称）'
+      });
+      const detail = el('p', { class: 'mv-search-detail' }, ['在下方选中一个地点后保存。']);
+
+      function renderList(q) {
+        items = (window.PlaceSearch ? window.PlaceSearch.search(q, 8) : []) || [];
+        picked = null;
+        listBox.innerHTML = '';
+        if (!items.length) {
+          listBox.appendChild(el('div', { class: 'mv-suggest-empty' }, [
+            '没有找到「' + String(q || '') + '」，换个写法试试（如只输城市名）'
+          ]));
+          detail.textContent = '没有选中任何地点。';
+          return;
+        }
+        items.forEach((it, idx) => {
+          const row = el('div', { class: 'mv-suggest-item', role: 'option' }, [
+            el('span', { class: 'mv-suggest-name' }, [it.name]),
+            el('span', { class: 'mv-suggest-detail' }, [it.detail])
+          ]);
+          row.addEventListener('click', () => choose(idx));
+          listBox.appendChild(row);
+        });
+        detail.textContent = '共 ' + items.length + ' 个候选，点一个选中。';
+      }
+
+      function choose(idx) {
+        const it = items[idx];
+        if (!it) return;
+        picked = it;
+        Array.prototype.forEach.call(listBox.children, (row, i) => {
+          row.classList.toggle('is-active', i === idx);
+        });
+        input.value = it.name;
+        detail.textContent = '已选：' + it.name + '（' + it.detail + '）';
+      }
+
+      let timer = null;
+      input.addEventListener('input', () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => renderList(input.value.trim()), 120);
+      });
+
+      const overlay = el('div', { class: 'modal-overlay' });
+      function close(result) {
+        overlay.remove();
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      }
+      function submit() {
+        if (!picked) {
+          detail.textContent = '先在上面选中一个地点再保存。';
+          input.focus();
+          return;
+        }
+        close({
+          name: picked.name,
+          place: picked.place || picked.name,
+          lat: picked.lat, lng: picked.lng,
+          level: picked.level || 'city',
+          label: nameInput.value.trim()
+        });
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') close(null);
+        else if (e.key === 'Enter') { e.preventDefault(); submit(); }
+      }
+
+      const box = el('div', { class: 'modal-box' }, [
+        el('h3', { class: 'modal-title' }, [opts.title || '选择地点']),
+        el('div', { class: 'modal-body' }, [
+          el('label', { class: 'field' }, [el('span', {}, ['搜索地点（学校 / 省 / 市 / 区县）']), input]),
+          listBox,
+          detail,
+          el('label', { class: 'field' }, [el('span', {}, ['名称（选填）']), nameInput]),
+          el('p', { class: 'mv-search-note' }, [opts.note || '坐标由本地地名库自动带出，无需填写经纬度。'])
+        ]),
+        el('div', { class: 'modal-actions' }, [
+          el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: () => close(null) }, ['取消']),
+          el('button', { class: 'btn btn-primary btn-sm', type: 'button', onclick: submit }, ['保存'])
+        ])
+      ]);
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
+      document.addEventListener('keydown', onKey);
+      overlay.appendChild(box);
+      document.body.appendChild(overlay);
+      input.focus();
+      renderList('');
+    });
+  }
+
   // ---------------- 弹窗：给某家公司改位置 ----------------
+  // 与出发地同一套搜索选点：不填经纬度，从本地地名库（学校/省/市/区县）搜。
   async function openPlaceDialog(host, ctx, app) {
-    const data = await UI.modalForm('「' + app.company + '」的位置', [
-      { name: 'place', label: '公司所在地', value: app.place || '', placeholder: '如：北京·朝阳区 / 深圳 南山' },
-      { name: 'lat', label: '纬度（选填，比地址更准）', value: isFinite(app.lat) ? String(app.lat) : '', placeholder: '选填' },
-      { name: 'lng', label: '经度（选填）', value: isFinite(app.lng) ? String(app.lng) : '', placeholder: '选填' }
-    ], '保存');
+    const data = await placeSearchModal({
+      title: '「' + app.company + '」的位置',
+      current: { label: app.place || '', place: app.place || '' },
+      note: '选中后坐标由本地地名库自动带出。地图区块里也可以直接点选更精确的位置。'
+    });
     if (!data) return;
-    const patch = { place: String(data.place || '').trim() };
-    const latRaw = String(data.lat || '').trim(), lngRaw = String(data.lng || '').trim();
-    if (latRaw && lngRaw) {
-      const la = Number(latRaw), ln = Number(lngRaw);
-      if (!isFinite(la) || !isFinite(ln)) { UI.toast('经纬度不合法', 'err'); return; }
-      patch.lat = la; patch.lng = ln; patch.placeSource = 'manual';
-    } else if (!patch.place) {
-      patch.lat = undefined; patch.lng = undefined; patch.placeSource = undefined;
-    } else if (!window.Geo.parseLocation(patch.place)) {
-      UI.toast('认不出「' + patch.place + '」，请写成「城市·区县」或直接填经纬度', 'err');
+    const patch = {
+      place: String(data.place || '').trim() || data.name,
+      lat: data.lat,
+      lng: data.lng,
+      placeSource: 'search'
+    };
+    if (!isFinite(patch.lat) || !isFinite(patch.lng)) {
+      UI.toast('选中的地点没有坐标，请换一个', 'err');
       return;
-    } else {
-      patch.lat = undefined; patch.lng = undefined; patch.placeSource = undefined;
     }
     await UI.call(window.api.applications.save(ctx.userId, Object.assign({}, app, patch)));
-    UI.toast('位置已更新', 'ok');
+    UI.toast('位置已更新：' + patch.place, 'ok');
     if (ctx.onChanged) await ctx.onChanged();
   }
 
