@@ -306,8 +306,16 @@
       const nodes = items.map((x) => x.node);
 
       const overlay = el('div', { class: 'modal-overlay' });
-      const submit = el('button', { class: 'btn btn-primary', type: 'button' }, ['导入选中的记录']);
+      const submit = el('button', { class: 'btn btn-primary', type: 'button' }, ['导入选中的 ' + items.length + ' 条']);
       const cancel = el('button', { class: 'btn btn-ghost', type: 'button' }, ['取消']);
+      // 与同步预览一致：取消勾选后按钮计数实时变化，0 条时禁用
+      const refreshSubmit = () => {
+        const n = items.filter((x) => x.box.checked).length;
+        submit.textContent = '导入选中的 ' + n + ' 条';
+        submit.disabled = n === 0;
+      };
+      items.forEach((x) => x.box.addEventListener('change', refreshSubmit));
+      refreshSubmit();
       function close(v) { overlay.remove(); resolve(v); }
       cancel.addEventListener('click', () => close(null));
       submit.addEventListener('click', () => {
@@ -350,17 +358,19 @@
       const patch = {
         company: company,
         position: c.position || '',
-        place: c.place || '',
-        url: c.url || '',
+        // 与平台同步一致：新解析到的值优先，但为空时保留用户已填的内容；
+        // 阶段只进不退，不把用户推进到「面试中」的记录拉回「已投递」
+        place: c.place || (hit ? hit.place || '' : ''),
+        url: c.url || (hit ? hit.url || '' : ''),
         stage: hit ? (hit.stage || 'applied') : 'applied'
       };
-      // 解析到的补充信息写进备注，不丢
+      // 解析到的补充信息写进备注，不丢；但用户自己写过的备注优先保留
       const extra = [];
       if (c.salary) extra.push('薪资：' + c.salary);
       if (c.platform) extra.push('来源：' + c.platform);
       if (c.education) extra.push('学历：' + c.education);
       if (c.experience) extra.push('经验：' + c.experience);
-      if (extra.length) patch.notes = extra.join(' · ');
+      if (extra.length && !(hit && hit.notes && String(hit.notes).trim())) patch.notes = extra.join(' · ');
       if (hit) { patch.id = hit.id; updated++; } else { added++; }
       const saved = await UI.call(window.api.applications.save(ctx.userId, patch));
       if (hit) {

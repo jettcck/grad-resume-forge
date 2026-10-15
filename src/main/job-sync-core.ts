@@ -157,7 +157,12 @@ export function normalizeTime(raw: string): string {
   if (/^\d{10,13}$/.test(s)) {
     const n = Number(s.length === 10 ? s + '000' : s);
     const d = new Date(n);
-    if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10);
+    if (!isNaN(d.getTime())) {
+      // 必须用**本地**日期：toISOString 是 UTC，东八区早上 7 点前的投递
+      // 会被算成前一天（用户看到「投递时间：昨天」以为数据错了）。
+      const p = (x: number) => String(x).padStart(2, '0');
+      return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate());
+    }
   }
   const m = s.match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
   if (m) return m[1] + '-' + m[2].padStart(2, '0') + '-' + m[3].padStart(2, '0');

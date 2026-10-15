@@ -142,4 +142,24 @@ assert(sug.indexOf('杭州') >= 0, '城市补全能命中「杭」→ 杭州');
 const sug2 = Geo.suggestCity('', 5);
 assert(sug2.length === 5, '空输入给出固定条数候选，不一次性倒出几百条');
 
+// ---------- 7) 坐标 → 最近城市反查 ----------
+// 地图点选的落点必须能说清「这是哪儿」：只存一串经纬度的话，
+// 点偏 600km 用户也看不出来（真实事故：标签「成都」坐标在陕西）。
+const CD = Geo.nearestPlace(30.6582, 104.079, 150);
+assert(CD && CD.cityKey === '成都' && CD.km < 1, '成都坐标反查出成都（' + (CD && CD.km.toFixed(2)) + 'km）');
+const MY = Geo.nearestPlace(31.4759, 104.6829, 150);
+assert(MY && MY.cityKey === '绵阳', '绵阳坐标反查出绵阳');
+const BJr = Geo.nearestPlace(39.9042, 116.4074, 150);
+assert(BJr && BJr.cityKey === '北京' && BJr.km < 5, '北京坐标反查出北京（' + (BJr && BJr.km.toFixed(2)) + 'km）');
+const HZ = Geo.nearestPlace(30.2741, 120.1551, 150);
+assert(HZ && HZ.cityKey === '杭州', '杭州坐标反查出杭州');
+const SX = Geo.nearestPlace(35.450412, 110.217407, 150);
+assert(SX && SX.cityKey === '运城', '误记到陕西的点反查出运城（' + (SX && SX.km.toFixed(0)) + 'km）——确认弹窗靠它说清点在哪儿');
+assert(Geo.nearestPlace(0, -140, 150) === null, '150km 内没有城市返回 null（大洋中央）');
+assert(Geo.nearestPlace(30, 104, 10) === null, '阈值 10km 时成都市区外返回 null（不硬凑）');
+assert(Geo.nearestPlace(NaN, 104, 150) === null, '非法坐标返回 null，不抛异常');
+assert(Geo.nearestPlace(30.6582, 104.079, undefined) && Geo.nearestPlace(30.6582, 104.079, undefined).cityKey === '成都', '不传阈值默认 120km 内反查');
+const chengduMianyang = Geo.haversineKm([30.5728, 104.0668], [31.4759, 104.6829]);
+assert(chengduMianyang > 100 && chengduMianyang < 130, '成都→绵阳直线 ' + chengduMianyang.toFixed(0) + 'km（约110km，量级正确）');
+
 console.log('\n地点与距离自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

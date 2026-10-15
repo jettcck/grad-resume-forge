@@ -4,7 +4,7 @@
 //  主进程入口（TypeScript 版）
 // ============================================================
 
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, session } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { pathToFileURL } from 'url';
@@ -53,13 +53,31 @@ function forgetSession(webContentsId: number): void {
 }
 
 function createWindow(): void {
+  // ---------------- 定位权限 ----------------
+  // 用户点「定位我」本身就是同意手势，这里显式放行 geolocation：
+  // 1) 不依赖 Electron 各版本对「未设置 handler」的默认行为（实测 33 默认放行，
+  //    但不保证跨版本/跨平台一致），显式授权让行为确定；
+  // 2) navigator.permissions.query({name:'geolocation'}) 因此能报出真实状态，
+  //    渲染层可以先预检，被拒绝时立刻提示，不用白等 12 秒。
+  // 其余权限一律拒绝（本应用用不到）。
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+    callback(permission === 'geolocation');
+  });
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) =>
+    permission === 'geolocation'
+  );
+
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 860,
     minWidth: 1024,
     minHeight: 680,
     backgroundColor: '#0f1115',
-    show: false,
+    // 诊断专用：GRF_FORCE_SHOW=1 时跳过 ready-to-show 门控直接显示。
+    // 沙箱里 GPU/合成器异常（No available adapters）首帧产不出来，
+    // ready-to-show 不触发 → 窗口保持隐藏 → visibilityState=hidden →
+    // rAF 停摆 → CDP mouseWheel 永远等不到 ack。正常路径不受影响。
+    show: !!process.env.GRF_FORCE_SHOW,
     titleBarStyle: 'default',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -391,13 +409,18 @@ ipcMain.handle('applications:importAuthorized', (_e, userId: string, payload: un
       const externalId = String(x.externalId || x.id || '').trim().slice(0, 160);
       const key = externalId ? source + '|' + externalId : '';
       const hit = key ? byKey.get(key) : existing.find((a) => a.company === company && (a.position || '') === position);
+      // 增量合并的铁律：同步只允许**补**数据，不许把用户在手盘上维护的状态抹掉。
+      // 曾经的 bug：patch 无条件写 stage/place/url/notes，用户把记录推进到「面试中」
+      // 后一次再同步就被打回「已投递」，手填的地点/备注也被平台回来的空值清空。
       const patch: Application = {
         company: company || '(未填公司)', position,
-        url: String(x.url || '').trim().slice(0, 1000),
-        stage: String(x.stage || 'applied').slice(0, 30),
-        place: String(x.place || '').trim().slice(0, 120),
-        address: String(x.address || '').trim().slice(0, 240),
-        notes: String(x.notes || '').trim().slice(0, 2000),
+        // 新值优先，但新值为空时保留用户已填的内容
+        url: String(x.url || '').trim().slice(0, 1000) || (hit ? hit.url || '' : ''),
+        place: String(x.place || '').trim().slice(0, 120) || (hit ? hit.place || '' : ''),
+        address: String(x.address || '').trim().slice(0, 240) || (hit ? hit.address || '' : ''),
+        notes: String(x.notes || '').trim().slice(0, 2000) || (hit ? hit.notes || '' : ''),
+        // 阶段只进不退：用户手动推进过（面试中/Offer/已拒绝）的记录绝不被同步拉回「已投递」
+        stage: hit ? (hit.stage || 'applied') : String(x.stage || 'applied').slice(0, 30),
         source, externalId, syncStatus: 'synced', syncError: '', lastSyncedAt: Date.now()
       };
       const saved = store.saveApplication(userId, hit ? { ...patch, id: hit.id } : patch);
@@ -1171,11 +1194,11 @@ ipcMain.handle('jobsync:open', async (_e, platformId: string) => {
   }
 });
 
-ipcMain.handle('jobsync:collect', async (_e, platformId: string, kind: string) => {
+ipcMain.handle('jobsync:collect', async (_e, platformId: string, kind: string, auto?: boolean) => {
   try {
     sessionUserId(_e);
     const k = kind === 'collected' ? 'collected' : 'applied';
-    const res = await jobSync.collect(String(platformId || ''), k);
+    const res = await jobSync.collect(String(platformId || ''), k, auto === true);
     if (res.ok && res.items) jobSync.writeSyncState(String(platformId || ''), res.items.length);
     return ok(res);
   } catch (err) {

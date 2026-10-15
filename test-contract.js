@@ -59,6 +59,75 @@ const missingHandler = [...preChannels].filter((ch) => !mainHandles.has(ch));
 assert(missingHandler.length === 0,
   'preload 用到的 ' + preChannels.size + ' 个 channel 全部已在主进程注册（缺：' + (missingHandler.join(', ') || '无') + '）');
 
+// ---------- 3.5) 招聘平台同步：采集链路 ----------
+// 2026-10-13 三次回归，任何一条再犯都会退回「已捕获 0 个响应」：
+//  ① preload 路径写成 dist/renderer（tsconfig 排除 src/renderer，目录不存在）→ preload 静默失败
+//  ② preload 里直接包 window.fetch（隔离世界包不到页面主世界的 fetch）
+//  ③ 用 event.source !== window 过滤消息（两个世界的 window 不是同一对象，全丢）
+const jobsyncPreload = R('src/renderer/jobsync-capture-preload.js');
+const jobsyncMain = R('src/main/job-sync.ts');
+assert(!/createElement\('script'\)/.test(jobsyncPreload),
+  'preload 不用 <script> 注入（会被页面 CSP 拦掉，且重复实现易漂移）');
+assert(!/event\.source !== window/.test(jobsyncPreload),
+  'preload 不用 event.source 过滤消息（否则主世界采集消息全被丢弃）');
+assert(/webFrame\.executeJavaScript/.test(jobsyncPreload),
+  'preload 在 document-start 用 webFrame 把钩子注入页面主世界（早于页面自己的脚本）');
+assert(/ipcRenderer\.sendSync\('jobsync:script'\)/.test(jobsyncPreload),
+  'preload 通过 sendSync 取采集脚本（单一来源，不与主进程各写一份）');
+assert(/__grfJobsync/.test(jobsyncPreload) && /ipcRenderer\.send\(CHANNEL/.test(jobsyncPreload),
+  'preload 负责把主世界 postMessage 转成 IPC 回传主进程');
+assert(/jobsync:probe/.test(jobsyncPreload),
+  'preload 转发采集脚本的就绪回执');
+// preload 路径必须指向 src/renderer（打包态与开发态都在应用根下）
+assert(/path\.join\(__dirname, '\.\.', '\.\.', 'src', 'renderer', 'jobsync-capture-preload\.js'\)/.test(jobsyncMain),
+  'preload 路径指向 src/renderer（不是不存在的 dist/renderer）');
+// 脚本单一来源 + 主进程兜底注入
+assert(/const CAPTURE_SCRIPT/.test(jobsyncMain) && /export const CAPTURE_SCRIPT/.test(jobsyncMain),
+  '采集钩子脚本由主进程持有并导出（单一来源）');
+assert(/ipcMain\.on\('jobsync:script'/.test(jobsyncMain) && /event\.returnValue = CAPTURE_SCRIPT/.test(jobsyncMain),
+  '主进程用 sendSync 把采集脚本交给 preload');
+assert(/executeWithTimeout\(platformContents, CAPTURE_SCRIPT/.test(jobsyncMain),
+  '主进程兜底注入（webFrame 注入被拦时 SPA 数据请求仍接得到）');
+assert(/platformContents\.on\('dom-ready', injectCapture\)/.test(jobsyncMain)
+  && /platformContents\.on\('did-frame-finish-load'/.test(jobsyncMain)
+  && /platformContents\.on\('did-navigate', injectCapture\)/.test(jobsyncMain),
+  '每次主框架导航后兜底重注入采集钩子（SPA 路由切换也能接上）');
+assert(/responseType[\s\S]{0,140}["']json["']/.test(jobsyncMain),
+  'XHR responseType=json 的响应也能被采集');
+assert(/__grfJobsyncHooks|__grfJobsyncHooked/.test(jobsyncMain),
+  '注入脚本幂等（重复注入不会叠加包装）');
+// 自动抓取：collect 支持 auto 模式，且窗口后台运行、不抢焦点
+assert(/export async function collect\(platformId: string, kind: 'applied' \| 'collected', auto = false\)/.test(jobsyncMain),
+  'collect 支持 auto 参数（点抓取即自动导航）');
+assert(/showInactive/.test(jobsyncMain),
+  '自动抓取时窗口先后台显示，不抢用户焦点');
+assert(/CANDIDATE_URLS/.test(jobsyncMain) && /findNavTargets/.test(jobsyncMain),
+  '自动抓取有「已知路由 + DOM 发现」双通道');
+assert(/waitForRecords/.test(jobsyncMain),
+  '自动抓取会等待页面自己发出数据请求');
+assert(!/扫码登录\|请先登录\|立即登录/.test(jobsyncMain),
+  '登录墙判定不信正文关键词（否则用户被按在 120 秒等待上）');
+// 登录态必须看凭证 cookie，不能看 cookie 数量：站点都会先塞一堆匿名访客 cookie
+// （__c/__g/ab_guid/Hm_*/isOHPC），按数量判断会把没登录显示成已登录
+assert(/LOGIN_COOKIES/.test(jobsyncMain) && /hasLoginCredential/.test(jobsyncMain),
+  '登录态按登录凭证 cookie 判定（不是按 cookie 数量）');
+assert(/__zp_stoken__/.test(jobsyncMain),
+  'BOSS 的登录凭证 cookie 已纳入判定');
+assert(!/loggedIn: cookieCount > 0/.test(jobsyncMain),
+  '不再用 cookieCount > 0 冒充登录态');
+// 登录闸门：候选页落在登录墙上时等用户登录并重试，而不是直接报「站点改版」
+assert(/const ensureLoggedIn = async/.test(jobsyncMain),
+  '自动抓取内置登录闸门（等用户登录后自动继续）');
+assert(/web\/user\//.test(jobsyncMain),
+  'BOSS 未登录落点 /web/user/ 已纳入登录墙识别');
+assert(/注册/.test(jobsyncMain),
+  '登录墙标题识别覆盖「注册」字样');
+const collectCall = [...preloadSrc.matchAll(/collect:\s*\([^)]*\)\s*=>\s*ipcRenderer\.invoke\('jobsync:collect'[^\n]*/g)].join('');
+assert(/auto/.test(collectCall),
+  'preload.collect 透传 auto 参数');
+assert(/jobSync\.collect\(String\(platformId \|\| ''\), k, auto === true\)/.test(mainSrc),
+  '主进程 handler 把 auto 传给 jobSync.collect');
+
 // ---------- 4) 截图 mock 必须覆盖渲染层会用到的 channel ----------
 // 否则 UI 测试会对「未注册的接口」视而不见（快照卡与 applications 两次都栽在这里）
 const mockChannels = new Set([...mockSrc.matchAll(/\bh\('([^']+)'/g)].map((m) => m[1]));
@@ -315,15 +384,52 @@ assert(/ipcMain\.on\('jobsync:captured'/.test(syncMainSrc)
   && /ipcMain\.removeListener\('jobsync:captured'/.test(syncMainSrc),
   '主进程注册并按会话解绑采集 IPC，会话关闭后不泄漏监听');
 const capturePreloadSrc = fs.readFileSync('src/renderer/jobsync-capture-preload.js', 'utf8');
-assert(/window\.fetch\s*=/.test(capturePreloadSrc) && /XMLHttpRequest\.prototype\.send/.test(capturePreloadSrc)
-  && /'jobsync:captured'/.test(capturePreloadSrc) && /ipcRenderer\.send\(/.test(capturePreloadSrc),
-  '采集 preload 钩住 fetch 与 XHR 并把 JSON 响应回传主进程');
+assert(/'jobsync:captured'/.test(capturePreloadSrc) && /ipcRenderer\.send\(/.test(capturePreloadSrc),
+  '采集 preload 负责把主世界消息回传主进程');
+// 钩子本体在主进程的 CAPTURE_SCRIPT 里（注入主世界），preload 不再自己包 fetch
+assert(/window\.fetch\s*=/.test(syncMainSrc) && /XMLHttpRequest\.prototype\.open/.test(syncMainSrc),
+  '采集钩子（fetch/XHR）由主进程脚本持有并注入页面主世界');
 
 assert(/dom-ready/.test(syncMainSrc) && /did-frame-finish-load/.test(syncMainSrc)
   && /revealOnFirstPaint/.test(syncMainSrc),
   '平台视图在主框架开始渲染时就显示，不再死等 did-finish-load（否则首页异步请求期间会长时间白屏）');
 assert(/hasTitle/.test(syncMainSrc),
   '页面空内容判定会排除「仅渲染被冻结导致 innerText 为空」的误报（标题非空即视为已加载）');
+
+// ---- 抓取链路的稳健性（自检 bug 回归钉）----
+// 1) refreshPageState 的 executeJavaScript 曾无超时：平台导航挂起时
+//    looksLikeLoginWall/status 一起卡死，「抓取」按钮永久转圈。
+assert(/executeJsonWithTimeout/.test(syncMainSrc) && /refreshPageState[\s\S]{0,600}executeJsonWithTimeout/.test(syncMainSrc),
+  '页面体检的 executeJavaScript 带超时，导航挂起不会把抓取流程卡死');
+// 2) 空白页兜底定时器曾在抓取途中触发：卸掉平台视图、闪诊断页。
+assert(/s\.collecting/.test(syncMainSrc) && /s\.win\.isDestroyed\(\) \|\| s\.collecting/.test(syncMainSrc),
+  '抓取进行中（collecting）时空白页兜底定时器让路，不再把平台视图卸掉闪诊断页');
+assert(/markNavigationStart[\s\S]{0,400}clearTimeout\(s\.emptyPageTimer\)/.test(syncMainSrc),
+  '每次导航开始时作废残留的空白页兜底定时器');
+// 3) 自动抓取进度必须实时可观测（曾经只能面对一个转圈的按钮等一两分钟）。
+assert(/emitProgress/.test(syncMainSrc) && /webContents\.send\('jobsync:progress'/.test(syncMainSrc),
+  '抓取进度通过 jobsync:progress 实时推送给应用窗口');
+assert(/onProgress/.test(fs.readFileSync('src/main/preload.ts', 'utf8'))
+  && /jobSync\.onProgress/.test(R('src/renderer/job-sync-view.js')),
+  'preload 暴露进度订阅、同步面板消费进度并显示实时状态行');
+// 4) 候选页去重：DOM 发现阶段不重跑 Step 3 已失败过的直达页（每条白等 12 秒）。
+assert(/const tried = new Set<string>\(\)/.test(syncMainSrc) && /tried\.has\(url\)/.test(syncMainSrc),
+  '自动抓取的候选 URL 跨步骤去重，失败的直达页不会重跑');
+
+// ---- 授权导入的增量合并：同步只补数据，不抹用户状态 ----
+// 曾经的 bug：patch 无条件写 stage/place/url/notes，用户在手盘上推进到「面试中」
+// 后一次再同步被打回「已投递」，手填地点/备注被平台回来的空值清空。
+assert(/stage: hit \? \(hit\.stage \|\| 'applied'\)/.test(mainEntrySrc),
+  '授权导入更新时保留用户已有的阶段（只进不退，不打回「已投递」）');
+assert(/place: String\(x\.place[\s\S]{0,80}\|\| \(hit \? hit\.place/.test(mainEntrySrc)
+  && /notes: String\(x\.notes[\s\S]{0,80}\|\| \(hit \? hit\.notes/.test(mainEntrySrc),
+  '授权导入更新时，平台没给的地点/备注保留用户已填内容');
+assert(/place: c\.place \|\| \(hit \? hit\.place/.test(R('src/renderer/job-import.js')),
+  '粘贴导入同样遵守「新值为空保留旧值」');
+// 时间归一化用本地日期：UTC 会把东八区清晨的投递算成前一天。
+assert(/getFullYear\(\) \+ '-' \+ p\(d\.getMonth\(\)/.test(R('src/main/job-sync-core.ts'))
+  && !/toISOString\(\)\.slice\(0, 10\)/.test(R('src/main/job-sync-core.ts')),
+  '投递时间按本地日期归一化（清晨投递不再显示成昨天）');
 
 // ---- GPU 兜底：没显卡的环境也要能起来 ----
 assert(/enable-unsafe-swiftshader/.test(mainEntrySrc) && /'use-angle',\s*'swiftshader'/.test(mainEntrySrc),

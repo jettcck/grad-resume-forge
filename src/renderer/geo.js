@@ -59,6 +59,29 @@
     return BANDS[BANDS.length - 1];
   }
 
+  // ---------- 1b) 坐标 → 最近城市（反查） ----------
+  // 地图上点选的位置要能说清「这是哪儿」：只丢一串经纬度给用户，
+  // 点偏了 600km 也看不出来（真实踩过的坑：出发地标签还是「成都」，
+  // 坐标已经跑到陕西）。反查内置城市表，超过 maxKm 没有城市就返回 null。
+  function nearestPlace(lat, lng, maxKm) {
+    const table = window.CityGeo && window.CityGeo.table;
+    if (!table || !isFinite(Number(lat)) || !isFinite(Number(lng))) return null;
+    lat = Number(lat); lng = Number(lng);
+    const limit = isFinite(maxKm) ? Number(maxKm) : 120;
+    let best = null;
+    for (const key in table) {
+      if (key.indexOf('|') >= 0) continue; // 只取城市级点，区县太密会把「市」拆碎
+      const c = table[key];
+      if (!c || !isFinite(Number(c[0])) || !isFinite(Number(c[1]))) continue;
+      const km = haversineKm([lat, lng], [Number(c[0]), Number(c[1])]);
+      if (!best || km < best.km) {
+        best = { cityKey: key, coords: [Number(c[0]), Number(c[1])], km: km };
+      }
+    }
+    if (!best || best.km > limit) return null;
+    return { cityKey: best.cityKey, coords: best.coords, km: best.km, level: 'city' };
+  }
+
   // ---------- 2) 坐标系转换（标准算法）----------
   // GCJ-02 是对 WGS-84 做的非线性偏移；BD-09 又在 GCJ-02 上再偏一次。
   // 本应用只处理 WGS-84 与 GCJ-02，不引入 BD-09（内置表已转成 WGS-84）。
@@ -216,7 +239,7 @@
   window.Geo = {
     haversineKm, formatDistance, bandOf, BANDS,
     wgs84ToGcj02, gcj02ToWgs84, toWgs84, fromWgs84, outOfChina, needsGcjOffset, inNoOffsetRegion,
-    parseLocation, suggestCity,
+    parseLocation, suggestCity, nearestPlace,
     lngLatToWorldPixel, worldPixelToLngLat,
     _internal: { cityKeys: cityKeys, districtsOf: districtsOf }
   };

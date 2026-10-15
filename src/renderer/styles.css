@@ -1240,7 +1240,10 @@ em { font-style: normal; color: var(--gold); }
 
 /* ---------- 模态：图纸框 ---------- */
 .modal-overlay {
-  position: fixed; inset: 0; background: rgba(5,7,11,.72); backdrop-filter: blur(4px);
+  /* 不要用 backdrop-filter: blur()：全屏 fixed 模糊会让模态框里每滚动一帧，
+     整个背景都被重新模糊一遍（同步预览 30 行时卡到不能忍）。
+     用更不透明的纯色遮罩保持“压暗背景”的层次，成本为零。 */
+  position: fixed; inset: 0; background: rgba(5,7,11,.82);
   display: flex; align-items: center; justify-content: center; z-index: 200;
   animation: modalFade .18s ease;
 }
@@ -1512,11 +1515,27 @@ em { font-style: normal; color: var(--gold); }
 .mv-attr { font-size: 11.5px; color: var(--ink-2); line-height: 1.6; margin-bottom: 8px; }
 .mv-map-host { position: relative; }
 .mv-map-wrap { overflow: auto; padding-bottom: 4px; }
-.mv-map-canvas { position: relative; width: 768px; height: 420px; background: var(--bg-0); border: 1px solid var(--line); border-radius: var(--radius); cursor: crosshair; overflow: hidden; touch-action: none; }
+/* 注意 box-sizing: content-box —— 全局 reset 是 border-box，若沿用，
+   width:768px 的内容区只剩 766×418，而瓦片/标注/投影数学全按 768×420 排，
+   三套坐标系互相差 1px 还带 0.26% 缩放，滚轮锚点、点选坐标全部系统性偏移 */
+.mv-map-canvas { position: relative; box-sizing: content-box; width: 768px; height: 420px; background: var(--bg-0); border: 1px solid var(--line); border-radius: var(--radius); cursor: grab; overflow: hidden; touch-action: none; }
 .mv-map-canvas.dragging { cursor: grabbing; }
-.mv-map-tiles { position: absolute; left: 0; top: 0; }
-.mv-tile { position: absolute; width: 256px; height: 256px; user-select: none; -webkit-user-drag: none; }
-.mv-map-overlay { position: absolute; left: 0; top: 0; width: 768px; height: 420px; pointer-events: none; }
+.mv-map-canvas:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+.mv-map-tiles { position: absolute; left: 0; top: 0; will-change: transform; }
+.mv-map-ghost { pointer-events: none; }
+.mv-tile { position: absolute; width: 256px; height: 256px; user-select: none; -webkit-user-drag: none; animation: mv-tile-in .16s ease-out; }
+@keyframes mv-tile-in { from { opacity: 0; } to { opacity: 1; } }
+.mv-map-overlay { position: absolute; left: 0; top: 0; width: 768px; height: 420px; pointer-events: none; will-change: transform; }
+/* 左下角：实时中心坐标 + 比例尺（对标高德/腾讯） */
+.mv-map-readout { position: absolute; left: 8px; bottom: 8px; max-width: 60%; padding: 3px 8px; font-family: var(--font-mono); font-size: 11px; color: var(--ink-1); background: color-mix(in srgb, var(--bg-0) 80%, transparent); border: 1px solid var(--line); border-radius: var(--radius-sm); pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mv-map-scale { position: absolute; right: 8px; bottom: 8px; display: flex; flex-direction: column; align-items: flex-end; gap: 3px; color: var(--ink-1); pointer-events: none; }
+.mv-map-scale-label { font-family: var(--font-mono); font-size: 11px; text-shadow: 0 0 3px var(--bg-0); }
+.mv-map-scale-bar { display: block; height: 5px; min-width: 30px; background: currentColor; box-shadow: 0 0 0 1px color-mix(in srgb, var(--bg-0) 65%, transparent); }
+/* 右上角悬浮操作（不随页面滚动，随时可点） */
+.mv-map-stack { position: absolute; top: 8px; right: 8px; display: flex; flex-direction: column; gap: 4px; }
+.mv-map-stack button { width: 28px; height: 28px; display: grid; place-items: center; padding: 0; font-size: 14px; line-height: 1; background: color-mix(in srgb, var(--bg-0) 86%, transparent); border: 1px solid var(--line); border-radius: var(--radius-sm); color: var(--ink-1); cursor: pointer; }
+.mv-map-stack button:hover { border-color: var(--gold); color: var(--gold); }
+.mv-map-stack button:active { transform: translateY(1px); }
 .mv-map-status { margin-top: 6px; font-size: 12px; color: var(--ink-2); min-height: 16px; }
 .mv-map-nav { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 2px; }
 .mv-map-nav-label { margin-right: 2px; font-size: 11.5px; color: var(--ink-2); }
@@ -1529,8 +1548,17 @@ em { font-style: normal; color: var(--gold); }
    ============================================================ */
 .ji-box { width: min(880px, 94vw); max-height: 86vh; display: flex; flex-direction: column; }
 .ji-hint { margin: 0 0 10px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
-.ji-list { overflow: auto; flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px; }
-.ji-row { display: flex; gap: 10px; padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.ji-list {
+  overflow: auto; flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; padding-right: 4px;
+  /* 提升为独立合成层：滚动时不牵动遮罩与背后内容重绘 */
+  will-change: transform; transform: translateZ(0);
+  overscroll-behavior: contain;
+}
+.ji-row {
+  display: flex; gap: 10px; padding: 10px 12px; background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  /* 行级绘制隔离：滚出视口的行不参与重绘 */
+  contain: content;
+}
 .ji-check { flex: 0 0 auto; padding-top: 3px; }
 .ji-body { flex: 1 1 auto; min-width: 0; }
 .ji-top { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
@@ -1538,6 +1566,8 @@ em { font-style: normal; color: var(--gold); }
 .ji-platform { font-size: 11.5px; padding: 1px 7px; border-radius: 999px; color: var(--bg-0); background: var(--violet); }
 .ji-salary { font-family: var(--font-mono); font-size: 12.5px; color: var(--gold); }
 .ji-tag { font-size: 11px; padding: 1px 7px; border: 1px solid var(--line-2); border-radius: 999px; color: var(--ink-2); }
+/* 预览里「已存在 · 将更新」：增量合并的可见提示 */
+.ji-tag-dup { border-color: var(--teal); color: var(--teal); }
 .ji-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; }
 .ji-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .ji-label { display: flex; align-items: center; gap: 6px; font-size: 11.5px; color: var(--ink-2); }
@@ -1554,7 +1584,13 @@ em { font-style: normal; color: var(--gold); }
 
 /* ============ 招聘平台投递记录同步（复用粘贴导入的 .ji-* 视觉） ============ */
 .js-body { display: flex; flex-direction: column; gap: 10px; min-width: 0; min-height: 96px; }
-.js-list { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow: auto; }
+/* 抓取进度行：自动抓取跑一两分钟时的实时状态（打开页面 / 等待登录 / 已捕获 N 个响应） */
+.js-progress {
+  border: 1px solid var(--line); border-left: 2px solid var(--gold);
+  border-radius: var(--radius-sm); background: var(--bg-1);
+  padding: 9px 12px; font-size: 12.5px; line-height: 1.6; color: var(--ink-1);
+}
+.js-list { display: flex; flex-direction: column; gap: 10px; max-height: 46vh; overflow: auto; will-change: transform; transform: translateZ(0); overscroll-behavior: contain; }
 /* 失败态：把原因留在面板里，而不是靠一个会自动消失的 toast */
 .js-error {
   border: 1px solid var(--line); border-left: 2px solid var(--ember);

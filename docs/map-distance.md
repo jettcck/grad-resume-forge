@@ -117,8 +117,34 @@ OSM 德国镜像 807ms 正常。OSM 仍保留在列表里（网络能通的用�
 | `test-contract.js` | 26 | 渲染层调用 ↔ preload ↔ 主进程 ↔ 截图 mock 四层契约（本轮扩展为扫描**全部**渲染层脚本，不再只看 app.js） |
 | `scripts/smoke-map-live.js`（新，需联网） | 15 | **真网络端到端**：渲染层表单登录 → 投递页 → 点「开启地图」→ 数真实瓦片（实测 12 块、经主进程代理成 data: URL、落盘缓存 180KB）。离线时如实报告失败原因，不挂在 CI 上 |
 
-## 六、v1.11.1 修的问题（都是「测试没覆盖到」那一类）
+## 五点五、v1.12.21：地图全黑的真正根因——content-type 撒谎
 
+用户实机反馈「地图乌漆嘛黑」，状态行显示「瓦片取不回来：返回内容不是图片
+（application/octet-stream）」。
+
+用 Electron 网络栈（与打包版同一条路径）实测各内置源：
+
+| 源 | content-type | 实际字节 | 老实现 |
+|---|---|---|---|
+| 腾讯 rt{s}.map.gtimg.com | **application/octet-stream** | 合法 JPEG（ffd8ffe0，1712B） | ❌ 全拒 → 全黑 |
+| 高德 webrd{s}.is.autonavi.com | image/png | PNG（~10KB） | ✅ |
+
+根因：`tile-proxy.ts` 只信 content-type header，而腾讯瓦片服务把它标成
+octet-stream。CDN 标错 MIME 是常事，**判定改为按字节魔数**
+（`sniffImageMime`：JPEG/PNG/GIF/WebP/BMP），data URL 用嗅探出的真实 mime；
+header 谎报 image/* 但字节不是图片的（内网 JSON/HTML）照样拒。
+缓存读回也按魔数判定——落盘的是 octet-stream 的 JPEG，读回来还得是 image/jpeg。
+
+同时把**高德**加回内置源（v1.11.1 时有过，后来只剩腾讯；错误提示一直叫人
+「换高德」但列表里没有，等于死建议）。四个子域 webrd01–04 实测全部
+image/png ~200ms。默认源仍是腾讯（修复后已能用），高德为备选。
+
+`test-map.js` +12 条（魔数单测、腾讯案例、缓存 mime、谎报 header 识破），
+新增 `scripts/smoke-tile-real.js`（真实网络取各内置源瓦片，6 条）。
+**curl 在本实验室测不出真相**——沙箱对 curl 全部返回空壳 200，
+必须用 Electron 的 fetch 才拿得到真实字节。
+
+## 六、v1.11.1 修的问题（都是「测试没覆盖到」那一类）
 ### 1. 点「开启地图」完全没反应
 
 按钮的 `onclick` 里写的是 `render()`，而函数签名是 `render(host, ctx)` —— 进函数第一句

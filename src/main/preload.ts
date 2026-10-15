@@ -36,13 +36,21 @@ contextBridge.exposeInMainWorld('api', {
     importAuthorized: (userId: string, payload: unknown) => ipcRenderer.invoke('applications:importAuthorized', userId, payload)
   },
   // 招聘平台投递记录同步：只读旁路，不向平台写入任何数据
+  // collect 第三个参数 auto=true：点「抓取」即自动开窗口、自动走到记录页抓取
   jobSync: {
     platforms: () => ipcRenderer.invoke('jobsync:platforms'),
     open: (platformId: string) => ipcRenderer.invoke('jobsync:open', platformId),
-    collect: (platformId: string, kind: string) => ipcRenderer.invoke('jobsync:collect', platformId, kind),
+    collect: (platformId: string, kind: string, auto?: boolean) =>
+      ipcRenderer.invoke('jobsync:collect', platformId, kind, auto === true),
     reset: (platformId: string) => ipcRenderer.invoke('jobsync:reset', platformId),
     close: (platformId: string) => ipcRenderer.invoke('jobsync:close', platformId),
-    logout: (platformId: string) => ipcRenderer.invoke('jobsync:logout', platformId)
+    logout: (platformId: string) => ipcRenderer.invoke('jobsync:logout', platformId),
+    // 抓取进度实时推送（自动抓取可能跑一两分钟，界面必须能显示卡在哪一步）
+    onProgress: (cb: (payload: { platformId: string; note: string; captured: number; auto: boolean }) => void) => {
+      const listener = (_e: unknown, payload: { platformId: string; note: string; captured: number; auto: boolean }): void => cb(payload);
+      ipcRenderer.on('jobsync:progress', listener);
+      return () => { ipcRenderer.removeListener('jobsync:progress', listener); };
+    }
   },
   snapshots: {
     save: (userId: string, label: string, profile: unknown) => ipcRenderer.invoke('snapshots:save', userId, label, profile),

@@ -95,6 +95,9 @@ assert(C.normalizeTime('1735689600000') === '2025-01-01', '毫秒时间戳被归
 assert(C.normalizeTime('1735689600') === '2025-01-01', '秒级时间戳同样能识别');
 assert(C.normalizeTime('2026/3/7') === '2026-03-07', '斜杠日期补齐月份（实得 ' + C.normalizeTime('2026/3/7') + '）');
 assert(C.normalizeTime('昨天') === '', '认不出的时间返回空串，不硬猜');
+// 本地日期回归：东八区清晨（UTC 还是前一天）的投递不许被算成前一天 ——
+// 曾经用 toISOString（UTC），用户看到「投递时间：昨天」以为数据错了。
+assert(C.normalizeTime('1791844200000') === '2026-10-13', '清晨投递按本地日期归一化（实得 ' + C.normalizeTime('1791844200000') + '）');
 const timed = C.extractRecords([{ url: 'u', json: { list: [{ jobName: '产品经理', companyName: '庚庚公司', applyTime: '2026-03-07 10:00:00' }] } }], 'applied');
 assert(/投递时间：2026-03-07/.test(timed[0].notes), '投递时间写进备注，界面上能看出跟进节奏');
 

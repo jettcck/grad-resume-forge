@@ -40,3 +40,10 @@ dist/
 # 本地手工组装 asar / 解包缓存（不提交）
 build-asar/
 extract-old/
+
+# 本地桌面部署用构建输出（按版本号命名，不入库）
+release-rebuilt/
+release-v112*/
+
+# CDP 诊断用的临时 profile（不入库）
+.modal-diag-profile/

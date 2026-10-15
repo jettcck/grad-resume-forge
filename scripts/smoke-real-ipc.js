@@ -197,6 +197,48 @@ app.whenReady().then(async () => {
     // 自定义源会留在设置里，这里清掉，避免影响后续断言
     await win.webContents.executeJavaScript(`window.api.map.setCustomSource('', '', 'wgs84')`);
 
+    // ---------- 授权导入的增量合并：同步只补数据，不抹用户状态 ----------
+    // 曾经的 bug：二次同步把 patch 无条件写 stage/place/url/notes，用户把手盘上的
+    // 记录推进到「面试中」后，一次再同步被打回「已投递」，手填地点/备注被空值清空。
+    const merge = await win.webContents.executeJavaScript(`(async () => {
+      // 会话由主进程按 IPC 来源裁决，userId 参数只是过场；仍显式登录一次拿到真实 id
+      const login = await window.api.auth.login({ email: 'smoke@test.local', password: 'pass123456' });
+      if (!login.ok) return { error: login.error };
+      const uid = login.data.id;
+      const payload = { source: '冒烟平台', items: [
+        { externalId: 'job-001', company: '某某科技有限公司', position: '后端工程师', place: '北京', url: 'https://example.com/job/1', stage: 'applied', notes: '投递时间：2026-10-01' }
+      ] };
+      const first = await window.api.applications.importAuthorized(uid, payload);
+      const list1 = await window.api.applications.list(uid);
+      const rec = (list1.data || []).find((a) => a.externalId === 'job-001');
+      if (!rec) return { error: '首次导入后找不到记录' };
+      // 用户在手盘上推进阶段、补地点、写备注
+      await window.api.applications.save(uid, { id: rec.id, stage: 'interview', place: '北京·海淀区', notes: 'HR 已约周三面试' });
+      // 平台二次同步：同 externalId，但 place 为空、stage 回到 applied
+      const second = await window.api.applications.importAuthorized(uid, {
+        source: '冒烟平台', items: [{ externalId: 'job-001', company: '某某科技有限公司', position: '后端工程师', stage: 'applied', notes: '' }]
+      });
+      const list2 = await window.api.applications.list(uid);
+      const rec2 = (list2.data || []).find((a) => a.externalId === 'job-001');
+      const dup = (list2.data || []).filter((a) => a.externalId === 'job-001').length;
+      return {
+        firstAdded: first.data && first.data.added, firstUpdated: first.data && first.data.updated,
+        secondAdded: second.data && second.data.added, secondUpdated: second.data && second.data.updated,
+        stage: rec2 && rec2.stage, place: rec2 && rec2.place, notes: rec2 && rec2.notes, url: rec2 && rec2.url, dup
+      };
+    })()`);
+    if (merge.error) {
+      t(false, '授权导入合并实测失败：' + merge.error);
+    } else {
+      t(merge.firstAdded === 1, '首次授权导入新增 1 条（实得 ' + merge.firstAdded + '）');
+      t(merge.secondAdded === 0 && merge.secondUpdated === 1, '二次同步走更新而非新增（added=' + merge.secondAdded + ', updated=' + merge.secondUpdated + '）');
+      t(merge.stage === 'interview', '用户推进到的阶段不被同步打回（实得 ' + merge.stage + '）');
+      t(merge.place === '北京·海淀区', '平台没给地点时保留用户手填的地点（实得 ' + merge.place + '）');
+      t(/HR 已约周三面试/.test(String(merge.notes)), '用户写的备注不被同步备注覆盖（实得 ' + merge.notes + '）');
+      t(merge.url === 'https://example.com/job/1', '平台没给链接时保留原有链接（实得 ' + merge.url + '）');
+      t(merge.dup === 1, '同 externalId 不产生重复记录（实得 ' + merge.dup + ' 条）');
+    }
+
     // 3) 全库备份接口需要登录（restore 会替换所有账号与会话）
     const backupGuard = await win.webContents.executeJavaScript(`(async () => {
       const before = await window.api.backups.list();

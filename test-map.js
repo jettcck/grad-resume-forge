@@ -53,10 +53,25 @@ assert(/整数/.test(T.validateTileCoords('a', 0, 0)), '字符串坐标被拒（
 
 // ---------- 4) URL 组装 ----------
 const tencent = T.BUILTIN_TILE_SOURCES.find((s) => s.id === 'tencent');
+const amap = T.BUILTIN_TILE_SOURCES.find((s) => s.id === 'amap');
 const osm = tencent;
 const u1 = T.buildTileUrl(tencent, 12, 3400, 1600);
 assert(/\{z\}|\{x\}|\{y\}|\{s\}/.test(u1) === false && u1.indexOf('z=12') > 0 && u1.indexOf('x=3400') > 0, '腾讯模板全部占位符都被替换（实得 ' + u1.slice(0, 100) + '…）');
 assert(/rt[0-3]\.map\.gtimg\.com/.test(u1), '腾讯地图子域被替换');
+assert(!!amap, '内置源里有高德（备选；腾讯连不上时切它）');
+const u2 = T.buildTileUrl(amap, 12, 3400, 1600);
+assert(/webrd(01|02|03|04)\.is\.autonavi\.com/.test(u2) && u2.indexOf('x=3400') > 0 && u2.indexOf('style=8') > 0,
+  '高德模板全部占位符都被替换（实得 ' + u2.slice(0, 100) + '…）');
+
+// ---------- 4b) 魔数嗅探（content-type 不可信，按字节判） ----------
+assert(T.sniffImageMime(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])) === 'image/png', '识别 PNG 魔数');
+assert(T.sniffImageMime(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0x10, 0x4a, 0x46, 0x49, 0x46, 0, 1, 2, 3])) === 'image/jpeg', '识别 JPEG 魔数（腾讯瓦片的实际格式）');
+assert(T.sniffImageMime(Buffer.from('GIF89a.......')) === 'image/gif', '识别 GIF 魔数');
+assert(T.sniffImageMime(Buffer.from('RIFF????WEBP')) === 'image/webp', '识别 WebP 魔数');
+assert(T.sniffImageMime(Buffer.from('BM..............')) === 'image/bmp', '识别 BMP 魔数');
+assert(T.sniffImageMime(Buffer.from('<!doctype htm')) === null, 'HTML 不是图片');
+assert(T.sniffImageMime(Buffer.from('{"code":0}xx')) === null, 'JSON 不是图片');
+assert(T.sniffImageMime(Buffer.alloc(4)) === null, '过短缓冲不误判');
 
 // ---------- 5) 抓取行为（注入 fetch）----------
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
@@ -88,10 +103,28 @@ function countingFetch(resp) {
   assert(r2.ok && r2.cached === true && f2.calls.length === 0, '同一瓦片第二次直接命中磁盘缓存（0 次网络请求）');
   assert(T.tileCacheStats(cacheDir).files === 1, '缓存里确实落了 1 个文件');
 
-  // 非图片内容
-  const f3 = countingFetch(mkResp({ headers: { 'content-type': 'text/html' } }));
+  // 非图片内容（bytes 就不是图片，header 也如实标了 text/html）
+  const HTML = Buffer.from('<!doctype html><html><body>login required</body></html>');
+  const f3 = countingFetch(mkResp({ headers: { 'content-type': 'text/html' }, body: HTML }));
   const r3 = await T.fetchTile({ source: osm, z: 11, x: 1, y: 1, cacheDir, fetchImpl: f3 });
   assert(r3.ok === false && /不是图片/.test(r3.error), '非图片内容被拒（防止把登录页/JSON 当瓦片）');
+
+  // 腾讯实测案例：header 标 application/octet-stream，内容是合法 JPEG → 必须收
+  // （老实现只认 content-type，把这种真瓦片全拒了，界面一片黑）
+  const JPEG = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01, 0x02, 0x03]);
+  const fTencent = countingFetch(mkResp({ headers: { 'content-type': 'application/octet-stream' }, body: JPEG }));
+  const rTencent = await T.fetchTile({ source: osm, z: 11, x: 18, y: 18, cacheDir, fetchImpl: fTencent });
+  assert(rTencent.ok === true && rTencent.dataUrl.indexOf('data:image/jpeg;base64,') === 0,
+    '腾讯式 octet-stream + JPEG 字节被正确收下（data URL 用嗅探出的 image/jpeg）');
+  const rTencentCached = await T.fetchTile({ source: osm, z: 11, x: 18, y: 18, cacheDir, fetchImpl: countingFetch(mkResp({})) });
+  assert(rTencentCached.ok === true && rTencentCached.cached === true
+    && rTencentCached.dataUrl.indexOf('data:image/jpeg;base64,') === 0,
+    '缓存的 octet-stream 瓦片读回来仍是 image/jpeg（按魔数判定）');
+
+  // header 谎报 image/* 但字节不是图片 → 拒（防内网 JSON/HTML 被当瓦片）
+  const fLie = countingFetch(mkResp({ headers: { 'content-type': 'image/png' }, body: HTML }));
+  const rLie = await T.fetchTile({ source: osm, z: 11, x: 9, y: 9, cacheDir, fetchImpl: fLie });
+  assert(rLie.ok === false && /不是图片/.test(rLie.error), 'header 谎报 image/* 也会被字节识破');
 
   // 超大瓦片
   const f4 = countingFetch(mkResp({ headers: { 'content-type': 'image/png' }, body: Buffer.alloc(T.MAX_TILE_BYTES + 1, 1) }));

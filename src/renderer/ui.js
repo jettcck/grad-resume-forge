@@ -30,7 +30,7 @@
   }
 
   let toastTimer = null;
-  function toast(message, kind) {
+  function toast(message, kind, durationMs) {
     const t = document.getElementById('toast');
     t.textContent = message;
     t.className = 'toast show ' + (kind || '');
@@ -38,9 +38,11 @@
     // 运行时才取 window.Sound）
     if (window.Sound) window.Sound.play(kind === 'ok' ? 'ok' : kind === 'err' ? 'err' : 'notify');
     clearTimeout(toastTimer);
+    // 默认 2.6 秒；需要用户照着做的提示（如「去同步窗口登录」）可以传更长的停留时间
+    const ms = Number(durationMs) > 0 ? Number(durationMs) : 2600;
     toastTimer = setTimeout(() => {
       t.className = 'toast ' + (kind || '');
-    }, 2600);
+    }, ms);
   }
 
   async function call(promise) {

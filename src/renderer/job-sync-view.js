@@ -34,7 +34,7 @@
   async function openPanel(ctx) {
     const overlay = el('div', { class: 'modal-overlay' });
     const body = el('div', { class: 'js-body' });
-    const close = () => overlay.remove();
+    const close = () => { overlay.remove(); if (unsubProgress) unsubProgress(); };
     let list = [];
     // 运行版本号：出错时直接摆给用户看，省得「我以为我是新版」这类排查成本
     let appVersion = '';
@@ -42,6 +42,29 @@
       const st = await window.api.updater.status();
       appVersion = (st && st.version) || '';
     } catch (_) { /* 取不到版本不影响面板 */ }
+
+    // 抓取进度行：自动抓取动辄几十秒到两分钟，没有它就是「按钮一直转圈，
+    // 完全不知道卡在打开页面 / 等登录 / 还是找入口」。
+    const progressLine = el('div', { class: 'js-progress', style: 'display:none' }, []);
+    let unsubProgress = null;
+    try {
+      if (window.api.jobSync && typeof window.api.jobSync.onProgress === 'function') {
+        unsubProgress = window.api.jobSync.onProgress((p) => {
+          if (!p || !p.note) { progressLine.style.display = 'none'; return; }
+          progressLine.style.display = '';
+          progressLine.textContent = '⏳ ' + p.note
+            + (p.captured ? '（已捕获 ' + p.captured + ' 个数据响应）' : '');
+        });
+      }
+    } catch (_) { /* 旧 preload 没有这个通道也不影响抓取本身 */ }
+
+    // 抓取期间禁用面板内所有按钮：手动模式下连点会并发跑两个 autoCollect，
+    // 共享同一个会话缓冲，结果不可预期（曾经的隐患）。
+    let busy = false;
+    const setBusy = (v) => {
+      busy = v;
+      overlay.querySelectorAll('button').forEach((b) => { b.disabled = v; });
+    };
 
     async function refresh() {
       let errText = '';
@@ -55,11 +78,8 @@
       // （旧实现在这里只弹一个 2.6 秒后自动消失的 toast，用户看到的是「无缘无故的空白」。）
       if (errText) { body.appendChild(errorBox(errText)); return; }
       body.appendChild(el('p', { class: 'ji-hint' }, [
-        '同步采用「只读旁路」：应用只打开平台首页，由你自己登录并点进投递记录页；'
-        + '平台页面自己发出的数据请求会被读取下来。不逆向签名、不伪造请求、不向平台提交任何写操作，登录状态只保存在本机。'
-      ]));
-      body.appendChild(el('p', { class: 'ji-hint' }, [
-        '使用顺序：① 打开同步窗口 → ② 在窗口里登录 → ③ 在窗口里点进「投递记录 / 我的收藏」→ ④ 回到这里点「抓取已打开的页面」。'
+        '点击「抓取投递记录 / 抓取收藏」后会自动打开对应平台页面并读取数据，全程后台完成；'
+        + '需要登录时才会把登录窗口交给你。平台页面自己发出的数据请求会被读取下来。不逆向签名、不伪造请求、不向平台提交任何写操作，登录状态只保存在本机。'
       ]));
       const grid = el('div', { class: 'js-list' });
       for (const p of list) grid.appendChild(platformRow(p));
@@ -103,8 +123,8 @@
           ? el('span', { class: 'js-tag js-tag-on' }, ['窗口已打开 · 已捕获 ' + p.captured + ' 个响应'])
           : el('span', { class: 'js-tag' }, ['未打开']));
 
-      const loginTag = p.cookieCount > 0
-        ? el('span', { class: 'js-tag js-tag-on' }, ['已有登录状态'])
+      const loginTag = p.loggedIn
+        ? el('span', { class: 'js-tag js-tag-on' }, ['已登录'])
         : el('span', { class: 'js-tag' }, ['未登录']);
 
       const actions = [];
@@ -152,6 +172,7 @@
           p.lastSyncAt ? el('span', { class: 'js-tag' }, ['上次导入 ' + fmtTime(p.lastSyncAt) + ' · ' + p.lastCount + ' 条']) : null
         ]),
         p.recordHint ? el('div', { class: 'ji-notes js-hint-text' }, [el('span', {}, ['操作指引：' + p.recordHint])]) : null,
+        p.statusNote ? el('div', { class: 'ji-notes js-hint-text' }, [el('span', {}, ['⏳ ' + p.statusNote])]) : null,
         p.note ? el('div', { class: 'ji-notes' }, [el('span', {}, ['⚠ ' + p.note])]) : null,
         p.error ? el('div', { class: 'ji-notes' }, [el('span', {}, ['⚠ ' + p.error])]) : null,
         p.pageState ? el('div', { class: 'ji-notes' }, [el('span', {}, ['⚠ 同步窗口' + (PAGE_STATE_TEXT[p.pageState] || '状态异常') + (p.pageTitle ? '：' + p.pageTitle.slice(0, 40) : '')])]) : null,
@@ -192,19 +213,39 @@
     }
 
     async function doCollect(p, kind) {
+      if (busy) return; // 抓取中忽略连点：并发两个 autoCollect 会共享会话缓冲，结果不可预期
       let res;
+      UI.toast('正在自动抓取 ' + p.name + (kind === 'collected' ? '收藏' : '投递记录') + '，请稍候…', 'ok');
+      setBusy(true);
       try {
-        res = await UI.call(window.api.jobSync.collect(p.id, kind));
+        // auto=true：自动打开平台页面并走到「投递记录 / 收藏」页抓取，无需手动调出界面
+        res = await UI.call(window.api.jobSync.collect(p.id, kind, true));
       } catch (err) {
         UI.toast('抓取失败：' + ((err && err.message) || err), 'err');
+        progressLine.style.display = 'none';
+        setBusy(false);
         return;
       }
       if (!res || !res.ok) {
-        UI.toast((res && res.error) || '未识别到记录', 'err');
+        const msg = (res && res.error) || '未识别到记录';
+        if (res && res.needLogin) {
+          UI.toast(msg + '（登录后会自动继续，无需再点一次）', 'err', 8000);
+        } else {
+          UI.toast(msg, 'err', 8000);
+        }
+        progressLine.style.display = 'none';
+        setBusy(false);
         await refresh();
         return;
       }
-      const picked = await showPreview(res.items, p.name, kind);
+      // 拉已有记录：预览里直接标出哪些「已存在 → 将更新」，合并行为不再靠猜
+      let existing = [];
+      try {
+        existing = (await UI.call(window.api.applications.list(ctx.userId))) || [];
+      } catch (_) { /* 拉不到就不标记，不影响导入 */ }
+      const picked = await showPreview(res.items, p.name, kind, existing);
+      progressLine.style.display = 'none';
+      setBusy(false);
       if (!picked || !picked.length) { await refresh(); return; }
       try {
         const stat = await UI.call(window.api.applications.importAuthorized(ctx.userId, {
@@ -225,6 +266,7 @@
     overlay.addEventListener('click', (e) => { if (e.target === overlay) close(); });
     overlay.appendChild(el('div', { class: 'modal-box ji-box' }, [
       el('h3', { class: 'modal-title' }, ['从招聘平台同步投递记录']),
+      progressLine,
       body,
       foot
     ]));
@@ -233,11 +275,19 @@
   }
 
   /** 预览 + 勾选：同步到的记录必须先经用户确认才落库 */
-  function showPreview(records, platformName, kind) {
+  function showPreview(records, platformName, kind, existing) {
     return new Promise((resolve) => {
+      // 与主进程 importAuthorized 一致的合并判定：同平台同 externalId，
+      // 或公司名 + 岗位名相同（忽略空格与标点）→ 这条会更新已有记录而不是新增
+      const norm = (v) => String(v || '').toLowerCase().replace(/[\s·•，,。.!！？:：()（）\[\]【】_-]+/g, '');
+      const existingList = Array.isArray(existing) ? existing : [];
+      const matchExisting = (c) => existingList.find((a) =>
+        (c.externalId && a.externalId && a.externalId === c.externalId && a.source === platformName) ||
+        (norm(a.company) === norm(c.company) && norm(a.position) === norm(c.position)));
       const items = (records || []).map((c, i) => {
         const box = el('input', { type: 'checkbox' });
         box.checked = true;
+        const hit = matchExisting(c);
         const editing = {};
         const field = (label, key) => {
           const input = el('input', { class: 'ji-input', value: c[key] || '', placeholder: label });
@@ -254,6 +304,7 @@
               el('b', {}, ['#' + (i + 1)]),
               el('span', { class: 'ji-platform' }, [platformName]),
               el('span', { class: 'ji-tag' }, [kind === 'collected' ? '收藏' : '已投递']),
+              hit ? el('span', { class: 'ji-tag ji-tag-dup' }, ['已存在 · 将更新']) : null,
               c.externalId ? el('span', { class: 'ji-tag' }, ['有平台ID']) : null,
               c.url ? el('span', { class: 'ji-tag' }, ['含链接']) : null
             ]),
@@ -266,12 +317,21 @@
             !c.place ? el('div', { class: 'ji-notes' }, [el('span', {}, ['⚠ 平台没给地点，填上才能算距离'])]) : null
           ])
         ]);
-        return { node, box, editing, raw: c };
+        return { node, box, editing, raw: c, hit };
       });
 
       const overlay = el('div', { class: 'modal-overlay' });
       const submit = el('button', { class: 'btn btn-primary', type: 'button' }, ['导入选中的 ' + items.length + ' 条']);
       const cancel = el('button', { class: 'btn btn-ghost', type: 'button' }, ['取消']);
+      // 勾选状态必须实时反映到按钮上：以前按钮文本创建时写死，用户取消几项后
+      // 右下角还显示着总数，根本不敢点。change 一响就重算，0 条时禁用。
+      const refreshSubmit = () => {
+        const n = items.filter((x) => x.box.checked).length;
+        submit.textContent = '导入选中的 ' + n + ' 条';
+        submit.disabled = n === 0;
+      };
+      items.forEach((x) => x.box.addEventListener('change', refreshSubmit));
+      refreshSubmit();
       const close = (v) => { overlay.remove(); resolve(v); };
       cancel.addEventListener('click', () => close(null));
       submit.addEventListener('click', () => {
@@ -284,13 +344,19 @@
           stage: x.raw.stage,
           notes: x.raw.notes
         })).filter((x) => x.company || x.position);
-        if (!picked.length) { UI.toast('一条都没选（公司名或岗位名至少要有一个）', 'err'); return; }
+        if (!picked.length) { UI.toast('勾选的记录都还没有公司名或岗位名，补上再导入', 'err'); return; }
         close(picked);
       });
       overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
 
       overlay.appendChild(el('div', { class: 'modal-box ji-box' }, [
-        el('h3', { class: 'modal-title' }, ['同步到 ' + items.length + ' 条，确认后导入']),
+        el('h3', { class: 'modal-title' }, [
+          '同步到 ' + items.length + ' 条，确认后导入'
+          + (() => {
+            const dup = items.filter((x) => x.hit).length;
+            return dup ? '（其中 ' + dup + ' 条将更新已有记录）' : '';
+          })()
+        ]),
         el('p', { class: 'ji-hint' }, [
           '这些记录来自 ' + platformName + ' 你自己的账号。内容可直接修改；同平台同 ID、或公司+岗位相同的记录会自动合并更新，不会重复。'
         ]),
@@ -304,7 +370,8 @@
 
   window.JobSync = {
     openPanel,
-    // 供测试用
-    _internal: { fmtTime, PAGE_STATE_TEXT }
+    // 供测试用：showPreview 暴露出来，让真实应用里的 CDP 诊断能直接驱动
+    // 预览模态（window.api 是 contextBridge 只读对象，页面里没法 stub collect）
+    _internal: { fmtTime, PAGE_STATE_TEXT, showPreview }
   };
 })();

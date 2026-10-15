@@ -14,7 +14,7 @@
 //  的管理口、云元数据地址 169.254.169.254 都能被探测）。所以：
 //    - 只允许 https
 //    - 解析出的主机名/各级跳转目标都必须不是内网/回环/链路本地
-//    - 限制体积、超时、内容类型
+//    - 限制体积、超时；按字节魔数判定图片格式（CDN 的 content-type 不可信）
 //    - 磁盘缓存：既是离线复用，也是对瓦片服务的礼貌（少重复请求）
 // ============================================================
 import fs from 'fs';
@@ -46,6 +46,19 @@ export const BUILTIN_TILE_SOURCES: TileSource[] = [
     attribution: '© 腾讯地图',
     maxZoom: 18,
     note: '默认官方地图源；地址解析与定位优先使用用户授权的腾讯位置服务能力。'
+  },
+  {
+    // 实测（2026-10，本机 Electron 网络栈）：腾讯瓦片服务把 content-type 标成
+    // application/octet-stream（内容其实是 JPEG），只认 header 会全拒；
+    // 高德回标准 image/png 且最快（~200ms），作为备选源保留。
+    id: 'amap',
+    name: '高德地图（国内，GCJ-02）',
+    datum: 'gcj02',
+    url: 'https://webrd{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+    subdomains: ['01', '02', '03', '04'],
+    attribution: '© 高德地图',
+    maxZoom: 18,
+    note: '面向网页的公开瓦片服务，个人低频查看用；连不上腾讯时切这个。'
   }
 ];
 
@@ -129,6 +142,27 @@ export function buildTileUrl(src: TileSource, z: number, x: number, y: number): 
 
 // ---------------- 抓取 + 缓存 ----------------
 
+/**
+ * 按文件头魔数识别真实图片格式。
+ *
+ * 为什么不能只信 content-type：实测腾讯瓦片服务（rt{s}.map.gtimg.com）把
+ * content-type 标成 application/octet-stream，内容却是合法 JPEG（头 4 字节
+ * ffd8ffe0）。老实现只认 header，于是真瓦片全被拒，界面一片黑、提示
+ * 「返回内容不是图片」。CDN 标错 content-type 是常事，判定以字节为准。
+ * 反过来 header 谎报 image/* 也要能拒（防止把内网服务的 JSON/HTML 当瓦片）。
+ */
+export function sniffImageMime(buf: Buffer): string | null {
+  if (!buf || buf.length < 12) return null;
+  if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+  if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47
+    && buf[4] === 0x0d && buf[5] === 0x0a && buf[6] === 0x1a && buf[7] === 0x0a) return 'image/png';
+  if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x38) return 'image/gif'; // GIF8
+  if (buf[0] === 0x42 && buf[1] === 0x4d) return 'image/bmp'; // BM
+  if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46
+    && buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) return 'image/webp'; // RIFF….WEBP
+  return null;
+}
+
 export interface TileFetchResult {
   ok: boolean;
   dataUrl?: string;
@@ -188,8 +222,10 @@ export async function fetchTile(opts: FetchTileOptions): Promise<TileFetchResult
   try {
     if (fs.existsSync(file)) {
       const buf = fs.readFileSync(file);
-      if (buf.length > 0 && buf.length <= MAX_TILE_BYTES) {
-        return { ok: true, cached: true, bytes: buf.length, dataUrl: 'data:image/png;base64,' + buf.toString('base64') };
+      // 缓存也按魔数判定：落盘时可能是 octet-stream 的 JPEG，读回来照样要用对的 mime
+      const mime = sniffImageMime(buf);
+      if (mime && buf.length > 0 && buf.length <= MAX_TILE_BYTES) {
+        return { ok: true, cached: true, bytes: buf.length, dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64') };
       }
     }
   } catch (_) { /* 缓存读失败就当没有，继续联网取 */ }
@@ -224,13 +260,18 @@ export async function fetchTile(opts: FetchTileOptions): Promise<TileFetchResult
     if (!resp) return { ok: false, error: '取瓦片失败' };
     if (!resp.ok) return { ok: false, error: '瓦片服务返回 HTTP ' + resp.status };
 
-    const ct = String(resp.headers.get('content-type') || '');
-    if (ct && ct.indexOf('image/') !== 0) return { ok: false, error: '返回内容不是图片（' + ct.slice(0, 40) + '）' };
-
     const ab = await resp.arrayBuffer();
     const buf = Buffer.from(ab);
     if (!buf.length) return { ok: false, error: '瓦片内容为空' };
     if (buf.length > MAX_TILE_BYTES) return { ok: false, error: '瓦片过大（' + Math.round(buf.length / 1024) + 'KB）' };
+
+    // 以字节为准判定是不是图片：header 可能是 octet-stream（腾讯实测）也可能
+    // 谎报 image/*（内网服务的 JSON/HTML 必须拒）。两者都不符才报错。
+    const mime = sniffImageMime(buf);
+    if (!mime) {
+      const ct = String(resp.headers.get('content-type') || '');
+      return { ok: false, error: '返回内容不是图片（' + (ct ? ct.slice(0, 40) : '无法识别') + '）' };
+    }
 
     try {
       fs.mkdirSync(cacheDir, { recursive: true });
@@ -238,7 +279,7 @@ export async function fetchTile(opts: FetchTileOptions): Promise<TileFetchResult
       pruneCache(cacheDir);
     } catch (_) { /* 写缓存失败不影响本次显示 */ }
 
-    return { ok: true, cached: false, bytes: buf.length, dataUrl: 'data:image/png;base64,' + buf.toString('base64') };
+    return { ok: true, cached: false, bytes: buf.length, dataUrl: 'data:' + mime + ';base64,' + buf.toString('base64') };
   } catch (err) {
     const e = err as Error;
     const msg = (ctl.signal.aborted || e.name === 'AbortError') ? '取瓦片超时' : String(e.message || e);
