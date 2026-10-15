@@ -428,7 +428,12 @@ ipcMain.handle('applications:importAuthorized', (_e, userId: string, payload: un
         const i = existing.findIndex((a) => a.id === hit.id);
         if (i >= 0) existing[i] = saved;
         updated++;
-      } else { existing.unshift(saved); added++; }
+      } else {
+        // ⚠ 不能再 existing.unshift(saved)——existing 是 store 内部数组的同一引用，
+        // saveApplication 新增分支里已经 unshift 过了；再 unshift 一次 = 同 id 记录
+        // 插两份，看板显示两张一样的卡，删除按 id 过滤一次删掉两条（用户实测踩过）。
+        added++;
+      }
       if (key) byKey.set(key, saved);
     }
     return ok({ added, updated, skipped, errors: [] });

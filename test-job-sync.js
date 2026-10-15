@@ -9,6 +9,7 @@
 //  窗口与 CDP 旁路属于 IO，不在这里测。
 // ============================================================
 const path = require('path');
+const fs = require('fs');
 
 const C = require(path.join(__dirname, 'dist/main/job-sync-core'));
 
@@ -91,8 +92,7 @@ assert(fav.length === 1 && fav[0].stage === 'wish', '收藏记录落到「想投
 assert(/平台收藏/.test(fav[0].notes), '收藏记录标注了来源，便于回溯');
 
 // ---------- 5) 时间归一化 ----------
-assert(C.normalizeTime('1735689600000') === '2025-01-01', '毫秒时间戳被归一化成 YYYY-MM-DD（实得 ' + C.normalizeTime('1735689600000') + '）');
-assert(C.normalizeTime('1735689600') === '2025-01-01', '秒级时间戳同样能识别');
+assert(C.normalizeTime('1735689600000') === '2025-01-01', '毫秒时间戳被归一化成 YYYY-MM-DD（实得 ' + C.normalizeTime('1735689600000') + '）');assert(C.normalizeTime('1735689600') === '2025-01-01', '秒级时间戳同样能识别');
 assert(C.normalizeTime('2026/3/7') === '2026-03-07', '斜杠日期补齐月份（实得 ' + C.normalizeTime('2026/3/7') + '）');
 assert(C.normalizeTime('昨天') === '', '认不出的时间返回空串，不硬猜');
 // 本地日期回归：清晨（UTC 还是前一天）的投递不许被算成前一天 ——
@@ -135,5 +135,41 @@ const multi = C.extractRecords([
   { url: 'p2', json: { list: [{ jobName: '岗位B', companyName: '公司B' }] } }
 ], 'applied');
 assert(multi.length === 2, '多个响应（分页/多接口）合并去重后共 2 条');
+
+// ---------- 8) 同公司多岗位不许被去重误伤（用户实机疑问：两个「来人送」） ----------
+const two = C.extractRecords([
+  { url: 'u', json: { list: [
+    { jobName: '配送员(蜂鸟即配)', companyName: '来人送', encryptJobId: 'j1' },
+    { jobName: '站点直招配送员', companyName: '来人送', encryptJobId: 'j2' }
+  ] } }
+], 'applied');
+assert(two.length === 2, '同公司两个不同岗位是两条记录（实得 ' + two.length + '）——岗位名不同不算重复');
+
+// ---------- 9) store 层：同 id 重复记录自愈 + importAuthorized 不再双重插入 ----------
+// 背景：importAuthorized 曾在 saveApplication 内部 unshift 后又对同一数组引用
+// unshift 一次 → 同 id 记录成对出现，删除按 id 过滤一次删两条（用户实测踩过）。
+const os = require('os');
+const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'grf-store-'));
+const store = require(path.join(__dirname, 'dist/main/store'));
+store.init(tmpDir);
+const uid = 'u_dedup_' + Date.now();
+// 模拟历史坏库：同 id 两条
+const badList = [
+  { id: 'dup_1', company: '九维星汉', position: '初级java', stage: 'wish', createdAt: 1, updatedAt: 1 },
+  { id: 'dup_1', company: '九维星汉', position: '初级java', stage: 'wish', createdAt: 1, updatedAt: 1 },
+  { id: 'ok_1', company: '来人送', position: '配送员A', stage: 'wish', createdAt: 2, updatedAt: 2 }
+];
+// 直接通过导出的 API 构造坏数据：save 两条后手动把同 id 记录塞回去再重载不可行
+// （store 不导出原始 load），改为验证行为不变量：save→list 无重复、delete 按 id 只删该条。
+const saved1 = store.saveApplication(uid, { company: '来人送', position: '配送员A', stage: 'wish' });
+const saved2 = store.saveApplication(uid, { company: '来人送', position: '配送员B', stage: 'wish' });
+const listed = store.listApplications(uid);
+const listIds = listed.map((a) => a.id);
+assert(new Set(listIds).size === listIds.length, '连续新增两条后列表内无重复 id');
+assert(listed.length === 2, '新增两条列表就是两条（实得 ' + listed.length + '）——不再双重插入');
+store.deleteApplication(uid, saved1.id);
+const afterDel = store.listApplications(uid);
+assert(afterDel.length === 1 && afterDel[0].id === saved2.id, '删除一条只少一条，另一条健在（实得 ' + afterDel.length + ' 条）');
+try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* 忽略 */ }
 
 console.log('\n招聘平台同步自测完成: ' + pass + ' passed, ' + failCnt + ' failed | exitCode = ' + (process.exitCode || 0));

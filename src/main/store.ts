@@ -228,6 +228,28 @@ function asUsers(value: unknown): StoredUser[] {
   );
 }
 
+/** 自愈：同 userId 下同 id 的投递记录只留最后一条（历史 bug 双重插入的修复）。
+ *  背景：importAuthorized 曾在 saveApplication 内部 unshift 之后又对同一数组
+ *  引用 unshift 一次，导致同 id 记录成对出现——看板显示两张一样的卡，
+ *  删除按 id 过滤一次删掉两条（用户实测踩过）。加载时静默去重即可，
+ *  不需要迁移脚本；rotateBackup 已在改动前留了备份。 */
+function dedupeApplications(): void {
+  for (const uid of Object.keys(db.applications)) {
+    const list = db.applications[uid];
+    if (!Array.isArray(list) || list.length < 2) continue;
+    const seen = new Set<string>();
+    const kept: Application[] = [];
+    for (let i = list.length - 1; i >= 0; i--) {
+      const a = list[i]!;
+      if (!a || typeof a !== 'object' || !a.id) { kept.unshift(a); continue; }
+      if (seen.has(a.id)) continue; // 丢弃较早的重复项（数组头部是旧的）
+      seen.add(a.id);
+      kept.unshift(a);
+    }
+    if (kept.length !== list.length) db.applications[uid] = kept;
+  }
+}
+
 function load(): void {
   try {
     if (dbFile && fs.existsSync(dbFile)) {
@@ -239,6 +261,7 @@ function load(): void {
       db.users = asUsers(parsed.users);
       db.profiles = asRecord(parsed.profiles);
       db.applications = asRecord(parsed.applications);
+      dedupeApplications(); // 历史双重插入自愈（见函数注释）
       db.sessions = asSessions(parsed.sessions);
       db.settings = asRecord(parsed.settings);
       db.agentSnapshots = asRecord(parsed.agentSnapshots);
