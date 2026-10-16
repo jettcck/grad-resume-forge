@@ -124,8 +124,8 @@ export const CAPTURE_SCRIPT = [
   '        try {',
   '          window.__grfJobsyncHits.xhr += 1;',
   '          var t = xhr.responseType;',
-  '          if (t === "" || t === "text") { report(xhr.responseURL || xhr.__grfUrl, xhr.responseText, location.href); }',
-  '          else if (t === "json" && xhr.response) { report(xhr.responseURL || xhr.__grfUrl, JSON.stringify(xhr.response), location.href); }',
+  '          if (t === "json" && xhr.response) { report(xhr.responseURL || xhr.__grfUrl, JSON.stringify(xhr.response), location.href); }',
+  '          else if (t === "" || t === "text") { report(xhr.responseURL || xhr.__grfUrl, xhr.responseText, location.href); }',
   '        } catch (e) {}',
   '      });',
   '    } catch (e) {}',
@@ -192,12 +192,13 @@ const AUTO_WAIT_MS = 12000;
 const AUTO_LOGIN_WAIT_MS = 120000;
 
 /**
- * 关键页面候选：2026-10-16 用户截图核实 BOSS 路由。
+ * 关键页面候选：2026-10-16 全平台实测（scripts/probe-platform-routes.js）。
  * BOSS 的「沟通/已投递」与「感兴趣（收藏）」都在 /web/geek/recommend 页，
- * 靠 tab 参数区分：tab=4&sub=1 是「感兴趣 → 职位收藏」（见用户截图地址栏
- * https://www.zhipin.com/web/geek/recommend?tab=4&sub=1&page=1&tag=4）。
- * 注意：写错成 tab=48 时，BOSS 会回退到 /web/geek/jobs 推荐流，导致抓出
- * 「谁看过我 / 热门职位」里的配送员、主播等无关公司。
+ * 靠 tab 参数区分：tab=4&sub=1 是「感兴趣 → 职位收藏」（用户截图地址栏核实）。
+ * 写错成 tab=48 时，BOSS 会回退到 /web/geek/jobs 推荐流，导致抓出侧栏无关公司。
+ *
+ * 排序原则：实测存活的直达地址在前，首页兜底殿后；实测死亡（500/空页）
+ * 的地址删除，避免每次抓取都白等 12 秒才换下一条。
  */
 const CANDIDATE_URLS: Record<string, Record<'applied' | 'collected', string[]>> = {
   boss: {
@@ -211,20 +212,36 @@ const CANDIDATE_URLS: Record<string, Record<'applied' | 'collected', string[]>> 
     ]
   },
   zhaopin: {
-    applied: ['https://i.zhaopin.com/resume/apply', 'https://i.zhaopin.com/'],
-    collected: ['https://i.zhaopin.com/resume/collect', 'https://i.zhaopin.com/']
+    // 实测 i.zhaopin.com/resume/* 已是空页（路由废弃），i 根域 302 回 www 首页。
+    // 记录页在登录后的个人中心（右上角头像 → 我的申请），交给 DOM 发现兜底。
+    applied: ['https://i.zhaopin.com/', 'https://www.zhaopin.com/'],
+    collected: ['https://i.zhaopin.com/', 'https://www.zhaopin.com/']
   },
   '51job': {
-    applied: ['https://www.51job.com/userset/my_apply.php', 'https://www.51job.com/'],
-    collected: ['https://www.51job.com/userset/my_collect.php', 'https://www.51job.com/']
+    // 实测 userset/my_apply.php、my_collect.php 均返回 500（页面已下线）。
+    // 新个人中心在 my.51job.com，登录后由 DOM 发现找「我的申请 / 收藏」入口。
+    applied: ['https://my.51job.com/', 'https://www.51job.com/'],
+    collected: ['https://my.51job.com/', 'https://www.51job.com/']
   },
   shixiseng: {
+    // 实测两条路由均存活：未登录也返回站内框架页，登录后渲染记录列表
     applied: ['https://www.shixiseng.com/user/deliver', 'https://www.shixiseng.com/'],
     collected: ['https://www.shixiseng.com/user/collect', 'https://www.shixiseng.com/']
   },
   liepin: {
+    // 实测 /collect/ 302 回首页；记录页在登录后的「我的猎聘」个人中心
     applied: ['https://www.liepin.com/zhaopin/', 'https://www.liepin.com/'],
-    collected: ['https://www.liepin.com/collect/', 'https://www.liepin.com/']
+    collected: ['https://www.liepin.com/zhaopin/', 'https://www.liepin.com/']
+  },
+  lagou: {
+    // 首页常年弹滑块验证（平台 note 已说明），验证通过后走 DOM 发现
+    applied: ['https://www.lagou.com/'],
+    collected: ['https://www.lagou.com/']
+  },
+  iguopin: {
+    // 实测 personal/deliver、personal/collect 路由存活（未登录返回框架页）
+    applied: ['https://www.iguopin.com/personal/deliver', 'https://www.iguopin.com/'],
+    collected: ['https://www.iguopin.com/personal/collect', 'https://www.iguopin.com/']
   }
 };
 

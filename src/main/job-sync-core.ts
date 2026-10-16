@@ -44,21 +44,21 @@ export const SYNC_PLATFORMS: SyncPlatform[] = [
     id: 'zhaopin',
     name: '智联招聘',
     entryUrl: 'https://www.zhaopin.com/',
-    recordHint: '登录后进入「个人中心」→ 已投递 / 我的收藏',
+    recordHint: '登录后悬停右上角头像 → 「我的申请」（投递记录 / 收藏职位都在这里）',
     syncable: true
   },
   {
     id: '51job',
     name: '前程无忧',
     entryUrl: 'https://www.51job.com/',
-    recordHint: '登录后进入「个人中心」→ 投递记录 / 我的收藏',
+    recordHint: '登录后点击个人姓名 → 「我的申请」（投递记录）；旧版 userset 页面已下线',
     syncable: true
   },
   {
     id: 'shixiseng',
     name: '实习僧',
     entryUrl: 'https://www.shixiseng.com/',
-    recordHint: '登录后点右上角头像 → 我的投递 / 我的收藏',
+    recordHint: '登录后点右上角头像 → 我的投递 / 我的收藏（会自动直达）',
     syncable: true
   },
   {
@@ -80,7 +80,7 @@ export const SYNC_PLATFORMS: SyncPlatform[] = [
     id: 'iguopin',
     name: '国聘',
     entryUrl: 'https://www.iguopin.com/',
-    recordHint: '登录后进入「个人中心」→ 我的投递',
+    recordHint: '登录后进入「个人中心」→ 我的投递 / 我的收藏（会自动直达）',
     syncable: true
   },
   {
@@ -231,6 +231,136 @@ export function extractRecords(
 // 只允许「明显是主列表」的接口，侧栏/推荐/广告噪音必须排除。
 // 只对 BOSS 生效，其他平台原样放行。
 
+// ---------------- 全平台「路由 + 噪音」注册表 ----------------
+//
+// BOSS 的修复路线（猜地址 → 真实诊断 → 按接口归属过滤）已验证有效。
+// 这里把同一套机制推广成注册表：每个平台声明
+//   noise    —— 明确不是记录数据的接口/页面（推荐流、侧栏、埋点）
+//   applied  —— 投递记录响应的归属判定（可选，逐条 URL 测试）
+//   collected—— 收藏响应的归属判定
+// 判定函数返回 true = 这条响应属于该类记录；未声明判定的平台维持旧行为
+// （只做噪音排除，其余放行），等实测后再补。
+
+/** 平台噪音接口：所有招聘站的埋点/推荐/侧栏共性，一律不参与记录解析 */
+const COMMON_NOISE = [
+  /\/wapi\/zp(Apm|Common)\/(?:actionLog|httpMetrics|toggle)/i,   // BOSS 埋点
+  /\/(?:actionLog|track|beacon|log|metrics)\b/i,                 // 通用埋点
+  /\/(?:sidebar|footer|header|banner|popup|tip|guide|toggle)\b/i, // 页面框架配置
+  /\/(?:city|industry|site|searchSucc|querybar)\b/i              // 城市表/行业表等字典
+];
+
+export interface PlatformRouteRule {
+  /** 明确的噪音判定：命中即丢弃（不参与任何 kind） */
+  noise?: Array<RegExp>;
+  /** 投递记录归属判定：返回 true = 属于投递 */
+  applied?: (url: string) => boolean;
+  /** 收藏归属判定：返回 true = 属于收藏 */
+  collected?: (url: string) => boolean;
+}
+
+export const PLATFORM_ROUTE_RULES: Record<string, PlatformRouteRule> = {
+  boss: {
+    noise: [
+      /\/web\/geek\/(?:jobs|job-recommend)(?:[/?&#]|$)/i,
+      /\/(?:see|look|viewer|visited|visit|similar|ad|banner)\b/i,
+      /\/(?:sidebar|friend|chat|msg|message|history|geek\/interaction)\b/i
+    ],
+    applied: (url) => {
+      const api = url.split('__grf_page=')[0];
+      const tag = /[?&]tag=(\d+)/i.exec(api);
+      if (tag) return ['1', '2', '3', '148'].includes(tag[1]);
+      const tab = bossTabOf(url);
+      return tab === '1' || tab === '2' || tab === '148';
+    },
+    collected: (url) => {
+      const api = url.split('__grf_page=')[0];
+      const tag = /[?&]tag=(\d+)/i.exec(api);
+      if (tag) return tag[1] === '4';
+      const tab = bossTabOf(url);
+      return tab === '4' || tab === '48';
+    }
+  },
+  // 实习僧：直达路由 user/deliver、user/collect 实测存活（2026-10-16）。
+  // 噪音：首页职位流/搜索结果（/search、/interns 下的公共列表）不是个人记录。
+  shixiseng: {
+    noise: [
+      /\/(?:search|interns|campus|school)\b/i,
+      /\/(?:api\/)?(?:common|dict|area|banner)s?\b/i
+    ],
+    collected: (url) => /\/user\/(?:collect|favou?rite|collection)\b/i.test(url),
+    applied: (url) => /\/user\/(?:deliver|deliver y|apply|send)\b/i.test(url)
+  },
+  // 国聘：personal/deliver、personal/collect 实测存活（2026-10-16）
+  iguopin: {
+    noise: [
+      /\/(?:search|recommend|position|job)\/?(?:\?|$)/i,
+      /\/(?:api\/)?(?:common|dict|area|banner)s?\b/i
+    ],
+    collected: (url) => /\/personal\/(?:collect|favou?rite|collection)\b/i.test(url),
+    applied: (url) => /\/personal\/(?:deliver|apply|send)\b/i.test(url)
+  },
+  // 猎聘：/collect/ 302 回首页（实测），记录页在登录后的个人中心；
+  // 未实测出接口归属前，先只做噪音排除（recommend/搜索流）。
+  liepin: {
+    noise: [
+      /\/(?:zhaopin|jobs?a?\/?(?:list|search)|recommend)\b/i,
+      /\/(?:login|passport|reg(?:ister)?)\b/i
+    ]
+  },
+  // 智联：i.zhaopin.com/resume/* 已废弃（实测空页）；记录页路由待登录后实测。
+  zhaopin: {
+    noise: [
+      /\/(?:login|passport|reg(?:ister)?)\b/i,
+      /\/(?:jobs?|position)s?\/?(?:\?|$)/i,
+      /\/(?:special|campus|city)\b/i
+    ]
+  },
+  // 前程无忧：userset/*.php 已 500（实测下线）；新个人中心 my.51job.com 待实测。
+  '51job': {
+    noise: [
+      /\/userset\/.*/i,
+      /\/(?:login|passport)\b/i,
+      /\/(?:search|jobs?|list)\b/i,
+      /\/(?:special|campus|city)\b/i
+    ]
+  },
+  // 拉勾：首页常年滑块验证；gate.lagou.com 的数据接口归属待登录后实测。
+  lagou: {
+    noise: [
+      /\/(?:login|frontLogin|verify)\b/i,
+      /\/(?:jobs?|list|search)\b/i
+    ]
+  }
+};
+
+function hitAny(patterns: Array<RegExp>, url: string): boolean {
+  return patterns.some((re) => re.test(url));
+}
+
+/**
+ * 按「目标 kind」过滤捕获缓冲（全平台通用入口）：
+ *  1) 公共噪音一律丢弃；
+ *  2) 平台自有噪音一律丢弃；
+ *  3) 声明了归属判定的平台：只收判定为 true 的响应；
+ *  4) 未声明判定的平台：维持旧行为（其余放行，等实测补规则）。
+ */
+export function filterBodiesByPlatform(
+  platformId: string,
+  kind: 'applied' | 'collected',
+  bodies: Array<{ url: string; json: unknown; at?: number }>
+): Array<{ url: string; json: unknown; at?: number }> {
+  const rule = PLATFORM_ROUTE_RULES[platformId];
+  if (!rule) return bodies;
+  return bodies.filter((b) => {
+    const raw = String(b.url || '');
+    const apiPart = raw.split('__grf_page=')[0];
+    if (hitAny(COMMON_NOISE, apiPart)) return false;
+    if (rule.noise && hitAny(rule.noise, apiPart)) return false;
+    const owns = kind === 'applied' ? rule.applied : rule.collected;
+    return owns ? owns(raw) : true;
+  });
+}
+
 /**
  * 从捕获 URL 里取 BOSS 当前页签值，没有返回空串。
  *
@@ -283,20 +413,11 @@ export function isBossNoiseResponse(url: string, kind: 'applied' | 'collected'):
   return false;
 }
 
-/** 按「目标页签」过滤捕获缓冲：见上方注释 */
+/** 按「目标页签」过滤捕获缓冲：向后兼容包装，内部走注册表 */
 export function filterBodiesByTab(
   platformId: string,
   kind: 'applied' | 'collected',
   bodies: Array<{ url: string; json: unknown; at?: number }>
 ): Array<{ url: string; json: unknown; at?: number }> {
-  if (platformId !== 'boss') return bodies;
-  return bodies.filter((b) => {
-    const raw = String(b.url || '');
-    if (isBossNoiseResponse(raw, kind)) return false;
-    const tab = bossTabOf(raw);
-    if (!tab) return true;
-    if (kind === 'collected') return tab === '4' || tab === '48';
-    // 沟通 / 已投递：兼容 tab=1（沟通过）、tab=2（已投递）、tab=148（旧版/子入口）
-    return tab === '1' || tab === '2' || tab === '148';
-  });
+  return filterBodiesByPlatform(platformId, kind, bodies);
 }
