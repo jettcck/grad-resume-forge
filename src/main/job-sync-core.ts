@@ -116,9 +116,9 @@ export interface SyncRecord {
 }
 
 // 字段别名：不同平台（甚至同一平台的不同接口）用词都不一样
-const COMPANY_KEYS = ['companyName', 'company', 'compName', 'brandName', 'companyFullName', 'companyTitle', 'corpName', 'employerName', 'firmName'];
+const COMPANY_KEYS = ['companyName', 'company', 'compName', 'brandName', 'companyFullName', 'companyTitle', 'corpName', 'employerName', 'firmName', 'brandComName'];
 const POSITION_KEYS = ['jobName', 'jobTitle', 'positionName', 'position', 'posName', 'jobPosition', 'title', 'job'];
-const PLACE_KEYS = ['cityName', 'city', 'workCity', 'jobCity', 'location', 'locationName', 'address', 'areaName'];
+const PLACE_KEYS = ['cityName', 'city', 'workCity', 'jobCity', 'location', 'locationName', 'address', 'areaName', 'areaDistrict', 'businessDistrict'];
 const ID_KEYS = ['jobId', 'encryptJobId', 'positionId', 'encryptPositionId', 'job_id', 'deliverId', 'applyId', 'id'];
 const URL_KEYS = ['jobUrl', 'positionUrl', 'detailUrl', 'url', 'link', 'jobLink'];
 const TIME_KEYS = ['applyTime', 'deliverTime', 'deliveryTime', 'collectTime', 'favTime', 'createTime', 'updateTime', 'date', 'time'];
@@ -222,18 +222,65 @@ export function extractRecords(
 
 // ---------------- BOSS 页签过滤 ----------------
 //
-// BOSS /web/geek/recommend 是多页签页面：tab=148 沟通（含已投递）、
-// tab=48 感兴趣（用户口中的「收藏」）。页面切页签不重新导航，两个页签
-// 的数据响应会先后落进同一个捕获缓冲——不按 tab 过滤，「抓取收藏」会
-// 把沟通记录一起带进来（用户实测：收藏里混进了没投过的公司）。
+// BOSS /web/geek/recommend 是多页签页面：用户截图实测 tab=4 是「感兴趣 → 职位收藏」。
+// tab=48 并不是收藏页，BOSS 会回退到 /web/geek/jobs 推荐流，导致把侧栏/推荐职位误抓进来。
+// tab=148 是旧版本/部分入口返回的沟通页签值，因此仍兼容沟通过滤。
+// 页面切页签不重新导航，两个页签的数据响应会先后落进同一个捕获缓冲。
 //
 // 规则：响应 URL 带 tab= → 只收与目标页签一致的；不带 tab= 的响应
-// （首页/公共接口）两边都可用。只对 BOSS 生效，其他平台原样放行。
+// 只允许「明显是主列表」的接口，侧栏/推荐/广告噪音必须排除。
+// 只对 BOSS 生效，其他平台原样放行。
 
-/** 从 URL 里取 tab 参数值，没有返回空串 */
+/**
+ * 从捕获 URL 里取 BOSS 当前页签值，没有返回空串。
+ *
+ * 页面切换「沟通过 / 已投递 / 面试 / 感兴趣」时，接口 URL 可能保持不变，
+ * 主进程会把当时的页面地址编码到 __grf_page 参数里；该值必须优先于
+ * 接口自身可能残留的 tab 参数。
+ * 用户截图实测：tab=4 是「感兴趣 → 职位收藏」。
+ */
 export function bossTabOf(url: string): string {
-  const m = /[?&]tab=(\d+)/.exec(String(url || ''));
+  const raw = String(url || '');
+  const page = /[?&]__grf_page=([^&]+)/.exec(raw);
+  if (page) {
+    try {
+      const pageUrl = decodeURIComponent(page[1]);
+      const pm = /[?&]tab=(\d+)/.exec(pageUrl);
+      if (pm) return pm[1];
+    } catch (_) { /* 保留对原始 URL 的解析兜底 */ }
+  }
+  const m = /[?&]tab=(\d+)/.exec(raw);
   return m ? m[1] : '';
+}
+
+/**
+ * 判断一条 BOSS 响应是否明显来自「非目标列表」的噪音接口
+ * （首页职位推荐流、右下角「谁看过我 / 对我感兴趣的」小卡片、广告等）。
+ */
+export function isBossNoiseResponse(url: string, kind: 'applied' | 'collected'): boolean {
+  const raw = String(url || '');
+  // 1) /web/geek/jobs 是职位搜索/推荐流，不是个人投递或收藏页
+  if (/\/web\/geek\/jobs(?:[/?&#]|$)/i.test(raw) || /__grf_page=[^&]*%2Fweb%2Fgeek%2Fjobs(?:%3F|%26|%23|$)/i.test(raw)) {
+    return true;
+  }
+  // 2) 右下角侧栏「谁看过我 / 对我感兴趣的」或相似职位推荐接口
+  const apiPart = raw.split('__grf_page=')[0];
+  if (/\/(?:see|look|viewer|visited|visit|recommend\/job|job\/recommend|similar|ad|banner)\b/i.test(apiPart)) {
+    return true;
+  }
+  // 3) geekGetJob 的 tag 参数才是接口所属模块，优先级高于页面 tab。
+  // 页面停在 tab=4 时，右侧侧栏仍会并发请求 tag=2；收藏只能接收 tag=4。
+  const tagMatch = /[?&]tag=(\d+)/i.exec(apiPart);
+  if (tagMatch) {
+    const tag = tagMatch[1];
+    if (kind === 'collected') return tag !== '4';
+    return !['1', '2', '3', '148'].includes(tag);
+  }
+  // 4) 收藏页的侧栏接口明确排除
+  if (kind === 'collected' && /\/(?:sidebar|resume\/sidebar|friend|chat|msg|message|history|geek\/interaction)\b/i.test(apiPart)) {
+    return true;
+  }
+  return false;
 }
 
 /** 按「目标页签」过滤捕获缓冲：见上方注释 */
@@ -243,9 +290,13 @@ export function filterBodiesByTab(
   bodies: Array<{ url: string; json: unknown; at?: number }>
 ): Array<{ url: string; json: unknown; at?: number }> {
   if (platformId !== 'boss') return bodies;
-  const want = kind === 'collected' ? '48' : '148';
   return bodies.filter((b) => {
-    const tab = bossTabOf(b.url);
-    return !tab || tab === want;
+    const raw = String(b.url || '');
+    if (isBossNoiseResponse(raw, kind)) return false;
+    const tab = bossTabOf(raw);
+    if (!tab) return true;
+    if (kind === 'collected') return tab === '4' || tab === '48';
+    // 沟通 / 已投递：兼容 tab=1（沟通过）、tab=2（已投递）、tab=148（旧版/子入口）
+    return tab === '1' || tab === '2' || tab === '148';
   });
 }

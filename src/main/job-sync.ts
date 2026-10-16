@@ -84,7 +84,7 @@ export const CAPTURE_SCRIPT = [
   '  window.__grfJobsyncHits = { fetch: 0, xhr: 0, report: 0 };',
   '  var MAX = 4194304;',
   '  var CH = "__grf_jobsync_capture";',
-  '  function report(url, text) {',
+  '  function report(url, text, pageUrl) {',
   '    try {',
   '      if (!text) return;',
   '      var s = String(text).trim();',
@@ -92,7 +92,7 @@ export const CAPTURE_SCRIPT = [
   '      var c = s.charAt(0);',
   '      if (c !== "{" && c !== "[") return;',
   '      window.__grfJobsyncHits.report += 1;',
-  '      window.postMessage({ __grfJobsync: CH, url: String(url || ""), body: s }, location.origin);',
+  '      window.postMessage({ __grfJobsync: CH, url: String(url || ""), pageUrl: String(pageUrl || location.href || ""), body: s }, location.origin);',
   '    } catch (e) {}',
   '  }',
   '  var of = window.fetch;',
@@ -105,7 +105,7 @@ export const CAPTURE_SCRIPT = [
   '      try {',
   '        p.then(function (res) {',
   '          window.__grfJobsyncHits.fetch += 1;',
-  '          try { res.clone().text().then(function (txt) { report(url, txt); }).catch(function () {}); } catch (e) {}',
+  '          try { res.clone().text().then(function (txt) { report(res.url || url, txt, location.href); }).catch(function () {}); } catch (e) {}',
   '        }).catch(function () {});',
   '      } catch (e) {}',
   '      return p;',
@@ -124,8 +124,8 @@ export const CAPTURE_SCRIPT = [
   '        try {',
   '          window.__grfJobsyncHits.xhr += 1;',
   '          var t = xhr.responseType;',
-  '          if (t === "" || t === "text") { report(xhr.__grfUrl, xhr.responseText); }',
-  '          else if (t === "json" && xhr.response) { report(xhr.__grfUrl, JSON.stringify(xhr.response)); }',
+  '          if (t === "" || t === "text") { report(xhr.responseURL || xhr.__grfUrl, xhr.responseText, location.href); }',
+  '          else if (t === "json" && xhr.response) { report(xhr.responseURL || xhr.__grfUrl, JSON.stringify(xhr.response), location.href); }',
   '        } catch (e) {}',
   '      });',
   '    } catch (e) {}',
@@ -146,9 +146,11 @@ interface SyncSession {
   /** 已收录的 URL，避免同一响应重复入库 */
   seen: Set<string>;
   /** 收到采集 IPC 时按 platformId 找到会话用 */
-  ipcListener?: (ev: unknown, payload: { url?: string; body?: string }) => void;
+  ipcListener?: (ev: unknown, payload: { url?: string; pageUrl?: string; body?: string }) => void;
   /** 最近一次页面体检结果 */
   page: { title: string; finalUrl: string; bodyText: string; blockReason: string };
+  /** 捕获响应发生时的页面 URL，切页签不一定会改变 API URL */
+  capturePageUrl?: string;
   lastError: string;
   /** 用户点击同步窗口右上角 X 时只隐藏，不销毁会话，避免触发应用退出 */
   allowClose: boolean;
@@ -191,16 +193,22 @@ const AUTO_LOGIN_WAIT_MS = 120000;
 
 /**
  * 关键页面候选：2026-10-16 用户截图核实 BOSS 路由。
- * BOSS 的「投递记录」与「感兴趣（收藏）」共用 /web/geek/recommend 页，
- * 靠 tab 参数区分：tab=148 沟通（含已投递）、tab=48 感兴趣（即收藏）。
- * 其余平台用 DOM 发现兜底。
+ * BOSS 的「沟通/已投递」与「感兴趣（收藏）」都在 /web/geek/recommend 页，
+ * 靠 tab 参数区分：tab=4&sub=1 是「感兴趣 → 职位收藏」（见用户截图地址栏
+ * https://www.zhipin.com/web/geek/recommend?tab=4&sub=1&page=1&tag=4）。
+ * 注意：写错成 tab=48 时，BOSS 会回退到 /web/geek/jobs 推荐流，导致抓出
+ * 「谁看过我 / 热门职位」里的配送员、主播等无关公司。
  */
 const CANDIDATE_URLS: Record<string, Record<'applied' | 'collected', string[]>> = {
   boss: {
-    // 「沟通」页签：站点自己的「已投递」入口
+    // 「沟通过 / 已投递」页签（沿用已验证的投递入口）
     applied: ['https://www.zhipin.com/web/geek/recommend?tab=148&sub=1', 'https://www.zhipin.com/web/geek/recommend'],
-    // 「感兴趣」页签（用户口中的「收藏」）；旧的 /web/geek/collect、/favorite 均不存在
-    collected: ['https://www.zhipin.com/web/geek/recommend?tab=48&sub=1', 'https://www.zhipin.com/web/geek/recommend?tab=48']
+    // 「感兴趣」页签（用户口中的「收藏」）：真实地址为 tab=4&sub=1
+    collected: [
+      'https://www.zhipin.com/web/geek/recommend?tab=4&sub=1&page=1&tag=4',
+      'https://www.zhipin.com/web/geek/recommend?tab=4&sub=1',
+      'https://www.zhipin.com/web/geek/recommend?tab=4'
+    ]
   },
   zhaopin: {
     applied: ['https://i.zhaopin.com/resume/apply', 'https://i.zhaopin.com/'],
@@ -654,6 +662,7 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     bodies: [],
     seen: new Set(),
     page: { title: '', finalUrl: '', bodyText: '', blockReason: '' },
+    capturePageUrl: '',
     lastError: '',
     allowClose: false,
     auto: false,
@@ -676,16 +685,22 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
     const head = body.trimStart().charAt(0);
     if (head !== '{' && head !== '[') return; // 只收 JSON
     const url = String(payload.url || '');
-    if (s.seen.has(url) && s.bodies.some((b) => b.url === url)) {
+    const pageUrl = String(payload.pageUrl || '');
+    // BOSS 切换「沟通 / 感兴趣」时通常不改 API URL，真正的页签只存在于
+    // 当时的 location.href。把它附到响应 URL 上，后续过滤才不会误判。
+    const effectiveUrl = pageUrl && /zhipin\.com/i.test(pageUrl)
+      ? url + (url.indexOf('?') >= 0 ? '&' : '?') + '__grf_page=' + encodeURIComponent(pageUrl)
+      : url;
+    if (s.seen.has(effectiveUrl) && s.bodies.some((b) => b.url === effectiveUrl)) {
       // 同一 URL 已有记录则覆盖最新一份（价格/状态这类字段会变）
-      const idx = s.bodies.findIndex((b) => b.url === url);
-      if (idx >= 0) { try { s.bodies[idx] = { url, json: JSON.parse(body), at: Date.now() }; } catch (_) { /* 忽略 */ } }
+      const idx = s.bodies.findIndex((b) => b.url === effectiveUrl);
+      if (idx >= 0) { try { s.bodies[idx] = { url: effectiveUrl, json: JSON.parse(body), at: Date.now() }; } catch (_) { /* 忽略 */ } }
       return;
     }
     try {
       const json = JSON.parse(body);
-      s.seen.add(url);
-      s.bodies.push({ url, json, at: Date.now() });
+      s.seen.add(effectiveUrl);
+      s.bodies.push({ url: effectiveUrl, json, at: Date.now() });
       if (s.bodies.length > MAX_CAPTURED) s.bodies.splice(0, s.bodies.length - MAX_CAPTURED);
     } catch (_) { /* 非合法 JSON，丢弃 */ }
   };

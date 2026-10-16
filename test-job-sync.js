@@ -172,24 +172,35 @@ const afterDel = store.listApplications(uid);
 assert(afterDel.length === 1 && afterDel[0].id === saved2.id, '删除一条只少一条，另一条健在（实得 ' + afterDel.length + ' 条）');
 try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch (_) { /* 忽略 */ }
 
-// ---------- N) BOSS recommend 多页签过滤（收藏=感兴趣 tab=48，不混入沟通 tab=148） ----------
-// 回归背景：BOSS /web/geek/recommend 是多页签页面，tab=148 沟通（含已投递）、tab=48 感兴趣（收藏）。
-// 旧实现不区分页签，抓取收藏时把沟通页签的公司混了进来。
+// ---------- N) BOSS recommend 多页签过滤（收藏=感兴趣 tab=4，不混入沟通 tab=148） ----------
+// 回归背景：BOSS /web/geek/recommend 中 tab=4 是「感兴趣→职位收藏」；tab=48 会回退到推荐流。
+// 旧实现把 tab=48 当成收藏，最终抓到「谁看过我/推荐职位」里的公司。
 const bossBodies = [
-  { url: 'https://www.zhipin.com/web/geek/recommend?tab=48&sub=1', json: { zpData: { list: [{ jobName: 'A岗', companyName: '感兴趣公司' }] } } },
-  { url: 'https://www.zhipin.com/web/geek/recommend?tab=148&sub=1', json: { zpData: { list: [{ jobName: 'B岗', companyName: '沟通公司' }] } } }
+  { url: 'https://www.zhipin.com/web/geek/recommend?tab=4&sub=1', json: { zpData: { list: [{ jobName: 'A岗', companyName: '感兴趣公司' }] } } },
+  { url: 'https://www.zhipin.com/web/geek/recommend?tab=148&sub=1', json: { zpData: { list: [{ jobName: 'B岗', companyName: '沟通公司' }] } } },
+  { url: 'https://www.zhipin.com/web/geek/jobs', json: { zpData: { list: [{ jobName: 'C岗', companyName: '推荐流公司' }] } } }
 ];
-assert(C.bossTabOf('https://www.zhipin.com/web/geek/recommend?tab=48&sub=1') === '48', 'bossTabOf 解析出 tab=48');
+assert(C.bossTabOf('https://www.zhipin.com/web/geek/recommend?tab=4&sub=1') === '4', 'bossTabOf 解析出 tab=4（感兴趣/收藏）');
+assert(C.bossTabOf('https://www.zhipin.com/web/geek/recommend?tab=48&sub=1') === '48', 'bossTabOf 仍能解析旧版 tab=48');
 assert(C.bossTabOf('https://www.zhipin.com/web/geek/recommend') === '', 'bossTabOf 无 tab 参数返回空串');
+const encodedInterestPage = encodeURIComponent('https://www.zhipin.com/web/geek/recommend?tab=4&sub=1');
+assert(C.bossTabOf('https://www.zhipin.com/api/list?tab=148&__grf_page=' + encodedInterestPage) === '4', '页面页签优先于接口残留 tab 参数');
 const favOnly = C.filterBodiesByTab('boss', 'collected', bossBodies);
-assert(favOnly.length === 1, '抓取收藏时缓冲只保留 tab=48 的响应（实得 ' + favOnly.length + ' 条）');
+assert(favOnly.length === 1, '抓取收藏时缓冲只保留 tab=4 的响应（实得 ' + favOnly.length + ' 条）');
 const favRecs = C.extractRecords(favOnly, 'collected');
-assert(favRecs.length === 1 && favRecs[0].company === '感兴趣公司', 'BOSS 抓取收藏只出「感兴趣」公司，不混入沟通页签');
+assert(favRecs.length === 1 && favRecs[0].company === '感兴趣公司', 'BOSS 抓取收藏只出「感兴趣」公司，不混入沟通页签和推荐流');
+const sidebar = [
+  { url: 'https://www.zhipin.com/wapi/zprelation/interaction/geekGetJob?page=1&tag=2', json: { list: [{ jobName: '侧栏岗位', companyName: '侧栏公司' }] } },
+  { url: 'https://www.zhipin.com/wapi/zpgeek/resume/sidebar.json', json: { list: [{ jobName: '侧栏岗位2', companyName: '侧栏公司2' }] } }
+];
+assert(C.filterBodiesByTab('boss', 'collected', sidebar).length === 0, '收藏抓取排除 tag=2 与 sidebar 侧栏响应');
+const tag4 = [{ url: 'https://www.zhipin.com/wapi/zprelation/interaction/geekGetJob?page=1&tag=4&isActive=true', json: { list: [{ jobName: '收藏岗位', companyName: '收藏公司' }] } }];
+assert(C.filterBodiesByTab('boss', 'collected', tag4).length === 1, '收藏抓取保留 geekGetJob 的 tag=4 主列表响应');
 const appOnly = C.filterBodiesByTab('boss', 'applied', bossBodies);
 const appRecs = C.extractRecords(appOnly, 'applied');
 assert(appRecs.length === 1 && appRecs[0].company === '沟通公司', '抓取沟通时只出 tab=148 的公司，不混入感兴趣页签');
 // 非 BOSS 平台不做过滤（不误伤其他平台的响应）
 const other = C.filterBodiesByTab('liepin', 'collected', bossBodies);
-assert(other.length === 2, '非 BOSS 平台不做页签过滤（实得 ' + other.length + ' 条）');
+assert(other.length === 3, '非 BOSS 平台不做页签过滤（实得 ' + other.length + ' 条）');
 
 console.log('\n招聘平台同步自测完成: ' + pass + ' passed, ' + failCnt + ' failed | exitCode = ' + (process.exitCode || 0));

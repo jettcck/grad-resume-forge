@@ -29,13 +29,17 @@ const CHANNEL = 'jobsync:captured';
 const PAGE_CHANNEL = '__grf_jobsync_capture';
 const MAX_BODY = 4 * 1024 * 1024;
 
-function report(url, text) {
+function report(url, pageUrl, text) {
   try {
     if (!text) return;
     const s = String(text).trim();
     if (s.length > MAX_BODY) return;
     if (s[0] !== '{' && s[0] !== '[') return; // 只收 JSON
-    ipcRenderer.send(CHANNEL, { url: String(url || ''), body: s });
+    ipcRenderer.send(CHANNEL, {
+      url: String(url || ''),
+      pageUrl: String(pageUrl || location.href || ''),
+      body: s
+    });
   } catch (_) { /* 采集失败绝不影响页面 */ }
 }
 
@@ -55,7 +59,7 @@ window.addEventListener('message', (event) => {
     const d = event.data;
     if (!d || typeof d !== 'object') return;
     if (d.__grfJobsync === PAGE_CHANNEL) {
-      report(d.url, d.body);
+      report(d.url, d.pageUrl, d.body);
       return;
     }
     // 采集脚本注入成功后的就绪回执
