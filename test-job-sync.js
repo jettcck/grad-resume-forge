@@ -199,8 +199,18 @@ assert(C.filterBodiesByTab('boss', 'collected', tag4).length === 1, '收藏抓�
 const appOnly = C.filterBodiesByTab('boss', 'applied', bossBodies);
 const appRecs = C.extractRecords(appOnly, 'applied');
 assert(appRecs.length === 1 && appRecs[0].company === '沟通公司', '抓取沟通时只出 tab=148 的公司，不混入感兴趣页签');
-// 非 BOSS 平台不做过滤（不误伤其他平台的响应）
-const other = C.filterBodiesByTab('liepin', 'collected', bossBodies);
-assert(other.length === 3, '非 BOSS 平台不做页签过滤（实得 ' + other.length + ' 条）');
+// 非 BOSS 平台：注册表只按各平台自己的路由特征过滤（2026-10-16 实测路由）。
+// 合成的 zhipin URL 传给其他平台时不再无条件放行——各平台规则独立生效。
+const sxCollect = [{ url: 'https://www.shixiseng.com/user/collect', json: { list: [{ jobName: '实习僧收藏', companyName: '实习公司' }] } }];
+assert(C.filterBodiesByTab('shixiseng', 'collected', sxCollect).length === 1, '实习僧收藏路由响应原样放行（实测路由存活）');
+const sxHome = [{ url: 'https://www.shixiseng.com/search?kw=intern', json: { list: [{ jobName: '搜索流岗位', companyName: '搜索公司' }] } }];
+assert(C.filterBodiesByTab('shixiseng', 'collected', sxHome).length === 0, '实习僧搜索流响应被噪音规则排除');
+const igCollect = [{ url: 'https://www.iguopin.com/personal/collect', json: { list: [{ jobName: '国聘收藏', companyName: '国聘公司' }] } }];
+assert(C.filterBodiesByTab('iguopin', 'collected', igCollect).length === 1, '国聘收藏路由响应原样放行（实测路由存活）');
+const igSearch = [{ url: 'https://www.iguopin.com/search?kw=java', json: { list: [{ jobName: '国聘搜索', companyName: '国聘搜索公司' }] } }];
+assert(C.filterBodiesByTab('iguopin', 'collected', igSearch).length === 0, '国聘搜索流响应被噪音规则排除');
+// 未注册规则的平台（中华英才等）维持旧行为：全部放行
+const chinahr = C.filterBodiesByTab('chinahr', 'collected', bossBodies);
+assert(chinahr.length === 3, '未注册规则的平台不过滤（实得 ' + chinahr.length + ' 条）');
 
 console.log('\n招聘平台同步自测完成: ' + pass + ' passed, ' + failCnt + ' failed | exitCode = ' + (process.exitCode || 0));
