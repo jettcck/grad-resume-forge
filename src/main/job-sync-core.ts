@@ -219,3 +219,33 @@ export function extractRecords(
   for (const b of bodies) visit(b.json, 0);
   return out;
 }
+
+// ---------------- BOSS 页签过滤 ----------------
+//
+// BOSS /web/geek/recommend 是多页签页面：tab=148 沟通（含已投递）、
+// tab=48 感兴趣（用户口中的「收藏」）。页面切页签不重新导航，两个页签
+// 的数据响应会先后落进同一个捕获缓冲——不按 tab 过滤，「抓取收藏」会
+// 把沟通记录一起带进来（用户实测：收藏里混进了没投过的公司）。
+//
+// 规则：响应 URL 带 tab= → 只收与目标页签一致的；不带 tab= 的响应
+// （首页/公共接口）两边都可用。只对 BOSS 生效，其他平台原样放行。
+
+/** 从 URL 里取 tab 参数值，没有返回空串 */
+export function bossTabOf(url: string): string {
+  const m = /[?&]tab=(\d+)/.exec(String(url || ''));
+  return m ? m[1] : '';
+}
+
+/** 按「目标页签」过滤捕获缓冲：见上方注释 */
+export function filterBodiesByTab(
+  platformId: string,
+  kind: 'applied' | 'collected',
+  bodies: Array<{ url: string; json: unknown; at?: number }>
+): Array<{ url: string; json: unknown; at?: number }> {
+  if (platformId !== 'boss') return bodies;
+  const want = kind === 'collected' ? '48' : '148';
+  return bodies.filter((b) => {
+    const tab = bossTabOf(b.url);
+    return !tab || tab === want;
+  });
+}

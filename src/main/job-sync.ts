@@ -33,7 +33,7 @@ import type { Session, WebContents } from 'electron';
 import fs from 'fs';
 import path from 'path';
 
-import { SYNC_PLATFORMS, findPlatform, extractRecords } from './job-sync-core';
+import { SYNC_PLATFORMS, findPlatform, extractRecords, filterBodiesByTab as coreFilterBodiesByTab } from './job-sync-core';
 import type { SyncPlatform, SyncRecord } from './job-sync-core';
 
 export { SYNC_PLATFORMS, findPlatform, extractRecords };
@@ -189,13 +189,18 @@ function statusPageHtml(platform: SyncPlatform, title: string, message: string):
 const AUTO_WAIT_MS = 12000;
 const AUTO_LOGIN_WAIT_MS = 120000;
 
-/** 关键页面候选：2026-10-13 核实 BOSS 求职者端 web/geek/* 路由；其余平台用 DOM 发现兜底 */
+/**
+ * 关键页面候选：2026-10-16 用户截图核实 BOSS 路由。
+ * BOSS 的「投递记录」与「感兴趣（收藏）」共用 /web/geek/recommend 页，
+ * 靠 tab 参数区分：tab=148 沟通（含已投递）、tab=48 感兴趣（即收藏）。
+ * 其余平台用 DOM 发现兜底。
+ */
 const CANDIDATE_URLS: Record<string, Record<'applied' | 'collected', string[]>> = {
   boss: {
-    // /web/geek/recommend 是「沟通过/已投递」历史页（站点自己的「已投递」入口）
-    applied: ['https://www.zhipin.com/web/geek/recommend', 'https://www.zhipin.com/web/geek/chat'],
-    // 收藏不在 web/geek 下，走 DOM 发现；这里给一个最可能的旧路径兜底
-    collected: ['https://www.zhipin.com/web/geek/collect', 'https://www.zhipin.com/web/geek/favorite']
+    // 「沟通」页签：站点自己的「已投递」入口
+    applied: ['https://www.zhipin.com/web/geek/recommend?tab=148&sub=1', 'https://www.zhipin.com/web/geek/recommend'],
+    // 「感兴趣」页签（用户口中的「收藏」）；旧的 /web/geek/collect、/favorite 均不存在
+    collected: ['https://www.zhipin.com/web/geek/recommend?tab=48&sub=1', 'https://www.zhipin.com/web/geek/recommend?tab=48']
   },
   zhaopin: {
     applied: ['https://i.zhaopin.com/resume/apply', 'https://i.zhaopin.com/'],
@@ -220,6 +225,18 @@ function keywordsFor(kind: 'applied' | 'collected'): string[] {
   return kind === 'collected'
     ? ['我的收藏', '收藏', '感兴趣', '已收藏', '职位收藏']
     : ['投递记录', '已投递', '投递', '沟通过', '已沟通', '我的投递', '申请记录'];
+}
+
+/**
+ * BOSS recommend 页多页签混流问题：捕获缓冲里可能同时有 tab=148（沟通）
+ * 与 tab=48（感兴趣）的响应。过滤规则在 job-sync-core（可单测），
+ * 这里只做接线。
+ */
+function bodiesForKind(
+  s: SyncSession,
+  kind: 'applied' | 'collected'
+): Array<{ url: string; json: unknown; at?: number }> {
+  return coreFilterBodiesByTab(s.platformId, kind, s.bodies);
 }
 
 function hostOf(url: string): string {
@@ -286,7 +303,7 @@ function emitProgress(s: SyncSession): void {
 
 /** 已捕获（且晚于 since）的响应里，有没有能解析成目标类型的记录 */
 function hasRecordsSince(s: SyncSession, kind: 'applied' | 'collected', since: number): boolean {
-  const fresh = s.bodies.filter((b) => (b.at || 0) >= since);
+  const fresh = bodiesForKind(s, kind).filter((b) => (b.at || 0) >= since);
   return extractRecords(fresh, kind).length > 0;
 }
 
@@ -397,7 +414,7 @@ async function autoCollectInner(s: SyncSession, p: SyncPlatform, kind: 'applied'
   setNote(s, '正在打开 ' + p.name + '…');
   const diag = () => ({
     jsonResponses: s.bodies.length,
-    matchedResponses: s.bodies.filter((b) => extractRecords([b], kind).length > 0).length,
+    matchedResponses: bodiesForKind(s, kind).filter((b) => extractRecords([b], kind).length > 0).length,
     pageTitle: s.page.title,
     pageUrl: s.page.finalUrl,
     pageState: s.page.blockReason
@@ -405,7 +422,7 @@ async function autoCollectInner(s: SyncSession, p: SyncPlatform, kind: 'applied'
   const succeed = (): CollectResult => {
     setNote(s, '已抓到数据');
     try { s.win.hide(); } catch (_) { /* 忽略 */ }
-    return { ok: true, items: extractRecords(s.bodies, kind), hint: p.recordHint, diagnostics: diag() };
+    return { ok: true, items: extractRecords(bodiesForKind(s, kind), kind), hint: p.recordHint, diagnostics: diag() };
   };
   const needLogin = (msg: string): CollectResult => ({
     ok: false, needLogin: true, error: msg, hint: p.recordHint, diagnostics: diag()
@@ -974,10 +991,21 @@ function collectFromOpenPage(s: SyncSession, p: SyncPlatform, kind: 'applied' | 
     return { ok: false, error: '当前窗口停在人机验证页：请在窗口里拖动滑块通过，再点抓取。', hint: p.recordHint, diagnostics: diag };
   }
 
-  const items = extractRecords(s.bodies, kind);
-  diag.matchedResponses = s.bodies.filter((b) => extractRecords([b], kind).length > 0).length;
+  const scoped = bodiesForKind(s, kind);
+  const items = extractRecords(scoped, kind);
+  diag.matchedResponses = scoped.filter((b) => extractRecords([b], kind).length > 0).length;
 
   if (items.length === 0) {
+    if (scoped.length === 0 && s.bodies.length > 0) {
+      // 缓冲非空但全被页签过滤掉了：用户停在另一个页签上
+      return {
+        ok: false,
+        error: '捕获到的都是「' + (kind === 'collected' ? '沟通/已投递' : '感兴趣') + '」页签的数据，不是目标页签。'
+          + '请在同步窗口里切到「' + (kind === 'collected' ? '感兴趣（收藏）' : '沟通') + '」页签后再点抓取。',
+        hint: p.recordHint,
+        diagnostics: diag
+      };
+    }
     if (s.bodies.length === 0) {
       return {
         ok: false,
