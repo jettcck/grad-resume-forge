@@ -288,7 +288,7 @@ export const PLATFORM_ROUTE_RULES: Record<string, PlatformRouteRule> = {
       /\/(?:api\/)?(?:common|dict|area|banner)s?\b/i
     ],
     collected: (url) => /\/user\/(?:collect|favou?rite|collection)\b/i.test(url),
-    applied: (url) => /\/user\/(?:deliver|deliver y|apply|send)\b/i.test(url)
+    applied: (url) => /\/user\/(?:deliver(?:y|ed)?|apply|send)\b/i.test(url)
   },
   // 国聘：personal/deliver、personal/collect 实测存活（2026-10-16）
   iguopin: {

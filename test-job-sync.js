@@ -209,6 +209,14 @@ const igCollect = [{ url: 'https://www.iguopin.com/personal/collect', json: { li
 assert(C.filterBodiesByTab('iguopin', 'collected', igCollect).length === 1, '国聘收藏路由响应原样放行（实测路由存活）');
 const igSearch = [{ url: 'https://www.iguopin.com/search?kw=java', json: { list: [{ jobName: '国聘搜索', companyName: '国聘搜索公司' }] } }];
 assert(C.filterBodiesByTab('iguopin', 'collected', igSearch).length === 0, '国聘搜索流响应被噪音规则排除');
+// 实习僧 applied 归属：/user/deliver 及 delivery/delivered 变体都要命中（曾因正则
+// 写成 "deliver y"（带空格）永远匹配不上，/user/delivery 类接口被放行/误丢）。
+const sxDeliver = [
+  { url: 'https://www.shixiseng.com/user/deliver', json: { list: [{ jobName: '实习僧投递', companyName: '实习投递公司' }] } },
+  { url: 'https://www.shixiseng.com/user/delivery?page=1', json: { list: [{ jobName: '实习僧投递2', companyName: '实习投递公司2' }] } }
+];
+assert(C.filterBodiesByTab('shixiseng', 'applied', sxDeliver).length === 2,
+  '实习僧 applied 命中 /user/deliver 与 /user/delivery（实得 ' + C.filterBodiesByTab('shixiseng', 'applied', sxDeliver).length + ' 条）');
 // 未注册规则的平台（中华英才等）维持旧行为：全部放行
 const chinahr = C.filterBodiesByTab('chinahr', 'collected', bossBodies);
 assert(chinahr.length === 3, '未注册规则的平台不过滤（实得 ' + chinahr.length + ' 条）');
