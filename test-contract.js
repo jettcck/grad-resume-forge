@@ -383,6 +383,10 @@ assert(/preload:\s*capturePreloadPath\(\)/.test(syncMainSrc)
 assert(/ipcMain\.on\('jobsync:captured'/.test(syncMainSrc)
   && /ipcMain\.removeListener\('jobsync:captured'/.test(syncMainSrc),
   '主进程注册并按会话解绑采集 IPC，会话关闭后不泄漏监听');
+// 多平台窗口并存时，ipcMain.on 是全局广播：监听器必须校验 event.sender 是本会话
+// 的平台视图，否则 A 平台的响应会串进 B 平台的缓冲（实测审出的串流 bug）。
+assert(/sender\.id !== platformContents\.id/.test(syncMainSrc),
+  '采集 IPC 与 probe 回执都校验 event.sender 归属，多平台窗口并存时不串数据');
 const capturePreloadSrc = fs.readFileSync('src/renderer/jobsync-capture-preload.js', 'utf8');
 assert(/'jobsync:captured'/.test(capturePreloadSrc) && /ipcRenderer\.send\(/.test(capturePreloadSrc),
   '采集 preload 负责把主世界消息回传主进程');

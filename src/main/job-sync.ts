@@ -695,7 +695,14 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
   // 永不返回、连 win.show() 都会阻塞主进程。表现就是纯白窗口。
   // 改用 preload 注入钩子：页面自己发的每个 XHR/fetch 响应都被记下来，
   // 完全不碰调试器，窗口渲染与导航都不受影响。
-  s.ipcListener = (_ev, payload) => {
+  s.ipcListener = (ev: unknown, payload: { url?: string; pageUrl?: string; body?: string }) => {
+    // 关键：多个平台的同步窗口可同时打开，ipcMain.on 是全局广播——
+    // 必须校验消息确实来自本会话的平台视图，否则 A 平台窗口的响应
+    // 会串进 B 平台的缓冲（BOSS 的数据被当成智联记录解析）。
+    try {
+      const sender = (ev as { sender?: WebContents }).sender;
+      if (!sender || sender.isDestroyed() || sender.id !== platformContents.id) return;
+    } catch (_) { return; }
     if (!payload || typeof payload.body !== 'string') return;
     const body = payload.body;
     if (body.length > MAX_BODY_BYTES) return;
@@ -723,7 +730,11 @@ async function openSession(p: SyncPlatform): Promise<{ session: SyncSession; err
   };
   ipcMain.on('jobsync:captured', s.ipcListener as never);
   // 页面主世界回执：确认采集钩子真的挂上了（contextIsolation 下必须注入主世界）
-  const probeListener = (_ev: unknown, payload: { ready?: boolean; url?: string }) => {
+  const probeListener = (ev: unknown, payload: { ready?: boolean; url?: string }) => {
+    try {
+      const sender = (ev as { sender?: WebContents }).sender;
+      if (!sender || sender.isDestroyed() || sender.id !== platformContents.id) return;
+    } catch (_) { return; }
     s.mainWorldReady = !!(payload && payload.ready);
   };
   ipcMain.on('jobsync:probe', probeListener as never);
@@ -1029,11 +1040,15 @@ function collectFromOpenPage(s: SyncSession, p: SyncPlatform, kind: 'applied' | 
 
   if (items.length === 0) {
     if (scoped.length === 0 && s.bodies.length > 0) {
-      // 缓冲非空但全被页签过滤掉了：用户停在另一个页签上
+      // 缓冲非空但全被归属过滤掉了：BOSS 是页签概念，其他平台是「打开的不是目标页」
+      const msg = p.id === 'boss'
+        ? '捕获到的都是「' + (kind === 'collected' ? '沟通/已投递' : '感兴趣') + '」页签的数据，不是目标页签。'
+          + '请在同步窗口里切到「' + (kind === 'collected' ? '感兴趣（收藏）' : '沟通') + '」页签后再点抓取。'
+        : '已捕获的响应里没有「' + (kind === 'collected' ? '我的收藏' : '投递记录') + '」页的数据。'
+          + '请在同步窗口里进入「' + (kind === 'collected' ? '我的收藏' : '投递记录') + '」页面后重新加载列表，再点抓取。';
       return {
         ok: false,
-        error: '捕获到的都是「' + (kind === 'collected' ? '沟通/已投递' : '感兴趣') + '」页签的数据，不是目标页签。'
-          + '请在同步窗口里切到「' + (kind === 'collected' ? '感兴趣（收藏）' : '沟通') + '」页签后再点抓取。',
+        error: msg,
         hint: p.recordHint,
         diagnostics: diag
       };
