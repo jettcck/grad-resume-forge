@@ -183,6 +183,15 @@ const navWithoutRoute = [...new Set(navRoutes)].filter((r) => !routeIds.includes
 assert(navWithoutRoute.length === 0,
   '每个导航按钮都有对应路由容器（缺容器：' + (navWithoutRoute.join(', ') || '无') + '）');
 
+// navigate() 的「显隐数组」必须覆盖所有路由容器 —— 漏一个就会点了导航却整页空白
+// （岗位池上线时正是漏在这里：按钮有、容器有、renderJobs 有，但数组没加 jobs）
+const toggleMatch = appSrc.match(/\[([^\]]*)\]\.forEach\(\(r\)\s*=>\s*\{\s*document\.getElementById\('route-'\s*\+\s*r\)/);
+assert(!!toggleMatch, 'navigate() 存在批量显隐路由的数组写法');
+const toggled = [...toggleMatch[1].matchAll(/'([\w-]+)'/g)].map((m) => m[1]);
+const notToggled = routeIds.filter((r) => !toggled.includes(r));
+assert(notToggled.length === 0,
+  'navigate() 显隐数组覆盖所有路由（漏：' + (notToggled.join(', ') || '无') + '）');
+
 // ---------- 9) 通道方向必须与主进程注册方式一致 ----------
 // invoke 配 handle、send 配 on。配错了不会报错，只会「消息静默不执行」——
 // 比如渲染层 send('embedded:status') 而主进程用 handle 接，状态就永远上不去。

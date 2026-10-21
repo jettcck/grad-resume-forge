@@ -666,7 +666,7 @@ function navigate(route) {
   document.querySelectorAll('.nav-item').forEach((n) => {
     n.classList.toggle('active', n.dataset.route === route);
   });
-  ['profile', 'resume', 'apps', 'interview'].forEach((r) => {
+  ['profile', 'resume', 'jobs', 'apps', 'interview'].forEach((r) => {
     document.getElementById('route-' + r).style.display = r === route ? 'block' : 'none';
   });
   if (window.Sound) window.Sound.play('click'); // 导航轻点音
