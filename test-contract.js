@@ -169,11 +169,19 @@ const idsQueried = new Set([...appSrc.matchAll(/getElementById\('([\w-]+)'\)/g)]
 const missingIds = [...idsQueried].filter((id) => !idsInHtml.has(id) && !idsCreated.has(id));
 assert(missingIds.length === 0, '查询的 ' + idsQueried.size + ' 个 id 都存在（缺：' + (missingIds.join(', ') || '无') + '）');
 
-// ---------- 8) 四个路由容器齐全（新增路由最容易漏 index.html 那一半）----------
-['profile', 'resume', 'apps', 'interview'].forEach((r) => {
-  assert(idsInHtml.has('route-' + r) && new RegExp('data-route="' + r + '"').test(htmlSrc),
-    '路由 ' + r + ' 的容器与导航项都在 index.html');
-});
+// ---------- 8) 每个路由容器都必须有同名导航按钮（新增路由最容易漏 index.html 那一半）----------
+// 动态发现所有 route-xxx 容器，而不是硬编码路由列表 —— 否则新增页面时
+// 「容器在、按钮不在」会静默通过（岗位池首次上线就踩过：页面有容器却没入口）。
+const routeIds = [...idsInHtml].filter((id) => id.startsWith('route-')).map((id) => id.slice(6));
+assert(routeIds.length > 0, 'index.html 至少有一个 route-xxx 容器');
+const routesWithoutNav = routeIds.filter((r) => !new RegExp('data-route="' + r + '"').test(htmlSrc));
+assert(routesWithoutNav.length === 0,
+  '每个路由容器都有同名导航按钮（' + routeIds.length + ' 个路由；缺按钮：' + (routesWithoutNav.join(', ') || '无') + '）');
+// 反向：导航按钮指向的路由也必须有容器，避免点了空白
+const navRoutes = [...htmlSrc.matchAll(/data-route="([\w-]+)"/g)].map((m) => m[1]);
+const navWithoutRoute = [...new Set(navRoutes)].filter((r) => !routeIds.includes(r));
+assert(navWithoutRoute.length === 0,
+  '每个导航按钮都有对应路由容器（缺容器：' + (navWithoutRoute.join(', ') || '无') + '）');
 
 // ---------- 9) 通道方向必须与主进程注册方式一致 ----------
 // invoke 配 handle、send 配 on。配错了不会报错，只会「消息静默不执行」——
