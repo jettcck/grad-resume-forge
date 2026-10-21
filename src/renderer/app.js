@@ -2785,6 +2785,15 @@ function appCard(a) {
       }
     }, ['官网']));
   }
+  // 存进岗位池：把投递记录里从官网/平台拿到的公司、岗位、地点、链接一并带过去，
+  // 方便在池子里横向比较、记 JD、打分，而不是只能躺在看板里。
+  actions.push(el('button', {
+    class: 'to-pool', type: 'button', title: '把这条记录存进岗位池',
+    onclick: async (e) => {
+      e.stopPropagation();
+      await saveApplicationToJobPool(a);
+    }
+  }, ['存池']));
   actions.push(el('button', { class: 'del', type: 'button', onclick: async () => {
     await call(window.api.applications.remove(state.user.id, a.id));
     state.applications = state.applications.filter((x) => x.id !== a.id);
@@ -2794,9 +2803,40 @@ function appCard(a) {
   return el('div', { class: 'app-card' }, [
     el('div', { class: 'co' }, [a.company]),
     el('div', { class: 'po' }, [a.position || '—']),
+    // 地点与来源：都是从官网/平台抄下来的原文，留在卡片上便于判断通勤
+    (a.place || a.source) ? el('div', { class: 'meta-line' }, [
+      a.place ? el('span', {}, ['📍 ' + a.place]) : null,
+      a.source ? el('span', {}, [a.source]) : null
+    ]) : null,
     el('div', { class: 'time' }, [timeAgo(a.updatedAt || a.createdAt)]),
     el('div', { class: 'row' }, actions)
   ]);
+}
+
+// 投递记录 → 岗位池：把看板上已有的公司/岗位/地点/链接搬进候选池。
+// 去重口径：公司+岗位 相同，或 URL 相同，都算同一条。
+async function saveApplicationToJobPool(a) {
+  if (!state.jobs) state.jobs = [];
+  const sameCoPo = (j) => (j.company || '') === (a.company || '')
+    && (j.position || '') === (a.position || '');
+  const sameUrl = (j) => !!a.url && j.url === a.url;
+  if (state.jobs.some((j) => sameCoPo(j) || sameUrl(j))) {
+    toast('「' + a.company + '」已在岗位池里', 'err');
+    return;
+  }
+  try {
+    const saved = await call(window.api.jobs.save(state.user.id, {
+      company: a.company,
+      position: a.position || '',
+      city: a.place || '',
+      url: a.url || '',
+      source: a.source || '投递记录'
+    }));
+    state.jobs.unshift(saved);
+    toast('已存入岗位池：' + saved.company, 'ok');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
 }
 
 // ---------------- 页面 3.5：岗位池 ----------------
@@ -2962,6 +3002,17 @@ function jobCard(job) {
       applyFromJob(job).then(renderJobs);
     }
   }, ['转投递']));
+  // 有来源链接时可直接回到原招聘页看 JD / 投递
+  if (job.url) {
+    row.appendChild(el('button', {
+      class: 'job-open', type: 'button', title: '打开原招聘页面',
+      onclick: async (e) => {
+        e.stopPropagation();
+        const res = await window.api.shell.openExternal(job.url);
+        if (!res.ok) toast(res.error, 'err');
+      }
+    }, ['官网']));
+  }
   row.appendChild(el('button', {
     class: 'edit', type: 'button', title: '编辑',
     onclick: (e) => { e.stopPropagation(); openJobEditor(job); }
@@ -2985,6 +3036,37 @@ function jobCard(job) {
   return card;
 }
 
+// 投递看板 → 岗位池：一次性把还没进池的投递记录批量搬过来。
+// 这样在官网/平台上投过、或同步导入的记录，也能在池子里统一比较与补 JD。
+async function importApplicationsToJobs() {
+  if (!state.jobs) state.jobs = [];
+  const keyOf = (x) => (x.company || '') + '\u0001' + (x.position || '');
+  const have = new Set(state.jobs.map(keyOf));
+  const todo = state.applications.filter((a) => !have.has(keyOf(a)));
+  if (!todo.length) {
+    toast('投递记录都已在岗位池里', 'err');
+    return;
+  }
+  let ok = 0, fail = 0;
+  for (const a of todo) {
+    try {
+      const saved = await call(window.api.jobs.save(state.user.id, {
+        company: a.company,
+        position: a.position || '',
+        city: a.place || '',
+        url: a.url || '',
+        source: a.source || '投递记录'
+      }));
+      state.jobs.unshift(saved);
+      ok++;
+    } catch (_) {
+      fail++;
+    }
+  }
+  toast('已从投递记录导入 ' + ok + ' 条' + (fail ? '（' + fail + ' 条失败）' : ''), 'ok');
+  renderJobs();
+}
+
 async function renderJobs() {
   const root = document.getElementById('route-jobs');
   root.innerHTML = '';
@@ -3002,6 +3084,9 @@ async function renderJobs() {
   const toolbar = el('div', { class: 'toolbar' }, [
     el('button', { class: 'btn btn-primary', type: 'button', onclick: () => openJobEditor(null) },
       [window.Icons.icon('plus', 15), '添加岗位']),
+    // 把投递看板里从官网/平台拿到的记录批量搬进池子
+    el('button', { class: 'btn btn-ghost', type: 'button', onclick: importApplicationsToJobs },
+      ['从投递记录导入']),
     el('div', { class: 'spacer' }),
     el('div', { class: 'pipeline' }, [
       el('div', { class: 'pl-node' }, [

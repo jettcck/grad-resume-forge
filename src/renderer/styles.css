@@ -1179,12 +1179,17 @@ em { font-style: normal; color: var(--gold); }
 .app-card .co { font-weight: 700; font-size: 14px; }
 .app-card .po { font-size: 12px; color: var(--ink-2); margin-top: 3px; }
 .app-card .time { font-size: 10.5px; color: var(--ink-2); margin-top: 5px; font-family: var(--font-mono); opacity: .85; letter-spacing: .3px; }
-.app-card .row { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+/* 地点/来源行：官网拿到原文，判断通勤与渠道用 */
+.app-card .meta-line { display: flex; gap: 8px; flex-wrap: wrap; font-size: 10.5px; color: var(--ink-2); margin-top: 5px; opacity: .9; }
+.app-card .meta-line span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.app-card .row { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; }
 .app-card select { background: var(--bg-0); border: 1px solid var(--line); color: var(--ink-1); border-radius: 2px; padding: 4px 6px; font-size: 12px; }
 .app-card .del { color: var(--ink-2); font-size: 12px; transition: .18s; }
 .app-card .del:hover { color: var(--danger); }
-.app-card .open { color: var(--gold-soft); font-size: 12px; transition: .18s; margin-left: auto; margin-right: 10px; }
+.app-card .open { color: var(--gold-soft); font-size: 12px; transition: .18s; margin-left: auto; }
 .app-card .open:hover { color: var(--gold); }
+.app-card .to-pool { color: var(--ink-2); font-size: 12px; transition: .18s; }
+.app-card .to-pool:hover { color: var(--gold-soft); }
 
 /* ---------- 岗位池：候选岗卡片 ---------- */
 .job-list {
@@ -1230,6 +1235,8 @@ em { font-style: normal; color: var(--gold); }
 .job-actions .prio:hover { color: var(--gold-soft); border-color: rgba(214, 168, 74, .35); }
 .job-actions .to-bd { color: var(--gold-soft); transition: .18s; }
 .job-actions .to-bd:hover { color: var(--gold); }
+.job-actions .job-open { color: var(--ink-2); transition: .18s; }
+.job-actions .job-open:hover { color: var(--gold-soft); }
 .job-actions .edit { color: var(--ink-2); transition: .18s; }
 .job-actions .edit:hover { color: var(--ink-0); }
 .job-actions .del { color: var(--ink-2); margin-left: auto; transition: .18s; }
