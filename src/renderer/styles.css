@@ -1186,6 +1186,71 @@ em { font-style: normal; color: var(--gold); }
 .app-card .open { color: var(--gold-soft); font-size: 12px; transition: .18s; margin-left: auto; margin-right: 10px; }
 .app-card .open:hover { color: var(--gold); }
 
+/* ---------- 岗位池：候选岗卡片 ---------- */
+.job-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 12px;
+  align-items: start;
+}
+.job-card {
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 13px 14px;
+  cursor: pointer; transition: border-color .2s, transform .2s;
+  position: relative;
+}
+.job-card:hover { border-color: var(--line-2); transform: translateY(-2px); }
+.job-card.starred { border-color: rgba(214, 168, 74, .45); }
+.job-card.starred::before {
+  content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 2px;
+  background: var(--gold); opacity: .75; border-radius: 2px;
+}
+.job-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.job-co { font-weight: 700; font-size: 14px; color: var(--ink-0); }
+.job-po { font-size: 12px; color: var(--ink-2); }
+.job-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 9px; }
+.job-meta .chip {
+  font-size: 10.5px; font-family: var(--font-mono); letter-spacing: .3px;
+  color: var(--ink-2); background: var(--bg-0);
+  border: 1px solid var(--line); border-radius: 2px; padding: 2px 6px;
+}
+.job-meta .chip.jd-score { color: var(--gold-soft); border-color: rgba(214, 168, 74, .3); }
+.job-meta .chip.linked { color: #7fd3a6; border-color: rgba(127, 211, 166, .3); }
+.job-actions {
+  display: flex; align-items: center; gap: 10px;
+  margin-top: 11px; padding-top: 10px; border-top: 1px dashed var(--line);
+  font-size: 12px;
+}
+.job-actions .star { color: var(--ink-2); font-size: 14px; line-height: 1; transition: .18s; }
+.job-actions .star:hover, .job-actions .star.active { color: var(--gold); }
+.job-actions .prio {
+  color: var(--ink-2); font-size: 11px; font-family: var(--font-mono);
+  border: 1px solid var(--line); border-radius: 2px; padding: 1px 5px; transition: .18s;
+}
+.job-actions .prio:hover { color: var(--gold-soft); border-color: rgba(214, 168, 74, .35); }
+.job-actions .to-bd { color: var(--gold-soft); transition: .18s; }
+.job-actions .to-bd:hover { color: var(--gold); }
+.job-actions .edit { color: var(--ink-2); transition: .18s; }
+.job-actions .edit:hover { color: var(--ink-0); }
+.job-actions .del { color: var(--ink-2); margin-left: auto; transition: .18s; }
+.job-actions .del:hover { color: var(--danger); }
+.job-detail { margin-top: 11px; border-top: 1px dashed var(--line); padding-top: 10px; }
+.job-detail .jd-head {
+  font-size: 10.5px; font-family: var(--font-mono); letter-spacing: .8px;
+  color: var(--ink-2); text-transform: uppercase; margin-bottom: 7px;
+}
+.job-detail-jd {
+  white-space: pre-wrap; word-break: break-word; margin: 0;
+  font-family: var(--font-mono); font-size: 11.5px; line-height: 1.65;
+  color: var(--ink-1); max-height: 220px; overflow: auto;
+  background: var(--bg-0); border: 1px solid var(--line);
+  border-radius: 2px; padding: 9px 10px;
+}
+.job-detail .jd-empty { font-size: 12px; color: var(--ink-2); }
+@media (max-width: 720px) {
+  .job-list { grid-template-columns: 1fr; }
+}
+
 /* ---------- 直投面板：工业铭牌 ---------- */
 .direct-panel {
   background: linear-gradient(180deg, var(--bg-1), #131b2b);
