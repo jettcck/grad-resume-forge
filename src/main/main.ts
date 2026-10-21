@@ -40,7 +40,7 @@ import * as secureStore from './secure-store';
 import { LIMITS, assertSize, assertString, assertPlainObject } from './validate';
 // 运行记录与回放来自 agent-core（与 Electron 解耦的 Agent Runtime）
 import { createFileRunStore, replayRun } from '../../packages/agent-core/dist/index';
-import type { IpcResult, Profile, LlmConfig, Application } from './types';
+import type { IpcResult, Profile, LlmConfig, Application, Job } from './types';
 
 let mainWindow: BrowserWindow | null = null;
 let isQuitting = false;
@@ -458,6 +458,56 @@ ipcMain.handle('applications:delete', (_e, userId: string, appId: string) => {
   try {
     userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
     return ok(store.deleteApplication(userId, appId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// ---------------- 岗位池（本地优先：数据只落本机 db.json） ----------------
+ipcMain.handle('jobs:list', (_e, userId: string) => {
+  try {
+    userId = sessionUserId(_e);
+    return ok(store.listJobs(userId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('jobs:get', (_e, userId: string, jobId: string) => {
+  try {
+    userId = sessionUserId(_e);
+    return ok(store.getJob(userId, jobId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('jobs:save', (_e, userId: string, input: unknown) => {
+  try {
+    userId = sessionUserId(_e);
+    assertPlainObject(input, '岗位数据');
+    assertSize(input, LIMITS.profileJson, '岗位数据');
+    return ok(store.saveJob(userId, input as Partial<Job>));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('jobs:mark', (_e, userId: string, jobId: string, patch: unknown) => {
+  try {
+    userId = sessionUserId(_e);
+    assertPlainObject(patch, '岗位标记');
+    const p = patch as { starred?: boolean; rejected?: boolean; rejectReason?: string; priority?: number };
+    return ok(store.markJob(userId, jobId, p));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('jobs:delete', (_e, userId: string, jobId: string) => {
+  try {
+    userId = sessionUserId(_e);
+    return ok(store.deleteJob(userId, jobId));
   } catch (err) {
     return fail((err as Error).message);
   }

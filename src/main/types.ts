@@ -325,4 +325,62 @@ export interface Application {
   syncError?: string;
   lastSyncedAt?: number;
   address?: string;
+  // ---------- 投递跟进（全部可选：老数据自动兼容，缺省即无跟进信息） ----------
+  /** 下一步行动，如「等 HR 回复」「发跟进邮件」 */
+  nextAction?: string;
+  /** 该投递关联的目标岗位池条目 id */
+  jobId?: string;
+  /** 笔试时间（ISO 8601 或 YYYY-MM-DD HH:mm 字符串） */
+  examAt?: string;
+  /** 下一轮面试时间 */
+  interviewAt?: string;
+  /** 目前进行到的面试轮次（1 = 一面…） */
+  interviewRound?: number;
+  /** HR / 招聘联系人姓名 */
+  contactName?: string;
+  /** HR 联系方式（邮箱 / 微信 / 电话） */
+  contact?: string;
+  /** 下次跟进日期（ISO 8601 日期字符串） */
+  nextDueAt?: string;
+  /** 被拒绝原因（stage = rejected 时填写） */
+  rejectReason?: string;
+}
+
+// ---------- 岗位池（统一管理目标岗位：完整 JD、优先级、收藏、匹配分） ----------
+export interface Job {
+  id?: string;
+  /** 公司名 */
+  company: string;
+  /** 岗位名称 */
+  position: string;
+  /** 完整 JD 原文 */
+  jdText?: string;
+  /** 薪资描述（原文即可，如「15-20k·13薪」） */
+  salary?: string;
+  /** 城市，如「北京·朝阳区」 */
+  city?: string;
+  /** 学历要求 */
+  education?: string;
+  /** 经验要求 */
+  experience?: string;
+  /** 核心技能标签（逗号分隔） */
+  skills?: string;
+  /** 来源（招聘平台 / 官网 / 内推） */
+  source?: string;
+  /** 链接 */
+  url?: string;
+  /** 收藏标记 */
+  starred?: boolean;
+  /** 淘汰标记（不再考虑） */
+  rejected?: boolean;
+  /** 淘汰原因（rejected = true 时填写） */
+  rejectReason?: string;
+  /** 优先级 1-5（5 最高） */
+  priority?: number;
+  /** 保存时算好的简历-JD 匹配分（0-100，未算为 null） */
+  jdScore?: number | null;
+  /** 关联投递记录 id（用户点了「投递」后回填） */
+  applicationId?: string;
+  createdAt?: number;
+  updatedAt?: number;
 }
