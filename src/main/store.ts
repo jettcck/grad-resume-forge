@@ -9,7 +9,7 @@ import path from 'path';
 import crypto from 'crypto';
 import type {
   StoredUser, PublicUser, Profile, Application, AgentSnapshot, AgentSnapshotMeta,
-  ResumeVersion, ResumeVersionMeta
+  ResumeVersion, ResumeVersionMeta, Job
 } from './types';
 
 interface DbShape {
@@ -20,6 +20,8 @@ interface DbShape {
   settings: Record<string, unknown>;
   agentSnapshots: Record<string, AgentSnapshot[]>;
   resumeVersions: Record<string, ResumeVersion[]>;
+  /** 岗位池：userId → 目标岗位列表（含完整 JD、优先级、收藏、淘汰标记） */
+  jobs: Record<string, Job[]>;
   /** 数据格式版本：将来改结构时据此迁移，缺省视为 1（老库） */
   schemaVersion?: number;
 }
@@ -37,7 +39,8 @@ const db: DbShape = {
   sessions: {},
   settings: {},
   agentSnapshots: {}, // userId → 快照数组（最多 5 份，最新在前）
-  resumeVersions: {}  // userId → 简历版本数组（最多 30 份，最新在前）
+  resumeVersions: {}, // userId → 简历版本数组（最多 30 份，最新在前）
+  jobs: {}            // userId → 岗位池数组（目标岗位统一管理）
 };
 
 // 快照上限：防止无限膨胀（每份档案通常 < 10KB）
@@ -267,6 +270,8 @@ function load(): void {
       db.agentSnapshots = asRecord(parsed.agentSnapshots);
       // 老库没有 resumeVersions 字段：缺省为空，向前兼容
       db.resumeVersions = asRecord(parsed.resumeVersions);
+      // 老库没有 jobs 字段：缺省为空，向前兼容
+      db.jobs = asRecord(parsed.jobs);
     }
   } catch (err) {
     // 数据损坏时不崩溃，退回空库并备份原文件
@@ -565,6 +570,93 @@ export function deleteVersion(userId: string, versionId: string): { removed: str
   db.resumeVersions[userId] = list.filter((x) => x.id !== versionId);
   persist();
   return { removed: versionId };
+}
+
+// ---------------- 岗位池（统一管理目标岗位） ----------------
+// 与「投递记录」的区别：投递记录是「我已经投了什么」，岗位池是「我正在考虑投什么」。
+// 岗位先入池（可收藏、排优先级、算匹配分），决定投了才落到投递记录，并回填 applicationId。
+const MAX_JOBS = 200; // 岗位池上限：防止无限膨胀，200 条足够覆盖整个求职季
+
+export function listJobs(userId: string): Job[] {
+  return db.jobs[userId] || [];
+}
+
+export function getJob(userId: string, jobId: string): Job | null {
+  const j = (db.jobs[userId] || []).find((x) => x.id === jobId);
+  return j ? (JSON.parse(JSON.stringify(j)) as Job) : null;
+}
+
+function cleanJobInput(input: Partial<Job>): Partial<Job> {
+  return {
+    company: String(input.company || '').trim().slice(0, 120),
+    position: String(input.position || '').trim().slice(0, 120),
+    jdText: String(input.jdText || '').slice(0, 8000),
+    salary: String(input.salary || '').trim().slice(0, 60),
+    city: String(input.city || '').trim().slice(0, 120),
+    education: String(input.education || '').trim().slice(0, 60),
+    experience: String(input.experience || '').trim().slice(0, 60),
+    skills: String(input.skills || '').trim().slice(0, 500),
+    source: String(input.source || '').trim().slice(0, 40),
+    url: String(input.url || '').trim().slice(0, 1000),
+    starred: !!input.starred,
+    rejected: !!input.rejected,
+    rejectReason: String(input.rejectReason || '').trim().slice(0, 200),
+    priority: Math.min(5, Math.max(1, Math.round(Number(input.priority) || 3))),
+    jdScore: typeof input.jdScore === 'number' ? input.jdScore : null,
+    applicationId: String(input.applicationId || '').trim().slice(0, 80) || undefined
+  };
+}
+
+export function saveJob(userId: string, input: Partial<Job>): Job {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  const clean = cleanJobInput(input);
+  if (!clean.company) throw new Error('公司名称不能为空');
+  if (!db.jobs[userId]) db.jobs[userId] = [];
+  const list = db.jobs[userId]!;
+  const now = Date.now();
+  if (input.id) {
+    const idx = list.findIndex((x) => x.id === input.id);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx]!, ...clean, id: input.id, updatedAt: now };
+      persist();
+      return list[idx]!;
+    }
+  }
+  const created: Job = {
+    ...clean,
+    id: 'job_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    createdAt: now,
+    updatedAt: now
+  } as Job;
+  list.unshift(created);
+  if (list.length > MAX_JOBS) list.length = MAX_JOBS;
+  persist();
+  return created;
+}
+
+/** 只更新标记类字段（收藏 / 淘汰 / 优先级），不改其它内容 */
+export function markJob(
+  userId: string,
+  jobId: string,
+  patch: { starred?: boolean; rejected?: boolean; rejectReason?: string; priority?: number }
+): Job {
+  const list = db.jobs[userId] || [];
+  const j = list.find((x) => x.id === jobId);
+  if (!j) throw new Error('岗位不存在或已删除');
+  if (typeof patch.starred === 'boolean') j.starred = patch.starred;
+  if (typeof patch.rejected === 'boolean') j.rejected = patch.rejected;
+  if (typeof patch.rejectReason === 'string') j.rejectReason = patch.rejectReason.trim().slice(0, 200);
+  if (typeof patch.priority === 'number') j.priority = Math.min(5, Math.max(1, Math.round(patch.priority)));
+  j.updatedAt = Date.now();
+  persist();
+  return j;
+}
+
+export function deleteJob(userId: string, jobId: string): { removed: string } {
+  const list = db.jobs[userId] || [];
+  db.jobs[userId] = list.filter((x) => x.id !== jobId);
+  persist();
+  return { removed: jobId };
 }
 
 // 测试专用：直接访问内部 db（仅测试断言用）

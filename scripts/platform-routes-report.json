@@ -1,0 +1,70 @@
+{
+  "shixiseng": {
+    "applied": {
+      "https://www.shixiseng.com/user/deliver": {
+        "url": "https://www.shixiseng.com/user/deliver",
+        "title": "大学生找实习求职招聘网站 | 实习僧",
+        "readyState": "complete",
+        "bodyLen": 296,
+        "loginWall": false
+      },
+      "https://www.shixiseng.com/": {
+        "url": "https://www.shixiseng.com/",
+        "title": "实习僧|大学生实习|校招求职|校园招聘",
+        "readyState": "complete",
+        "bodyLen": 1694,
+        "loginWall": false
+      }
+    },
+    "collected": {
+      "https://www.shixiseng.com/user/collect": {
+        "url": "https://www.shixiseng.com/user/collect",
+        "title": "大学生找实习求职招聘网站 | 实习僧",
+        "readyState": "complete",
+        "bodyLen": 296,
+        "loginWall": false
+      },
+      "https://www.shixiseng.com/": {
+        "url": "https://www.shixiseng.com/",
+        "title": "实习僧|大学生实习|校招求职|校园招聘",
+        "readyState": "complete",
+        "bodyLen": 1692,
+        "loginWall": false
+      }
+    }
+  },
+  "iguopin": {
+    "applied": {
+      "https://www.iguopin.com/": {
+        "url": "https://www.iguopin.com/",
+        "title": "国聘",
+        "readyState": "complete",
+        "bodyLen": 2842,
+        "loginWall": false
+      },
+      "https://www.iguopin.com/personal/deliver": {
+        "url": "https://www.iguopin.com/personal/deliver",
+        "title": "国聘",
+        "readyState": "complete",
+        "bodyLen": 251,
+        "loginWall": false
+      }
+    },
+    "collected": {
+      "https://www.iguopin.com/personal/collect": {
+        "url": "https://www.iguopin.com/personal/collect",
+        "title": "国聘",
+        "readyState": "complete",
+        "bodyLen": 251,
+        "loginWall": false
+      },
+      "https://www.iguopin.com/": {
+        "url": "https://www.iguopin.com/",
+        "title": "国聘",
+        "readyState": "complete",
+        "bodyLen": 2842,
+        "loginWall": false
+      }
+    }
+  }
+}

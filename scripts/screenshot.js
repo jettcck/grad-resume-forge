@@ -119,6 +119,16 @@ function registerIpc() {
   h('applications:list', (uid) => store.listApplications(uid));
   h('applications:save', (uid, a) => store.saveApplication(uid, a));
   h('applications:delete', (uid, id) => store.deleteApplication(uid, id));
+  // 岗位池 IPC：同样用真实 store 模块（本地数据，与主进程语义一致）
+  h('jobs:list', (uid) => store.listJobs(uid));
+  h('jobs:get', (uid, id) => {
+    const j = store.getJob(uid, id);
+    if (!j) throw new Error('岗位不存在或已删除');
+    return j;
+  });
+  h('jobs:save', (uid, input) => store.saveJob(uid, input));
+  h('jobs:mark', (uid, id, patch) => store.markJob(uid, id, patch));
+  h('jobs:delete', (uid, id) => store.deleteJob(uid, id));
   // 官方授权导入：与主进程保持同一套去重规则（source+externalId 优先，其次公司+岗位）
   h('applications:importAuthorized', (uid, payload) => {
     const source = String((payload && payload.source) || '').trim();

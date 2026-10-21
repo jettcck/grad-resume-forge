@@ -35,6 +35,14 @@ contextBridge.exposeInMainWorld('api', {
     remove: (userId: string, appId: string) => ipcRenderer.invoke('applications:delete', userId, appId),
     importAuthorized: (userId: string, payload: unknown) => ipcRenderer.invoke('applications:importAuthorized', userId, payload)
   },
+  // 岗位池：统一管理「正在考虑投什么」，数据只落本机 db.json（本地优先，无云端）
+  jobs: {
+    list: (userId: string) => ipcRenderer.invoke('jobs:list', userId),
+    get: (userId: string, jobId: string) => ipcRenderer.invoke('jobs:get', userId, jobId),
+    save: (userId: string, input: unknown) => ipcRenderer.invoke('jobs:save', userId, input),
+    mark: (userId: string, jobId: string, patch: unknown) => ipcRenderer.invoke('jobs:mark', userId, jobId, patch),
+    remove: (userId: string, jobId: string) => ipcRenderer.invoke('jobs:delete', userId, jobId)
+  },
   // 招聘平台投递记录同步：只读旁路，不向平台写入任何数据
   // collect 第三个参数 auto=true：点「抓取」即自动开窗口、自动走到记录页抓取
   jobSync: {
