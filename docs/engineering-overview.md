@@ -211,7 +211,7 @@ node evals/agent-bench-llm.js --sample 20
 ## 8. 测试
 
 ```
-32 个测试文件 / 1,594 条断言
+32 个测试文件 / 1,596 条断言
 npm test   # 含 evals：mock 层评测 + LLM 层 self-test + 规则层评测
 ```
 
