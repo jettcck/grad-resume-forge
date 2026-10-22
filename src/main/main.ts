@@ -4,7 +4,7 @@
 //  主进程入口（TypeScript 版）
 // ============================================================
 
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, session } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, session, Notification } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { pathToFileURL } from 'url';
@@ -31,6 +31,16 @@ app.on('render-process-gone', (_e, _wc, details) => {
 });
 
 import * as store from './store';
+import * as examCore from './exam-core';
+import {
+  EXAM_BANK,
+  allTags as allExamTags,
+  allDomains as allExamDomains,
+  getQuestion as getExamQuestion,
+  BANK_VERSION as EXAM_BANK_VERSION
+} from './exam-bank';
+import { CODE_BANK, getCodeQuestion, publicCodeQuestion } from './code-bank';
+import * as codeRunner from './code-runner';
 import * as auth from './auth';
 import * as engine from './resume-engine';
 import { createLlmClient } from '../../packages/llm-adapters/dist/index';
@@ -508,6 +518,590 @@ ipcMain.handle('jobs:delete', (_e, userId: string, jobId: string) => {
   try {
     userId = sessionUserId(_e);
     return ok(store.deleteJob(userId, jobId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// ---------------- 笔试中心 ----------------
+// 题目/试卷的「公开形态」在 exam-core 里实现（纯函数，便于安全测试直接断言）
+/**
+ * 作答内容校验：只接受本卷题目，且每题的答案形状必须与题型匹配。
+ *
+ * 为什么不能静默过滤：如果用户提交了卷外 id 或类型不对的答案却被悄悄丢掉，
+ * 交卷后看到「这题我没填啊」会以为丢数据。这里一律明确报错，让前端能提示。
+ */
+function sanitizeAnswers(
+  paper: import('./types').ExamPaper,
+  raw: Record<string, unknown>
+): { ok: true; answers: Record<string, string | string[]> } | { ok: false; error: string } {
+  const allowed = new Set(paper.questionIds);
+  const answers: Record<string, string | string[]> = {};
+
+  for (const key of Object.keys(raw || {})) {
+    if (!allowed.has(key)) {
+      return { ok: false, error: '作答里包含不属于本卷的题目（' + key + '），请刷新后重试' };
+    }
+    const q = examCore.resolveQuestion(key, paper.snapshots);
+    if (!q) return { ok: false, error: '题目 ' + key + ' 已不存在，请重新组卷' };
+
+    const v = raw[key];
+    if (v == null) continue;
+
+    const asStrArray = (): string[] | null => {
+      if (!Array.isArray(v)) return null;
+      if (v.length > 20) return null;
+      const out: string[] = [];
+      for (const item of v) {
+        if (typeof item !== 'string') return null;
+        const t = item.trim();
+        if (t.length > 200) return null;
+        if (t) out.push(t);
+      }
+      return out;
+    };
+
+    if (q.type === 'multiple') {
+      const arr = asStrArray();
+      if (!arr) return { ok: false, error: '多选题「' + q.stem.slice(0, 14) + '…」的答案必须是选项文本数组' };
+      answers[key] = arr;
+      continue;
+    }
+
+    if (q.type === 'fill') {
+      if (typeof v === 'string') {
+        if (v.trim().length > 200) return { ok: false, error: '填空题答案过长' };
+        answers[key] = v;
+      } else {
+        const arr = asStrArray();
+        if (!arr) return { ok: false, error: '填空题「' + q.stem.slice(0, 14) + '…」的答案必须是字符串' };
+        answers[key] = arr;
+      }
+      continue;
+    }
+
+    // single / judge：单个选项文本
+    if (typeof v !== 'string') {
+      return { ok: false, error: '单选题「' + q.stem.slice(0, 14) + '…」的答案必须是字符串' };
+    }
+    if (v.trim().length > 200) return { ok: false, error: '单选题答案过长' };
+    answers[key] = v;
+  }
+
+  return { ok: true, answers };
+}
+
+/** 本周起始（周一 00:00，本地时区）——学习计划按自然周统计 */
+function startOfWeek(ts: number): number {
+  const d = new Date(ts);
+  d.setHours(0, 0, 0, 0);
+  const day = (d.getDay() + 6) % 7; // 周一 = 0
+  d.setDate(d.getDate() - day);
+  return d.getTime();
+}
+
+
+ipcMain.handle('exam:bank', () => {
+  try {
+    return ok({
+      count: EXAM_BANK.length,
+      tags: allExamTags(),
+      domains: allExamDomains(),
+      types: ['single', 'multiple', 'judge', 'fill']
+    });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:paper:create', (_e, input: Record<string, unknown>) => {
+  try {
+    const userId = sessionUserId(_e);
+    assertPlainObject(input, '组卷参数');
+    const jobId = input.jobId ? String(input.jobId) : '';
+    let jdText = input.jdText ? String(input.jdText) : '';
+    let skills = input.skills ? String(input.skills) : '';
+    let targetRole = input.targetRole ? String(input.targetRole) : '';
+    let applicationId = input.applicationId ? String(input.applicationId) : '';
+    let title = '模拟笔试';
+    let jobCompany = '';
+    let jobPosition = '';
+
+    // 从岗位池组卷：自动带上 JD、技能要求与关联投递。
+    // 岗位不存在时直接拒绝 —— 以前会静默退化成通用卷，用户以为在按岗位练，其实不是。
+    if (jobId) {
+      const job = store.getJob(userId, jobId);
+      if (!job) return fail('岗位不存在或已删除，请刷新岗位池');
+      jdText = jdText || job.jdText || '';
+      skills = skills || job.skills || '';
+      targetRole = targetRole || (job.position || '');
+      applicationId = applicationId || (job.applicationId || '');
+      title = job.company + ' · ' + (job.position || '岗位') + ' 模拟笔试';
+      jobCompany = job.company;
+      jobPosition = job.position || '';
+    }
+
+    // 关联的投递记录必须真实存在。
+    // 以前这里静默把 applicationId 清空——用户明明选了「关联投递」，组出来的卷子
+    // 却不回写投递记录，交卷后看不到「笔试已通过」的下一步，看起来像功能坏了。
+    if (applicationId && !store.listApplications(userId).some((a) => a.id === applicationId)) {
+      return fail('岗位存在，但关联的投递记录已删除。请到投递看板重新添加该岗位，或改为不关联投递组卷');
+    }
+
+    const count = Number(input.count) || 20;
+    const durationSec = Number(input.durationSec) || 1800;
+    const passScore = Number(input.passScore) || 60;
+    const built = examCore.buildPaper({
+      jdText, skills, targetRole, count, durationSec, passScore,
+      domain: input.domain ? String(input.domain) : undefined
+    });
+
+    // 统一校验：所有试卷入口都要过这一关（题目存在、数量、时长边界）
+    const invalid = examCore.validatePaperInput({ questionIds: built.questionIds, durationSec });
+    if (invalid) return fail(invalid);
+
+    const paper = store.saveExamPaper(userId, {
+      title,
+      jobId: jobId || undefined,
+      applicationId: applicationId || undefined,
+      questionIds: built.questionIds,
+      durationSec,
+      passScore,
+      domain: built.domain,
+      tags: built.tags,
+      jobCompany: jobCompany || undefined,
+      jobPosition: jobPosition || undefined,
+      bankVersion: EXAM_BANK_VERSION,
+      composition: built.composition,
+      // 题目快照：题库日后改题/删题，历史成绩仍按当时的内容解释
+      snapshots: examCore.buildExamSnapshots(built.questionIds)
+    });
+
+    return ok({
+      paper: examCore.publicExamPaper(paper),
+      questions: examCore.paperQuestions(paper),
+      composition: built.composition,
+      tags: built.tags,
+      domain: built.domain
+    });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:paper:list', (_e) => {
+  try {
+    const userId = sessionUserId(_e);
+    // 列表同样不能带快照：快照里有答案，交卷前不该下发
+    return ok(store.listExamPapers(userId).map(examCore.publicExamPaper));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:paper:get', (_e, paperId: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    const paper = store.getExamPaper(userId, String(paperId));
+    if (!paper) return fail('试卷不存在或已删除');
+    // 详情优先用组卷当时的快照：题库改题/删题后，旧卷子的题干与选项不变
+    return ok({ paper: examCore.publicExamPaper(paper), questions: examCore.paperQuestions(paper) });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 开始作答：同一份卷子已有草稿时直接续答，不重复创建
+ipcMain.handle('exam:attempt:start', (_e, paperId: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    const paper = store.getExamPaper(userId, String(paperId));
+    if (!paper) return fail('试卷不存在或已删除');
+    const drafts = store.listExamAttempts(userId, paper.id).filter((a) => a.status === 'draft');
+    if (drafts.length) return ok({ attempt: drafts[0], resumed: true });
+    const attempt = store.saveExamAttempt(userId, {
+      paperId: paper.id,
+      answers: {},
+      totalCount: paper.questionIds.length,
+      status: 'draft'
+    });
+    return ok({ attempt, resumed: false });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:attempt:save', (_e, attemptId: string, answers: Record<string, string | string[]>) => {
+  try {
+    const userId = sessionUserId(_e);
+    assertPlainObject(answers, '作答内容');
+    assertSize(answers, LIMITS.notes, '作答内容');
+    const cur = store.getExamAttempt(userId, String(attemptId));
+    if (!cur) return fail('作答记录不存在');
+    const paper = store.getExamPaper(userId, cur.paperId);
+    if (!paper) return fail('试卷不存在或已删除');
+    const checked = sanitizeAnswers(paper, answers as unknown as Record<string, unknown>);
+    if (!checked.ok) return fail(checked.error);
+    const attempt = store.saveExamAttempt(userId, {
+      id: String(attemptId),
+      answers: checked.answers,
+      status: 'draft'
+    });
+    return ok(attempt);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 交卷：评分 → 归档错题 → 更新学习计划 → 回写投递记录
+ipcMain.handle('exam:attempt:submit', (_e, attemptId: string, answers: Record<string, string | string[]>) => {
+  try {
+    const userId = sessionUserId(_e);
+    assertPlainObject(answers, '作答内容');
+    assertSize(answers, LIMITS.notes, '作答内容');
+
+    const attempt = store.getExamAttempt(userId, String(attemptId));
+    if (!attempt) return fail('作答记录不存在');
+    const paper = store.getExamPaper(userId, attempt.paperId);
+    if (!paper) return fail('试卷不存在或已删除');
+
+    const checked = sanitizeAnswers(paper, answers as unknown as Record<string, unknown>);
+    if (!checked.ok) return fail(checked.error);
+    const cleanAnswers = checked.answers;
+
+    // 已交卷：幂等返回第一次结果。
+    // 重复提交（连点、超时与手动交卷撞车）不得再累加错题次数、学习计划完成数，
+    // 也不得重复回写投递记录 —— 这里直接短路，不再写任何库。
+    if (attempt.status === 'submitted') {
+      // 复算也用快照：题库改题后重复提交不该算出与第一次不同的解析
+      const regraded = examCore.gradePaper(paper.questionIds, attempt.answers || {}, paper.snapshots);
+      return ok({
+        attempt,
+        duplicate: true,
+        result: {
+          score: attempt.score,
+          correctCount: attempt.correctCount,
+          totalCount: attempt.totalCount,
+          passScore: paper.passScore,
+          passed: attempt.score >= paper.passScore,
+          durationSec: attempt.durationSec,
+          tagStats: attempt.tagStats || regraded.tagStats,
+          details: regraded.details
+        }
+      });
+    }
+    if (attempt.status === 'abandoned') return fail('该作答已放弃，请重新组卷');
+
+    const graded = examCore.gradePaper(paper.questionIds, cleanAnswers, paper.snapshots);
+    // 用时：真实耗时，最少记 1 秒（避免 0），封顶到限时
+    // （原先 Math.max(60, ...) 会让 3 秒交卷显示成 60 秒）
+    const elapsedSec = Math.max(1, Math.round((Date.now() - attempt.startedAt) / 1000));
+    const durationSec = Math.min(Math.max(1, Number(paper.durationSec) || 1800), elapsedSec);
+
+    const saved = store.saveExamAttempt(userId, {
+      id: attempt.id,
+      answers: cleanAnswers,
+      score: graded.score,
+      correctCount: graded.correctCount,
+      totalCount: graded.totalCount,
+      durationSec,
+      status: 'submitted',
+      tagStats: graded.tagStats
+    });
+
+    // 错题归档（只归档真正作答但答错的题）
+    if (graded.wrongIds.length) {
+      store.mergeWrongQuestions(userId, graded.wrongIds.map((id) => ({ questionId: id })));
+    }
+
+    // 学习计划：按岗位拆分，只统计同一岗位（或无岗位的通用卷）的历史，避免互相覆盖
+    const scopeJobId = paper.jobId || '';
+    const scopePaperIds = new Set(
+      store.listExamPapers(userId)
+        .filter((p) => (p.jobId || '') === scopeJobId)
+        .map((p) => p.id)
+    );
+    const allStats = store.listExamAttempts(userId)
+      .filter((a) => a.status === 'submitted' && a.tagStats && scopePaperIds.has(a.paperId))
+      .map((a) => a.tagStats!);
+    const weak = examCore.weakTagsFromStats(allStats).filter((w) => w.rate < 0.8).slice(0, 8);
+    const plan = store.getStudyPlan(userId, paper.jobId);
+    const weekStart = startOfWeek(Date.now());
+    // 跨周归零：上周的完成数不能算进本周目标
+    const sameWeek = !!plan && plan.weekStartedAt === weekStart;
+    store.saveStudyPlan(userId, {
+      jobId: paper.jobId,
+      targetRole: plan ? plan.targetRole : (paper.jobPosition || ''),
+      completedCount: (plan ? plan.completedCount : 0) + graded.totalCount,
+      weekStartedAt: weekStart,
+      weekCompletedCount: (sameWeek ? (plan!.weekCompletedCount || 0) : 0) + graded.totalCount,
+      weakTags: weak.map((w) => w.tag)
+    });
+
+    // 回写投递记录：笔试完成 → 下一步行动
+    if (paper.applicationId) {
+      try {
+        const app0 = store.listApplications(userId).find((a) => a.id === paper.applicationId);
+        if (app0) {
+          store.saveApplication(userId, {
+            id: app0.id,
+            company: app0.company,
+            nextAction: graded.score >= paper.passScore ? '笔试已通过，等待面试通知' : '笔试未通过，复盘错题后重新准备',
+            nextDueAt: ''
+          } as never);
+        }
+      } catch (_) { /* 投递记录可能已删除，不影响交卷 */ }
+    }
+
+    return ok({
+      attempt: saved,
+      result: {
+        score: graded.score,
+        correctCount: graded.correctCount,
+        totalCount: graded.totalCount,
+        passScore: paper.passScore,
+        passed: graded.score >= paper.passScore,
+        durationSec,
+        tagStats: graded.tagStats,
+        details: graded.details
+      }
+    });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:attempt:list', (_e, paperId?: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.listExamAttempts(userId, paperId ? String(paperId) : undefined));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 错题本：带题目正文与解析，前端直接渲染，不用再查一次
+ipcMain.handle('exam:wrong:list', (_e) => {
+  try {
+    const userId = sessionUserId(_e);
+    const wrongs = store.listWrongQuestions(userId);
+    const items = wrongs.map((w) => {
+      const q = getExamQuestion(w.questionId);
+      return {
+        ...w,
+        question: q ? {
+          id: q.id, type: q.type, domain: q.domain, tags: q.tags, stem: q.stem,
+          options: q.options, answer: q.answer, explanation: q.explanation
+        } : null
+      };
+    }).filter((x) => x.question);
+    return ok(items);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:wrong:master', (_e, questionId: string, mastered: boolean) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.setWrongMastered(userId, String(questionId), !!mastered));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 下一轮练习：从错题本 + 同知识点出新卷
+ipcMain.handle('exam:review:create', (_e, count?: number) => {
+  try {
+    const userId = sessionUserId(_e);
+    const wrongs = store.listWrongQuestions(userId);
+    if (!wrongs.length) return fail('错题本是空的，先做一套卷子吧');
+    const ids = examCore.buildReviewPaper(wrongs, Number(count) || 10);
+    const paper = store.saveExamPaper(userId, {
+      title: '错题强化练习',
+      questionIds: ids,
+      durationSec: Math.max(300, ids.length * 90),
+      passScore: 60,
+      domain: 'review'
+    });
+    const questions = ids
+      .map((id) => getExamQuestion(id))
+      .filter((q): q is NonNullable<typeof q> => !!q)
+      .map(examCore.publicExamQuestion);
+    return ok({ paper, questions });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:plan:get', (_e, jobId?: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.getStudyPlan(userId, jobId ? String(jobId) : undefined));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:plan:list', (_e) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.listStudyPlans(userId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 知识点趋势：取最薄弱的 topN 个知识点及其历次正确率
+ipcMain.handle('exam:trends', (_e, topN?: number) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(examCore.buildTagTrends(store.listExamAttempts(userId), Number(topN) || 3));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// ---------------- 编程题（ACM 标准输入输出） ----------------
+ipcMain.handle('code:env', () => {
+  try {
+    return ok(codeRunner.detectRuntimes());
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('code:list', () => {
+  try {
+    return ok(CODE_BANK.map((q) => ({
+      id: q.id,
+      title: q.title,
+      domain: q.domain,
+      tags: q.tags,
+      difficulty: q.difficulty,
+      timeLimitMs: q.timeLimitMs,
+      memoryLimitMb: q.memoryLimitMb,
+      sampleCount: q.samples.length,
+      testCount: q.testCases.length
+    })));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('code:get', (_e, questionId: string) => {
+  try {
+    const q = getCodeQuestion(String(questionId));
+    if (!q) return fail('题目不存在');
+    return ok(publicCodeQuestion(q));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 运行 / 提交：都在独立子进程里执行，主进程只负责收结果
+async function handleCodeJudge(
+  userId: string,
+  input: { questionId?: string; lang?: string; code?: string },
+  mode: 'samples' | 'all'
+) {
+  const q = getCodeQuestion(String((input && input.questionId) || ''));
+  if (!q) return fail('题目不存在');
+  const lang = String((input && input.lang) || '');
+  if (lang !== 'javascript' && lang !== 'python' && lang !== 'cpp') return fail('暂不支持该语言');
+  const code = String((input && input.code) || '');
+  if (!code.trim()) return fail('代码为空');
+  if (code.length > 100000) return fail('代码长度超过 10 万字符');
+  const result = await codeRunner.judgeCode(q, lang, code, mode);
+
+  // 只有「提交判题」才记一条提交记录（运行样例不算，否则历史会被刷屏）
+  if (mode === 'all') {
+    try {
+      store.addCodeSubmission(userId, {
+        questionId: q.id,
+        lang: lang as never,
+        verdict: result.verdict,
+        passed: result.passed,
+        total: result.total,
+        timeMs: result.timeMs
+      });
+    } catch (_) { /* 记录失败不影响判题结果 */ }
+  }
+  return ok(result);
+}
+
+ipcMain.handle('code:run', (_e, input: { questionId?: string; lang?: string; code?: string }) => {
+  try {
+    return handleCodeJudge(sessionUserId(_e), input, 'samples').catch((err) => fail((err as Error).message));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('code:submit', (_e, input: { questionId?: string; lang?: string; code?: string }) => {
+  try {
+    return handleCodeJudge(sessionUserId(_e), input, 'all').catch((err) => fail((err as Error).message));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 代码草稿：切题/重启都不丢
+ipcMain.handle('code:draft:get', (_e, questionId: string, lang: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.getCodeDraft(userId, String(questionId), String(lang)));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('code:draft:save', (_e, questionId: string, lang: string, code: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    if (String(code || '').length > 100000) return fail('代码长度超过 10 万字符');
+    return ok(store.saveCodeDraft(userId, String(questionId), String(lang), String(code || '')));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('code:submissions', (_e, questionId?: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.listCodeSubmissions(userId, questionId ? String(questionId) : undefined));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 自定义测试输入：不比对期望输出，只回传真实输出/报错/耗时
+ipcMain.handle('code:runCustom', async (_e, input: {
+  questionId?: string; lang?: string; code?: string; stdin?: string;
+}) => {
+  try {
+    sessionUserId(_e); // 必须登录（防止未登录时被当成万能执行器）
+    const q = getCodeQuestion(String((input && input.questionId) || ''));
+    if (!q) return fail('题目不存在');
+    const lang = String((input && input.lang) || '');
+    if (lang !== 'javascript' && lang !== 'python' && lang !== 'cpp') return fail('暂不支持该语言');
+    const code = String((input && input.code) || '');
+    if (!code.trim()) return fail('代码为空');
+    if (code.length > 100000) return fail('代码长度超过 10 万字符');
+    const stdin = String((input && input.stdin) || '');
+    if (stdin.length > 65536) return fail('自定义输入不能超过 64KB');
+    const result = await codeRunner.runCustomInput(q, lang, code, stdin);
+    return ok(result);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:plan:save', (_e, input: Record<string, unknown>) => {
+  try {
+    const userId = sessionUserId(_e);
+    assertPlainObject(input, '学习计划');
+    return ok(store.saveStudyPlan(userId, input as never));
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -1452,4 +2046,39 @@ app.whenReady().then(() => {
       autoUpdater.checkForUpdates().catch(() => {}); // 失败静默，不打扰用户
     }, 15000);
   }
+
+  // 笔试提醒：启动 8 秒后查一次，之后每 30 分钟查一次。
+  // 只提醒 24 小时内即将开始的笔试，同一场（投递 id + 时间）只提醒一次。
+  setTimeout(checkExamReminders, 8000);
+  setInterval(checkExamReminders, 30 * 60 * 1000);
 });
+
+// ---------------- 笔试提醒 ----------------
+// 数据来源是本机投递记录的 examAt（岗位池「设置笔试时间」写入），不联网、不上传。
+const notifiedExams = new Set<string>();
+
+function checkExamReminders(): void {
+  try {
+    if (!Notification.isSupported()) return;
+    const db = store._dbForTest();
+    const now = Date.now();
+    for (const uid of Object.keys(db.applications || {})) {
+      for (const a of db.applications[uid] || []) {
+        if (!a.examAt) continue;
+        const t = Date.parse(String(a.examAt).replace(/-/g, '/'));
+        if (isNaN(t)) continue;
+        const diffMs = t - now;
+        if (diffMs < 0 || diffMs > 24 * 3600 * 1000) continue; // 只提醒 24 小时内
+        const key = a.id + '|' + a.examAt;
+        if (notifiedExams.has(key)) continue;
+        notifiedExams.add(key);
+        const hours = diffMs / 3600000;
+        const when = hours < 1 ? '不到 1 小时后' : Math.round(hours) + ' 小时后';
+        new Notification({
+          title: '笔试提醒 · ' + when,
+          body: (a.company || '') + ' · ' + (a.position || '') + '\n' + a.examAt
+        }).show();
+      }
+    }
+  } catch (_) { /* 通知不可用不影响主流程 */ }
+}

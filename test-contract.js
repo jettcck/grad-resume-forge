@@ -130,7 +130,8 @@ assert(/jobSync\.collect\(String\(platformId \|\| ''\), k, auto === true\)/.test
 
 // ---------- 4) 截图 mock 必须覆盖渲染层会用到的 channel ----------
 // 否则 UI 测试会对「未注册的接口」视而不见（快照卡与 applications 两次都栽在这里）
-const mockChannels = new Set([...mockSrc.matchAll(/\bh\('([^']+)'/g)].map((m) => m[1]));
+// hU 是 h 的变体（自动注入 demo uid），两者都要算作「已注册」
+const mockChannels = new Set([...mockSrc.matchAll(/\bhU?\('([^']+)'/g)].map((m) => m[1]));
 const chanByApi = {};
 [...preloadSrc.matchAll(/(\w+):\s*\([^)]*\)\s*=>\s*ipcRenderer\.invoke\('([^']+)'/g)].forEach((m) => {
   chanByApi[m[1]] = m[2];
@@ -169,11 +170,28 @@ const idsQueried = new Set([...appSrc.matchAll(/getElementById\('([\w-]+)'\)/g)]
 const missingIds = [...idsQueried].filter((id) => !idsInHtml.has(id) && !idsCreated.has(id));
 assert(missingIds.length === 0, '查询的 ' + idsQueried.size + ' 个 id 都存在（缺：' + (missingIds.join(', ') || '无') + '）');
 
-// ---------- 8) 四个路由容器齐全（新增路由最容易漏 index.html 那一半）----------
-['profile', 'resume', 'apps', 'interview'].forEach((r) => {
-  assert(idsInHtml.has('route-' + r) && new RegExp('data-route="' + r + '"').test(htmlSrc),
-    '路由 ' + r + ' 的容器与导航项都在 index.html');
-});
+// ---------- 8) 每个路由容器都必须有同名导航按钮（新增路由最容易漏 index.html 那一半）----------
+// 动态发现所有 route-xxx 容器，而不是硬编码路由列表 —— 否则新增页面时
+// 「容器在、按钮不在」会静默通过（岗位池首次上线就踩过：页面有容器却没入口）。
+const routeIds = [...idsInHtml].filter((id) => id.startsWith('route-')).map((id) => id.slice(6));
+assert(routeIds.length > 0, 'index.html 至少有一个 route-xxx 容器');
+const routesWithoutNav = routeIds.filter((r) => !new RegExp('data-route="' + r + '"').test(htmlSrc));
+assert(routesWithoutNav.length === 0,
+  '每个路由容器都有同名导航按钮（' + routeIds.length + ' 个路由；缺按钮：' + (routesWithoutNav.join(', ') || '无') + '）');
+// 反向：导航按钮指向的路由也必须有容器，避免点了空白
+const navRoutes = [...htmlSrc.matchAll(/data-route="([\w-]+)"/g)].map((m) => m[1]);
+const navWithoutRoute = [...new Set(navRoutes)].filter((r) => !routeIds.includes(r));
+assert(navWithoutRoute.length === 0,
+  '每个导航按钮都有对应路由容器（缺容器：' + (navWithoutRoute.join(', ') || '无') + '）');
+
+// navigate() 的「显隐数组」必须覆盖所有路由容器 —— 漏一个就会点了导航却整页空白
+// （岗位池上线时正是漏在这里：按钮有、容器有、renderJobs 有，但数组没加 jobs）
+const toggleMatch = appSrc.match(/\[([^\]]*)\]\.forEach\(\(r\)\s*=>\s*\{\s*document\.getElementById\('route-'\s*\+\s*r\)/);
+assert(!!toggleMatch, 'navigate() 存在批量显隐路由的数组写法');
+const toggled = [...toggleMatch[1].matchAll(/'([\w-]+)'/g)].map((m) => m[1]);
+const notToggled = routeIds.filter((r) => !toggled.includes(r));
+assert(notToggled.length === 0,
+  'navigate() 显隐数组覆盖所有路由（漏：' + (notToggled.join(', ') || '无') + '）');
 
 // ---------- 9) 通道方向必须与主进程注册方式一致 ----------
 // invoke 配 handle、send 配 on。配错了不会报错，只会「消息静默不执行」——
@@ -202,7 +220,8 @@ assert(dirBad.length === 0,
 // ---------- 10) 截图 mock 的注册方向也要一致 ----------
 // mock 用 handle 去接渲染层的 send，不会报错、只会静默失效，UI 测试会假装通过。
 // 只对「渲染层真的会调用」的接口要求 mock —— 没人调的接口不需要在 mock 里存在。
-const mockH = new Set([...mockSrc.matchAll(/(?:\bh\(|ipcMain\.handle\()'([^']+)'/g)].map((m) => m[1]));
+// hU 是 h 的变体（注入 demo uid），同样算 handle
+const mockH = new Set([...mockSrc.matchAll(/(?:\bhU?\(|ipcMain\.handle\()'([^']+)'/g)].map((m) => m[1]));
 const mockOn = new Set([...mockSrc.matchAll(/ipcMain\.on\('([^']+)'/g)].map((m) => m[1]));
 const mockDirBad = [];
 [...invokeChans].forEach(([ch, api]) => { if (calls.has(api) && !mockH.has(ch)) mockDirBad.push(api + '（mock 缺 handle ' + ch + '）'); });
@@ -440,5 +459,29 @@ assert(/enable-unsafe-swiftshader/.test(mainEntrySrc) && /'use-angle',\s*'swifts
   '主进程带 SwiftShader 软件渲染兜底，GPU 不可用时不会因离屏窗口直接崩溃退出');
 assert(/render-process-gone/.test(mainEntrySrc),
   '渲染进程异常退出会被记录，不再表现为无声黑屏');
+
+// ---- 截图 mock 的试卷行为必须与真实主进程一致 ----
+// 真实主进程：组卷时写快照、下发时剥快照、评分按快照。
+// mock 若只存不写快照，UI 测试会走「无快照回退题库」分支，绿灯是假的。
+const mockCreateBlock = (mockSrc.split("exam:paper:create")[1] || '').split('exam:paper:list')[0];
+assert(/buildExamSnapshots/.test(mockCreateBlock),
+  '截图 mock 组卷时写题目快照（与真实主进程一致）');
+assert(/publicExamPaper/.test(mockCreateBlock),
+  '截图 mock 组卷返回公开形态（不把 snapshots 下发到渲染层）');
+assert(/examCore\.gradePaper\(paper\.questionIds, answers \|\| \{\}, paper\.snapshots\)/.test(mockSrc),
+  '截图 mock 交卷按快照评分（与真实主进程一致）');
+
+// ---- Electron 入口必须走 run-electron.js ----
+// 背景：本机常驻 ELECTRON_RUN_AS_NODE=1，直接 `electron xxx` 会退化成纯 Node：
+//   `electron .` 起不来、`electron script.js` 里 app 是 undefined。
+// 表现是「命令跑完了但什么都没发生」，极难排查。统一走包装脚本剥掉该变量。
+const pkgJson = JSON.parse(R('package.json'));
+const directElectron = Object.keys(pkgJson.scripts)
+  .filter((k) => /(^|&&|;)\s*electron\s/.test(pkgJson.scripts[k]));
+assert(directElectron.length === 0,
+  'npm script 不直接调 electron（会因 ELECTRON_RUN_AS_NODE 退化成 Node，应走 scripts/run-electron.js）：'
+  + (directElectron.join(', ') || '无'));
+assert(/delete env\.ELECTRON_RUN_AS_NODE/.test(R('scripts/run-electron.js')),
+  'run-electron.js 会剥掉 ELECTRON_RUN_AS_NODE');
 
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

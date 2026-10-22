@@ -267,6 +267,231 @@ assert((p3.notes || []).length > 0, '无分节文本给出提示');
   }
 })();
 
+// ---------------- 文本归一化：全角字符 ----------------
+// 中文简历里「２０２２」「Ｊａｖａ」很常见，不转的话手机号/年份/技术栈正则全部匹配不上
+assert(importer.normalizeExtractedText('２０２２年').includes('2022'),
+  '全角数字归一化为半角（２０２２ → 2022）');
+assert(importer.normalizeExtractedText('Ｊａｖａ 工程师').includes('Java'),
+  '全角字母归一化为半角（Ｊａｖａ → Java）');
+assert(importer.normalizeExtractedText('你好，世界。').includes('，')
+  && importer.normalizeExtractedText('你好，世界。').includes('。'),
+  '全角标点保持不变（转半角会破坏中文排版）');
+assert(!importer.normalizeExtractedText('缩进\u3000\u3000内容').includes('\u3000'),
+  '全角空格归一化为半角空格');
+
+const fullWidthText = '李四\n电话：１３８００００００００\n邮箱：ｌｉｓｉ＠ｅｘａｍｐｌｅ．ｃｏｍ\n教育背景\n某某大学 本科';
+const fwParsed = importer.parseResumeText(fullWidthText, ref);
+assert(fwParsed.phone === '13800000000', '全角手机号能被识别（实得 ' + fwParsed.phone + '）');
+assert(fwParsed.email === 'lisi@example.com', '全角邮箱能被识别（实得 ' + fwParsed.email + '）');
+
+// ---------------- 页眉页脚：页码噪声 ----------------
+const pagedText = [
+  '张三',
+  '第 1 页 / 共 2 页',
+  '教育背景',
+  '浙江大学 计算机 2020-2024',
+  'Page 2 of 2',
+  '实习经历',
+  '某某公司 后端开发 2023.06-2023.09'
+].join('\n');
+const pagedParsed = importer.parseResumeText(pagedText, ref);
+assert(pagedParsed.name === '张三', '页码噪声不影响姓名识别（实得 ' + pagedParsed.name + '）');
+assert(pagedParsed.education.length === 1, '页码噪声没被当成教育经历（实得 ' + pagedParsed.education.length + ' 段）');
+assert(pagedParsed.internships.length >= 1, '页码噪声没打断实习经历识别（实得 ' + pagedParsed.internships.length + ' 段）');
+const pagedNotes = (pagedParsed.notes || []).join('');
+assert(!/第 1 页|Page 2/.test(pagedNotes), '页码没有被写进解析备注');
+
+// 页码过滤只认「整行就是页码」：带上下文的 1/2 必须留着
+const noiseIn = ['第 1 页 / 共 2 页', 'Page 2 of 2', '- 3 -', '1/2', '专业排名 1/2（前 50%）'];
+const noiseOut = importer.stripPageNoise(noiseIn);
+assert(noiseOut.length === 1 && noiseOut[0] === '专业排名 1/2（前 50%）',
+  '页码过滤：四种整行页码被剔除，带上下文的 1/2 保留（实得 ' + JSON.stringify(noiseOut) + '）');
+assert(importer.stripPageNoise(['第 1 页', '共 2 页 第 1 页']).length === 1,
+  '非常规页脚（「共 2 页 第 1 页」）不误删，只删标准形态');
+
+// ---------------- PDF 文本项：按坐标聚行 ----------------
+// 为什么不用 hasEOL：双栏/表格排版里内容流顺序与视觉顺序不一致
+const shuffledItems = [
+  { str: '工程师', transform: [1, 0, 0, 1, 200, 700], width: 45 },  // 先出现但 x 更大
+  { str: '张三', transform: [1, 0, 0, 1, 50, 700], width: 20 }      // 后出现但 x 更小
+];
+const shuffledLines = importer.groupTextItemsByLine(shuffledItems);
+assert(shuffledLines.length === 1, '同一 y 的文本项聚成一行（实得 ' + shuffledLines.length + ' 行）');
+assert(shuffledLines[0] === '张三 工程师',
+  '同行的项按 x 排序且间隙补空格（实得 ' + JSON.stringify(shuffledLines[0]) + '）');
+
+const twoRows = [
+  { str: '第二行', transform: [1, 0, 0, 1, 50, 680], width: 45 },
+  { str: '第一行', transform: [1, 0, 0, 1, 50, 700], width: 45 }
+];
+const twoRowLines = importer.groupTextItemsByLine(twoRows);
+assert(twoRowLines.length === 2 && twoRowLines[0] === '第一行',
+  '不同 y 分成多行且按上到下排序（实得 ' + JSON.stringify(twoRowLines) + '）');
+
+const nearSameY = [
+  { str: '同', transform: [1, 0, 0, 1, 50, 700] , width: 10 },
+  { str: '行', transform: [1, 0, 0, 1, 62, 699.4], width: 10 }
+];
+assert(importer.groupTextItemsByLine(nearSameY).length === 1,
+  'y 有亚像素差异（字号不同/基线偏移）仍归为同一行');
+
+const glued = [
+  { str: '张三', transform: [1, 0, 0, 1, 50, 700], width: 18 },
+  { str: '13800000000', transform: [1, 0, 0, 1, 69, 700], width: 60 }
+];
+assert(importer.groupTextItemsByLine(glued)[0] === '张三13800000000',
+  '紧邻片段不硬插空格（避免把「张三」和手机号拆开时误加）');
+
+assert(importer.groupTextItemsByLine([]).length === 0, '空文本项返回空数组');
+assert(importer.groupTextItemsByLine([{ str: 123 }, { str: '' }]).length === 0,
+  '非字符串/空字符串项被忽略（不抛错）');
+
+// ---------------- 双栏检测（中缝） ----------------
+// 双栏简历是排版常态，但只要不检测中缝，按 y 聚行就会把左右栏同一高度的两行拼成
+// 「教育背景 实习经历」——这是最容易被用户当成"解析乱码"的情况。
+const leftCol = [
+  { x: 40, y: 700, w: 60, str: '教育背景' },
+  { x: 40, y: 680, w: 90, str: '浙江大学 计算机' }
+];
+const rightCol = [
+  { x: 420, y: 700, w: 60, str: '实习经历' },
+  { x: 420, y: 680, w: 90, str: '阿里巴巴 后端' }
+];
+const gutter = importer.detectColumnGutter([...leftCol, ...rightCol], 794);
+assert(gutter != null && gutter > 150 && gutter < 400,
+  '双栏：中缝落在两栏之间（实得 ' + gutter + '）');
+
+// 按中缝切开后，两栏各自成行，互不串
+const leftLines = importer.glyphsToLines([...leftCol, ...rightCol].filter((g) => g.x < gutter));
+const rightLines = importer.glyphsToLines([...leftCol, ...rightCol].filter((g) => g.x >= gutter));
+assert(leftLines.join('|') === '教育背景|浙江大学 计算机',
+  '双栏：左栏独立成行（实得 ' + JSON.stringify(leftLines) + '）');
+assert(rightLines.join('|') === '实习经历|阿里巴巴 后端',
+  '双栏：右栏独立成行（实得 ' + JSON.stringify(rightLines) + '）');
+
+// 单栏不能误判：文本横跨整个宽度，中部没有连续空白
+const singleCol = [
+  { x: 40, y: 700, w: 700, str: '这是一段横跨整页的正文，中间没有任何分栏' },
+  { x: 40, y: 680, w: 700, str: '第二行同样横跨整页宽度' }
+];
+assert(importer.detectColumnGutter(singleCol, 794) === null, '单栏文本不被误判为双栏');
+
+// 窄间隙（小于 24px）不算栏缝：段落间的正常留白不该触发分栏
+const narrowGap = [
+  { x: 40, y: 700, w: 300, str: '左' },
+  { x: 350, y: 700, w: 300, str: '右' }
+];
+assert(importer.detectColumnGutter(narrowGap, 794) === null,
+  '窄间隙（< 24px）不当作栏缝（实得 ' + importer.detectColumnGutter(narrowGap, 794) + '）');
+
+assert(importer.detectColumnGutter([], 794) === null, '空字形集返回 null（不抛错）');
+assert(importer.detectColumnGutter(leftCol, 0) === null, '页宽为 0 时返回 null（不除零）');
+
+// 抽取层：glyphs 过滤后仍能正确聚行（模拟 extractPdfText 的调用方式）
+const mixed = [
+  { str: '左一', transform: [1, 0, 0, 1, 40, 700], width: 30 },
+  { str: '右一', transform: [1, 0, 0, 1, 420, 700], width: 30 },
+  { str: '左二', transform: [1, 0, 0, 1, 40, 680], width: 30 }
+];
+const mixedGlyphs = importer.extractGlyphs(mixed);
+const mixedGutter = importer.detectColumnGutter(mixedGlyphs, 794);
+assert(mixedGutter != null, '透传 textContent.items 也能检出中缝');
+assert(importer.glyphsToLines(mixedGlyphs.filter((g) => g.x < mixedGutter)).join('|') === '左一|左二',
+  'extractGlyphs + 中缝过滤 + 聚行的组合可用');
+
+// ---------------- 通栏 + 分栏混排（侧边栏简历） ----------------
+// 顶部姓名/联系方式横跨整页，下方才是左窄右宽。
+// 这里是整页级「是否有字形」判据的坟墓：顶部通栏会把中缝盖住，导致检不出分栏。
+// 数据规模按真实侧边栏模板给：左栏技能列表、右栏正文，两侧文字量接近
+// （若一边只有几个字，「两侧都要有实质内容」的判据会正确拒绝分栏，测不到分栏逻辑）
+const sidebarGlyphs = [
+  { x: 65, y: 760, w: 30, str: '王五' },
+  { x: 65, y: 740, w: 400, str: '13700000000 · wangwu@example.com · 北京 · 求职意向：后端开发' },
+  { x: 65, y: 700, w: 60, str: '专业技能' },
+  { x: 300, y: 700, w: 60, str: '教育背景' },
+  { x: 65, y: 680, w: 40, str: 'Java' },
+  { x: 300, y: 680, w: 100, str: '北京大学 软件工程 本科' },
+  { x: 65, y: 660, w: 45, str: 'MySQL' },
+  { x: 300, y: 660, w: 120, str: '2018.09 - 2022.06 · GPA 3.7' },
+  { x: 65, y: 640, w: 40, str: 'Redis' },
+  { x: 300, y: 640, w: 60, str: '实习经历' },
+  { x: 65, y: 620, w: 50, str: 'CET-6' },
+  { x: 300, y: 620, w: 90, str: '腾讯 后台开发实习生' }
+];
+const sidebarGutter = importer.detectColumnGutter(sidebarGlyphs, 794);
+assert(sidebarGutter != null && sidebarGutter > 150 && sidebarGutter < 300,
+  '侧边栏：顶部通栏存在时仍能检出中缝（实得 ' + sidebarGutter + '）');
+
+const sidebarLines = importer.layoutPageLines(sidebarGlyphs, 794);
+assert(sidebarLines[0] === '王五', '侧边栏：通栏姓名排在最前（实得 ' + sidebarLines[0] + '）');
+assert(sidebarLines[1] && /13700000000/.test(sidebarLines[1]) && /北京/.test(sidebarLines[1]),
+  '侧边栏：通栏联系方式完整一行，没被切开（实得 ' + sidebarLines[1] + '）');
+assert(sidebarLines.indexOf('专业技能') < sidebarLines.indexOf('教育背景'),
+  '侧边栏：左栏（专业技能）排在右栏（教育背景）之前');
+assert(sidebarLines.indexOf('Java') < sidebarLines.findIndex((l) => l.startsWith('北京大学')),
+  '侧边栏：左栏内容全部读完再读右栏（Java 在右栏正文之前）');
+assert(!sidebarLines.some((l) => /专业技能\s+教育背景/.test(l)),
+  '侧边栏：左右栏标题没有被拼成一行（本 bug 的直接回归）');
+
+// 纯单栏时 layoutPageLines 与 glyphsToLines 等价
+const flatGlyphs = [
+  { x: 65, y: 700, w: 500, str: '这是一段横跨整页的正文内容' },
+  { x: 65, y: 680, w: 500, str: '第二行同样横跨整页' }
+];
+assert(importer.layoutPageLines(flatGlyphs, 794).join('|') === importer.glyphsToLines(flatGlyphs).join('|'),
+  '纯单栏：layoutPageLines 与 glyphsToLines 结果一致');
+
+// ---------------- 时间行 / 描述句 / 编号列表 ----------------
+// 时间单独占一行时，整条时间必须补进当前条目。
+// 曾经的 bug：BULLET_RE 是 ^\d+[.、)]，把「2021.」当成列表编号剥掉，
+// 于是时间行被判成项目符号行、跳过了「补 period」的分支，时间被塞进 description。
+const soloPeriod = importer.parseResumeText([
+  '孙七', '13500000000',
+  '教育背景', '四川大学 软件工程 本科', '2018.09 - 2022.06',
+  '实习经历', '美团', '后端开发实习生', '2021.07 - 2021.12',
+  '负责商家后台的订单查询接口优化'
+].join('\n'), ref);
+assert(soloPeriod.internships.length === 1, '时间单独一行：实习只有 1 段（实得 ' + soloPeriod.internships.length + '）');
+assert(soloPeriod.internships[0].period === '2021.07 - 2021.12',
+  '时间单独一行：period 被正确提取（实得 ' + JSON.stringify(soloPeriod.internships[0].period) + '）');
+assert(soloPeriod.internships[0].role === '后端开发实习生',
+  '时间单独一行：角色没被时间行挤掉（实得 ' + JSON.stringify(soloPeriod.internships[0].role) + '）');
+assert(!soloPeriod.internships[0].description.some((d) => /2021/.test(d)),
+  '时间没有被塞进描述（实得 ' + JSON.stringify(soloPeriod.internships[0].description) + '）');
+
+// 动词开头的描述句不能被当成新条目（否则一段实习会被切成两段）
+const verbLine = importer.parseResumeText([
+  '赵六', '13600000000',
+  '实习经历', '华为', '软件开发实习生', '2020.07 - 2020.10',
+  '参与基站配置管理系统的模块开发'
+].join('\n'), ref);
+assert(verbLine.internships.length === 1,
+  '「参与…」开头的描述不另起条目（实得 ' + verbLine.internships.length + ' 段）');
+assert((verbLine.internships[0].description || []).some((d) => /参与基站/.test(d)),
+  '该描述被归到上一段实习的 description');
+
+// 但真正的编号列表仍要当项目符号（不能被上一条修复带跑）
+const numbered = importer.parseResumeText([
+  '王五', '13700000000',
+  '项目经历', '校园二手平台', '独立开发',
+  '1. 负责商品发布与搜索模块',
+  '2. 实现站内私信'
+].join('\n'), ref);
+assert(numbered.projects.length === 1, '编号列表没有另起项目（实得 ' + numbered.projects.length + '）');
+assert((numbered.projects[0].description || []).length >= 2,
+  '编号列表的两条都进了描述（实得 ' + JSON.stringify(numbered.projects[0].description) + '）');
+
+// 跨页：文本拼接后，第 2 页的内容仍归属上一节（不新开一节）
+const acrossPage = importer.parseResumeText([
+  '孙七', '13500000000',
+  '实习经历', '美团', '后端开发实习生', '2021.07 - 2021.12',
+  '负责商家后台的订单查询接口优化',
+  '继续：整理了接口文档与压测脚本',
+  '项目经历', '校园二手交易平台', '前后端分离'
+].join('\n'), ref);
+assert(acrossPage.internships.length === 1 && acrossPage.projects.length === 1,
+  '跨页：实习 1 段、项目 1 段（实得 ' + acrossPage.internships.length + '/' + acrossPage.projects.length + '）');
+
 function done() {
   console.log('\n导入器自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
 }

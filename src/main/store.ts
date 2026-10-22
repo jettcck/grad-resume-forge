@@ -9,7 +9,9 @@ import path from 'path';
 import crypto from 'crypto';
 import type {
   StoredUser, PublicUser, Profile, Application, AgentSnapshot, AgentSnapshotMeta,
-  ResumeVersion, ResumeVersionMeta, Job
+  ResumeVersion, ResumeVersionMeta, Job,
+  ExamPaper, ExamAttempt, WrongQuestion, StudyPlan,
+  CodeDraft, CodeSubmission
 } from './types';
 
 interface DbShape {
@@ -22,6 +24,15 @@ interface DbShape {
   resumeVersions: Record<string, ResumeVersion[]>;
   /** 岗位池：userId → 目标岗位列表（含完整 JD、优先级、收藏、淘汰标记） */
   jobs: Record<string, Job[]>;
+  /** 笔试中心：试卷 / 作答 / 错题 / 学习计划（全部按用户隔离） */
+  examPapers: Record<string, ExamPaper[]>;
+  examAttempts: Record<string, ExamAttempt[]>;
+  examWrongs: Record<string, WrongQuestion[]>;
+  examPlans: Record<string, StudyPlan[]>;
+  /** 编程题草稿：userId → `${questionId}::${lang}` → 草稿 */
+  codeDrafts: Record<string, Record<string, CodeDraft>>;
+  /** 编程题提交记录：userId → 最近提交（最新的在前） */
+  codeSubmissions: Record<string, CodeSubmission[]>;
   /** 数据格式版本：将来改结构时据此迁移，缺省视为 1（老库） */
   schemaVersion?: number;
 }
@@ -40,7 +51,13 @@ const db: DbShape = {
   settings: {},
   agentSnapshots: {}, // userId → 快照数组（最多 5 份，最新在前）
   resumeVersions: {}, // userId → 简历版本数组（最多 30 份，最新在前）
-  jobs: {}            // userId → 岗位池数组（目标岗位统一管理）
+  jobs: {},           // userId → 岗位池数组（目标岗位统一管理）
+  examPapers: {},     // userId → 笔试试卷（组卷结果）
+  examAttempts: {},   // userId → 作答记录（草稿 + 已交卷）
+  examWrongs: {},     // userId → 错题本
+  examPlans: {},      // userId → 学习计划
+  codeDrafts: {},     // userId → 题目+语言 → 代码草稿
+  codeSubmissions: {} // userId → 编程题提交记录
 };
 
 // 快照上限：防止无限膨胀（每份档案通常 < 10KB）
@@ -272,6 +289,14 @@ function load(): void {
       db.resumeVersions = asRecord(parsed.resumeVersions);
       // 老库没有 jobs 字段：缺省为空，向前兼容
       db.jobs = asRecord(parsed.jobs);
+      // 笔试中心：老库缺省为空
+      db.examPapers = asRecord(parsed.examPapers);
+      db.examAttempts = asRecord(parsed.examAttempts);
+      db.examWrongs = asRecord(parsed.examWrongs);
+      db.examPlans = asRecord(parsed.examPlans);
+      // 编程题草稿与提交记录：老库缺省为空
+      db.codeDrafts = asRecord(parsed.codeDrafts);
+      db.codeSubmissions = asRecord(parsed.codeSubmissions);
     }
   } catch (err) {
     // 数据损坏时不崩溃，退回空库并备份原文件
@@ -586,45 +611,106 @@ export function getJob(userId: string, jobId: string): Job | null {
   return j ? (JSON.parse(JSON.stringify(j)) as Job) : null;
 }
 
+// 字段长度上限：字符串字段统一在这里声明，cleanJobInput 与去重逻辑共用。
+const JOB_STR_FIELDS: Array<[keyof Job, number]> = [
+  ['company', 120], ['position', 120], ['jdText', 8000], ['salary', 60],
+  ['city', 120], ['education', 60], ['experience', 60], ['skills', 500],
+  ['source', 40], ['url', 1000], ['rejectReason', 200], ['applicationId', 80],
+  ['deadline', 40], ['jobType', 40], ['benefits', 500], ['companySize', 40]
+];
+const JOB_STATUSES = ['candidate', 'applied', 'closed'] as const;
+
+/**
+ * 清洗岗位输入。
+ * 关键语义：**只返回调用方显式传入的字段**。
+ * 以前这里对每个字段都给默认值（''/false/3），更新时 `{...old, ...clean}` 会把
+ * 没传的字段全部覆盖成空 —— 比如「转投递」只传 id+company+applicationId，
+ * 就会把用户的 JD、薪资、学历全部清掉。未传 = 不动。
+ */
 function cleanJobInput(input: Partial<Job>): Partial<Job> {
-  return {
-    company: String(input.company || '').trim().slice(0, 120),
-    position: String(input.position || '').trim().slice(0, 120),
-    jdText: String(input.jdText || '').slice(0, 8000),
-    salary: String(input.salary || '').trim().slice(0, 60),
-    city: String(input.city || '').trim().slice(0, 120),
-    education: String(input.education || '').trim().slice(0, 60),
-    experience: String(input.experience || '').trim().slice(0, 60),
-    skills: String(input.skills || '').trim().slice(0, 500),
-    source: String(input.source || '').trim().slice(0, 40),
-    url: String(input.url || '').trim().slice(0, 1000),
-    starred: !!input.starred,
-    rejected: !!input.rejected,
-    rejectReason: String(input.rejectReason || '').trim().slice(0, 200),
-    priority: Math.min(5, Math.max(1, Math.round(Number(input.priority) || 3))),
-    jdScore: typeof input.jdScore === 'number' ? input.jdScore : null,
-    applicationId: String(input.applicationId || '').trim().slice(0, 80) || undefined
-  };
+  const src = input as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+
+  for (const [key, max] of JOB_STR_FIELDS) {
+    if (src[key] === undefined) continue;
+    const k = key as string;
+    // JD 原文保留换行与首尾空白外的内容；其余字段 trim
+    const raw = String(src[key] == null ? '' : src[key]);
+    const val = k === 'jdText' ? raw.slice(0, max) : raw.trim().slice(0, max);
+    if (k === 'applicationId' && !val) { out[k] = undefined; continue; }
+    out[k] = val;
+  }
+  if (src.starred !== undefined) out.starred = !!src.starred;
+  if (src.rejected !== undefined) out.rejected = !!src.rejected;
+  if (src.priority !== undefined) {
+    out.priority = Math.min(5, Math.max(1, Math.round(Number(src.priority) || 3)));
+  }
+  if (src.jdScore !== undefined) {
+    out.jdScore = typeof src.jdScore === 'number' && isFinite(src.jdScore) ? src.jdScore : null;
+  }
+  if (src.status !== undefined) {
+    const s = String(src.status);
+    out.status = (JOB_STATUSES as readonly string[]).includes(s) ? s : 'candidate';
+  }
+  return out as Partial<Job>;
 }
 
 export function saveJob(userId: string, input: Partial<Job>): Job {
   if (!findUserById(userId)) throw new Error('用户不存在');
   const clean = cleanJobInput(input);
-  if (!clean.company) throw new Error('公司名称不能为空');
   if (!db.jobs[userId]) db.jobs[userId] = [];
   const list = db.jobs[userId]!;
   const now = Date.now();
+
+  // ---- 更新：只覆盖显式传入的字段（未传的保持原值）----
   if (input.id) {
     const idx = list.findIndex((x) => x.id === input.id);
     if (idx >= 0) {
+      if (clean.company !== undefined && !String(clean.company).trim()) {
+        throw new Error('公司名称不能为空');
+      }
       list[idx] = { ...list[idx]!, ...clean, id: input.id, updatedAt: now };
       persist();
       return list[idx]!;
     }
+    // id 指向的条目已不存在：退化为新增，避免静默丢弃用户输入
   }
+
+  const company = String(clean.company || '').trim();
+  if (!company) throw new Error('公司名称不能为空');
+  const position = String(clean.position || '').trim();
+  const url = String(clean.url || '').trim();
+
+  // ---- 统一去重：同公司+同岗位，或同一链接，视为同一条岗位 ----
+  // 放在后端做，渲染层就不用各自实现一套；命中时合并更新并返回原 id。
+  const dup = list.find((j) => {
+    if (url && j.url && j.url === url) return true;
+    if (!position) return false; // 没写岗位名时不做公司级判重，避免误合并
+    return (j.company || '') === company && (j.position || '') === position;
+  });
+  if (dup) {
+    const merged: Job = {
+      ...dup,
+      ...clean,
+      company,
+      position,
+      id: dup.id!,
+      createdAt: dup.createdAt,
+      updatedAt: now
+    };
+    const i = list.findIndex((x) => x.id === dup.id);
+    list[i] = merged;
+    persist();
+    return merged;
+  }
+
   const created: Job = {
     ...clean,
+    company,
+    position,
     id: 'job_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    status: (clean.status as Job['status']) || 'candidate',
+    priority: typeof clean.priority === 'number' ? clean.priority : 3,
     createdAt: now,
     updatedAt: now
   } as Job;
@@ -644,7 +730,11 @@ export function markJob(
   const j = list.find((x) => x.id === jobId);
   if (!j) throw new Error('岗位不存在或已删除');
   if (typeof patch.starred === 'boolean') j.starred = patch.starred;
-  if (typeof patch.rejected === 'boolean') j.rejected = patch.rejected;
+  if (typeof patch.rejected === 'boolean') {
+    j.rejected = patch.rejected;
+    // 淘汰即关闭；取消淘汰时按是否已转投递回到对应状态
+    j.status = patch.rejected ? 'closed' : (j.applicationId ? 'applied' : 'candidate');
+  }
   if (typeof patch.rejectReason === 'string') j.rejectReason = patch.rejectReason.trim().slice(0, 200);
   if (typeof patch.priority === 'number') j.priority = Math.min(5, Math.max(1, Math.round(patch.priority)));
   j.updatedAt = Date.now();
@@ -657,6 +747,328 @@ export function deleteJob(userId: string, jobId: string): { removed: string } {
   db.jobs[userId] = list.filter((x) => x.id !== jobId);
   persist();
   return { removed: jobId };
+}
+
+// ============================================================
+//  笔试中心：试卷 / 作答 / 错题 / 学习计划
+// ============================================================
+
+const MAX_EXAM_PAPERS = 100;
+const MAX_EXAM_ATTEMPTS = 200;
+const MAX_EXAM_WRONGS = 500;
+
+export function listExamPapers(userId: string): ExamPaper[] {
+  return db.examPapers[userId] || [];
+}
+
+export function getExamPaper(userId: string, paperId: string): ExamPaper | null {
+  const p = (db.examPapers[userId] || []).find((x) => x.id === paperId);
+  return p ? (JSON.parse(JSON.stringify(p)) as ExamPaper) : null;
+}
+
+export function saveExamPaper(userId: string, input: Partial<ExamPaper>): ExamPaper {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  const qids = Array.isArray(input.questionIds)
+    ? input.questionIds.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 100)
+    : [];
+  if (!qids.length) throw new Error('试卷至少需要一道题');
+  if (!db.examPapers[userId]) db.examPapers[userId] = [];
+  const list = db.examPapers[userId]!;
+  const now = Date.now();
+  const paper: ExamPaper = {
+    id: input.id ? String(input.id) : 'paper_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    title: String(input.title || '模拟笔试').trim().slice(0, 120),
+    jobId: input.jobId ? String(input.jobId).slice(0, 80) : undefined,
+    applicationId: input.applicationId ? String(input.applicationId).slice(0, 80) : undefined,
+    questionIds: qids,
+    durationSec: Math.min(7200, Math.max(60, Math.round(Number(input.durationSec) || 1800))),
+    passScore: Math.min(100, Math.max(0, Math.round(Number(input.passScore) || 60))),
+    createdAt: now,
+    domain: input.domain ? String(input.domain).slice(0, 40) : undefined,
+    tags: Array.isArray(input.tags) ? input.tags.map((t) => String(t).slice(0, 40)).slice(0, 30) : undefined,
+    jobCompany: input.jobCompany ? String(input.jobCompany).slice(0, 120) : undefined,
+    jobPosition: input.jobPosition ? String(input.jobPosition).slice(0, 120) : undefined,
+    bankVersion: typeof input.bankVersion === 'number' ? input.bankVersion : undefined,
+    composition: input.composition && typeof input.composition === 'object'
+      ? {
+          jd: Math.max(0, Math.round(Number(input.composition.jd) || 0)),
+          domain: Math.max(0, Math.round(Number(input.composition.domain) || 0)),
+          general: Math.max(0, Math.round(Number(input.composition.general) || 0)),
+          // 兜底题数与实际出题数：让「这份卷子有多少题是补位的」可追溯
+          fallback: Math.max(0, Math.round(Number(input.composition.fallback) || 0)),
+          total: Math.max(0, Math.round(Number(input.composition.total) || 0))
+        }
+      : undefined,
+    // 题目快照：题库改版后，历史成绩仍按当时的题干/答案解释
+    snapshots: input.snapshots && typeof input.snapshots === 'object'
+      ? (JSON.parse(JSON.stringify(input.snapshots)) as ExamPaper['snapshots'])
+      : undefined
+  };
+  const idx = list.findIndex((x) => x.id === paper.id);
+  if (idx >= 0) list[idx] = paper; else list.unshift(paper);
+  if (list.length > MAX_EXAM_PAPERS) list.length = MAX_EXAM_PAPERS;
+  persist();
+  return paper;
+}
+
+export function listExamAttempts(userId: string, paperId?: string): ExamAttempt[] {
+  const list = db.examAttempts[userId] || [];
+  return paperId ? list.filter((a) => a.paperId === paperId) : list;
+}
+
+export function getExamAttempt(userId: string, attemptId: string): ExamAttempt | null {
+  const a = (db.examAttempts[userId] || []).find((x) => x.id === attemptId);
+  return a ? (JSON.parse(JSON.stringify(a)) as ExamAttempt) : null;
+}
+
+/** 保存作答：草稿保存与交卷共用；只覆盖传入的字段。 */
+export function saveExamAttempt(userId: string, input: Partial<ExamAttempt>): ExamAttempt {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  if (!db.examAttempts[userId]) db.examAttempts[userId] = [];
+  const list = db.examAttempts[userId]!;
+  const now = Date.now();
+
+  let att: ExamAttempt | undefined;
+  if (input.id) {
+    att = list.find((x) => x.id === input.id);
+    // 带 id 却找不到：拒绝，避免把拼错/过期的 id 悄悄写成一条孤立草稿
+    if (!att) throw new Error('作答记录不存在或已删除');
+    // 终态不可回退：已交卷/已放弃的记录不再接受任何写入。
+    // 重复交卷按幂等处理（原样返回第一次结果），其余写操作直接拒绝。
+    if (att.status === 'submitted' || att.status === 'abandoned') {
+      if (input.status === 'submitted' && att.status === 'submitted') return att;
+      throw new Error(att.status === 'submitted' ? '已交卷的作答不能再修改' : '已放弃的作答不能再修改');
+    }
+  } else {
+    att = {
+      id: 'att_' + now + '_' + Math.random().toString(36).slice(2, 8),
+      paperId: String(input.paperId || ''),
+      answers: {},
+      score: 0,
+      correctCount: 0,
+      totalCount: 0,
+      durationSec: 0,
+      status: 'draft',
+      startedAt: now
+    };
+    list.unshift(att);
+  }
+
+  if (input.answers && typeof input.answers === 'object') {
+    att.answers = JSON.parse(JSON.stringify(input.answers));
+  }
+  if (typeof input.score === 'number') att.score = input.score;
+  if (typeof input.correctCount === 'number') att.correctCount = input.correctCount;
+  if (typeof input.totalCount === 'number') att.totalCount = input.totalCount;
+  if (typeof input.durationSec === 'number') att.durationSec = Math.max(0, Math.round(input.durationSec));
+  if (input.status === 'draft' || input.status === 'submitted' || input.status === 'abandoned') {
+    att.status = input.status;
+    if (input.status === 'submitted' || input.status === 'abandoned') {
+      att.submittedAt = input.submittedAt || now;
+    }
+  }
+  if (input.tagStats && typeof input.tagStats === 'object') {
+    att.tagStats = JSON.parse(JSON.stringify(input.tagStats));
+  }
+  if (list.length > MAX_EXAM_ATTEMPTS) list.length = MAX_EXAM_ATTEMPTS;
+  persist();
+  return att;
+}
+
+export function deleteExamAttempt(userId: string, attemptId: string): { removed: string } {
+  const list = db.examAttempts[userId] || [];
+  db.examAttempts[userId] = list.filter((x) => x.id !== attemptId);
+  persist();
+  return { removed: attemptId };
+}
+
+export function listWrongQuestions(userId: string): WrongQuestion[] {
+  return (db.examWrongs[userId] || []).slice();
+}
+
+/** 简单间隔重复：错 1 次 1 天、2 次 3 天、3 次以上 7 天后复习 */
+function reviewIntervalDays(errorCount: number): number {
+  if (errorCount <= 1) return 1;
+  if (errorCount === 2) return 3;
+  return 7;
+}
+
+/** 交卷时合并错题：累加错误次数、重置掌握标记、安排下次复习 */
+export function mergeWrongQuestions(
+  userId: string,
+  items: Array<{ questionId: string; errorCount?: number }>
+): WrongQuestion[] {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  if (!db.examWrongs[userId]) db.examWrongs[userId] = [];
+  const list = db.examWrongs[userId]!;
+  const now = Date.now();
+  for (const it of items || []) {
+    const qid = String((it && it.questionId) || '').trim();
+    if (!qid) continue;
+    const inc = Math.max(1, Math.round(Number(it.errorCount) || 1));
+    const hit = list.find((x) => x.questionId === qid);
+    if (hit) {
+      hit.errorCount += inc;
+      hit.lastWrongAt = now;
+      hit.mastered = false;
+      hit.nextReviewAt = now + reviewIntervalDays(hit.errorCount) * 86400000;
+    } else {
+      list.unshift({
+        questionId: qid,
+        errorCount: inc,
+        lastWrongAt: now,
+        mastered: false,
+        nextReviewAt: now + reviewIntervalDays(inc) * 86400000
+      });
+    }
+  }
+  // 真正的错题不应该无限增长：超出上限时优先丢弃已掌握的旧记录
+  if (list.length > MAX_EXAM_WRONGS) {
+    list.sort((a, b) => Number(a.mastered) - Number(b.mastered) || b.lastWrongAt - a.lastWrongAt);
+    list.length = MAX_EXAM_WRONGS;
+  }
+  persist();
+  return list;
+}
+
+export function setWrongMastered(userId: string, questionId: string, mastered: boolean): WrongQuestion {
+  const list = db.examWrongs[userId] || [];
+  const hit = list.find((x) => x.questionId === questionId);
+  if (!hit) throw new Error('错题不存在');
+  hit.mastered = !!mastered;
+  if (hit.mastered) hit.nextReviewAt = undefined;
+  else hit.nextReviewAt = Date.now() + reviewIntervalDays(hit.errorCount) * 86400000;
+  persist();
+  return hit;
+}
+
+/** 学习计划的归属键：有岗位按岗位，没有则归到通用计划 */
+function planKey(jobId?: string): string {
+  return String(jobId || '').slice(0, 80);
+}
+
+export function listStudyPlans(userId: string): StudyPlan[] {
+  return (db.examPlans[userId] || []).slice();
+}
+
+export function getStudyPlan(userId: string, jobId?: string): StudyPlan | null {
+  const key = planKey(jobId);
+  const hit = (db.examPlans[userId] || []).find((p) => planKey(p.jobId) === key);
+  return hit ? (JSON.parse(JSON.stringify(hit)) as StudyPlan) : null;
+}
+
+/**
+ * 学习计划按 jobId 拆分（每个岗位一份，另有一份通用计划）。
+ * 以前每个用户只有一份，考第二个岗位时会覆盖前一个岗位的进度与薄弱项。
+ */
+export function saveStudyPlan(userId: string, input: Partial<StudyPlan>): StudyPlan {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  if (!db.examPlans[userId]) db.examPlans[userId] = [];
+  const list = db.examPlans[userId]!;
+  const now = Date.now();
+  const key = planKey(input.jobId);
+  const idx = list.findIndex((p) => planKey(p.jobId) === key);
+
+  const base: StudyPlan = idx >= 0 ? list[idx]! : {
+    id: 'plan_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    jobId: key || undefined,
+    targetRole: '',
+    weeklyQuestionGoal: 30,
+    completedCount: 0,
+    weekStartedAt: 0,
+    weekCompletedCount: 0,
+    weakTags: [],
+    createdAt: now,
+    updatedAt: now
+  };
+
+  const next: StudyPlan = {
+    ...base,
+    jobId: key || undefined,
+    targetRole: input.targetRole !== undefined ? String(input.targetRole).slice(0, 80) : base.targetRole,
+    weeklyQuestionGoal: typeof input.weeklyQuestionGoal === 'number'
+      ? Math.min(500, Math.max(1, Math.round(input.weeklyQuestionGoal)))
+      : base.weeklyQuestionGoal,
+    // 允许显式传 0（重置进度）
+    completedCount: typeof input.completedCount === 'number'
+      ? Math.max(0, Math.round(input.completedCount))
+      : base.completedCount,
+    weekStartedAt: typeof input.weekStartedAt === 'number'
+      ? Math.max(0, Math.round(input.weekStartedAt))
+      : base.weekStartedAt,
+    weekCompletedCount: typeof input.weekCompletedCount === 'number'
+      ? Math.max(0, Math.round(input.weekCompletedCount))
+      : base.weekCompletedCount,
+    weakTags: Array.isArray(input.weakTags)
+      ? input.weakTags.map((t) => String(t).slice(0, 40)).slice(0, 30)
+      : base.weakTags,
+    updatedAt: now
+  };
+
+  if (idx >= 0) list[idx] = next;
+  else list.unshift(next);
+  persist();
+  return next;
+}
+
+// ============================================================
+//  编程题：代码草稿与提交记录
+// ============================================================
+
+const MAX_CODE_SUBMISSIONS = 300;
+const MAX_CODE_LENGTH = 200000;
+
+function codeDraftKey(questionId: string, lang: string): string {
+  return String(questionId).slice(0, 80) + '::' + String(lang).slice(0, 20);
+}
+
+/** 保存代码草稿：按「题目 + 语言」各存一份，切题/重启都不丢 */
+export function saveCodeDraft(userId: string, questionId: string, lang: string, code: string): CodeDraft {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  if (!db.codeDrafts[userId]) db.codeDrafts[userId] = {};
+  const draft: CodeDraft = {
+    questionId: String(questionId || '').slice(0, 80),
+    lang: (lang as CodeDraft['lang']) || 'javascript',
+    code: String(code == null ? '' : code).slice(0, MAX_CODE_LENGTH),
+    updatedAt: Date.now()
+  };
+  db.codeDrafts[userId]![codeDraftKey(draft.questionId, draft.lang)] = draft;
+  persist();
+  return draft;
+}
+
+export function getCodeDraft(userId: string, questionId: string, lang: string): CodeDraft | null {
+  const box = db.codeDrafts[userId];
+  if (!box) return null;
+  const hit = box[codeDraftKey(questionId, lang)];
+  return hit ? (JSON.parse(JSON.stringify(hit)) as CodeDraft) : null;
+}
+
+export function listCodeSubmissions(userId: string, questionId?: string): CodeSubmission[] {
+  const list = db.codeSubmissions[userId] || [];
+  return (questionId ? list.filter((s) => s.questionId === questionId) : list).slice();
+}
+
+/** 记一次提交（只有「提交判题」会调用，运行样例不记） */
+export function addCodeSubmission(userId: string, input: Partial<CodeSubmission>): CodeSubmission {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  if (!db.codeSubmissions[userId]) db.codeSubmissions[userId] = [];
+  const list = db.codeSubmissions[userId]!;
+  const now = Date.now();
+  const sub: CodeSubmission = {
+    id: 'sub_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    questionId: String(input.questionId || '').slice(0, 80),
+    lang: (input.lang as CodeSubmission['lang']) || 'javascript',
+    verdict: String(input.verdict || 'CE').slice(0, 8),
+    passed: Math.max(0, Math.round(Number(input.passed) || 0)),
+    total: Math.max(0, Math.round(Number(input.total) || 0)),
+    timeMs: Math.max(0, Math.round(Number(input.timeMs) || 0)),
+    createdAt: now
+  };
+  list.unshift(sub);
+  if (list.length > MAX_CODE_SUBMISSIONS) list.length = MAX_CODE_SUBMISSIONS;
+  persist();
+  return sub;
 }
 
 // 测试专用：直接访问内部 db（仅测试断言用）

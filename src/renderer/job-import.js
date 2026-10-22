@@ -227,12 +227,13 @@
     const candidates = [];
     blocks.forEach((b) => {
       const c = parseBlock(b, '');
-      if (c) candidates.push(c);
+      // 带上本块的原文：多岗位批量入池时，每个岗位只保存自己那段 JD
+      if (c) candidates.push(Object.assign({ raw: b }, c));
     });
     // 整段粘成一块（详情页那种）且没解析出东西时的兜底
     if (!candidates.length) {
       const c = parseBlock(rawText, '');
-      if (c) candidates.push(c);
+      if (c) candidates.push(Object.assign({ raw: rawText }, c));
     }
     const warning = candidates.length === 0
       ? '没认出任何岗位。建议把招聘页上的「岗位名 / 薪资 / 城市·区 / 公司名」一起复制进来。'
@@ -364,6 +365,14 @@
         url: c.url || (hit ? hit.url || '' : ''),
         stage: hit ? (hit.stage || 'applied') : 'applied'
       };
+      // 薪资/学历/经验同时写进结构化字段（存池时可直接带走），
+      // notes 那段文本保留是为了兼容老版本数据与用户自己写的备注
+      if (c.salary) patch.salary = c.salary;
+      else if (hit && hit.salary) patch.salary = hit.salary;
+      if (c.education) patch.education = c.education;
+      else if (hit && hit.education) patch.education = hit.education;
+      if (c.experience) patch.experience = c.experience;
+      else if (hit && hit.experience) patch.experience = hit.experience;
       // 解析到的补充信息写进备注，不丢；但用户自己写过的备注优先保留
       const extra = [];
       if (c.salary) extra.push('薪资：' + c.salary);

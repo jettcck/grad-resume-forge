@@ -47,3 +47,12 @@ release-v112*/
 
 # CDP 诊断用的临时 profile（不入库）
 .modal-diag-profile/
+
+# 一次性发布脚本副本（版本化历史，不入库；主脚本 push-via-api.js 已在库内）
+push-via-api-*.js
+
+# 本地诊断临时目录（ollama 拉取日志等）
+_tmp/
+
+# 检索评测的向量缓存（按模型分文件，体积大且可重建）
+evals/.emb-cache*.json

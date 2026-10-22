@@ -318,6 +318,15 @@ export interface Application {
   placeSource?: string;
   /** 备注：粘贴导入时把识别到的薪资/平台/学历/经验写在这里，不丢信息 */
   notes?: string;
+  // ---------- 岗位结构化信息（从官网/平台抄下来的原文，存池时原样带走） ----------
+  /** 薪资范围，如「12k-18k·14薪」 */
+  salary?: string;
+  /** 学历要求，如「本科」 */
+  education?: string;
+  /** 经验要求，如「应届 / 3-5年」 */
+  experience?: string;
+  /** 技能要求，如「Java / Spring / Redis」 */
+  skills?: string;
   /** 招聘平台同步字段：仅接受用户授权导出的数据或官方接口返回值 */
   source?: string;
   externalId?: string;
@@ -375,6 +384,16 @@ export interface Job {
   rejected?: boolean;
   /** 淘汰原因（rejected = true 时填写） */
   rejectReason?: string;
+  /** 池内状态：candidate=候选，applied=已转投递，closed=已关闭（过期/放弃） */
+  status?: 'candidate' | 'applied' | 'closed';
+  /** 投递截止日期（YYYY-MM-DD 或带时间字符串） */
+  deadline?: string;
+  /** 工作性质：全职 / 实习 / 兼职 / 校招 */
+  jobType?: string;
+  /** 福利待遇（原文） */
+  benefits?: string;
+  /** 公司规模（如「500-999人」） */
+  companySize?: string;
   /** 优先级 1-5（5 最高） */
   priority?: number;
   /** 保存时算好的简历-JD 匹配分（0-100，未算为 null） */
@@ -383,4 +402,200 @@ export interface Job {
   applicationId?: string;
   createdAt?: number;
   updatedAt?: number;
+}
+
+// ============================================================
+//  笔试中心（第一阶段只做客观题：单选 / 多选 / 判断 / 填空）
+//  SQL 与编程题留到后续版本：需要独立 Worker + 资源限制 + 沙箱，
+//  绝不能在 Electron 渲染进程里直接执行用户代码。
+// ============================================================
+
+export type ExamQuestionType = 'single' | 'multiple' | 'judge' | 'fill';
+
+export interface ExamQuestion {
+  id: string;
+  type: ExamQuestionType;
+  /** 方向：backend / frontend / algorithm / data / general … */
+  domain: string;
+  /** 知识点标签：java / spring / sql / network … 组卷与薄弱项分析都靠它 */
+  tags: string[];
+  difficulty: 1 | 2 | 3 | 4 | 5;
+  /** 题干 */
+  stem: string;
+  /** 选项（judge 固定为 ['正确','错误']；fill 无选项） */
+  options?: string[];
+  /** 答案：单选/判断为选项文本；多选为文本数组；填空为字符串或可接受答案数组 */
+  answer: string | string[];
+  /** 解析 */
+  explanation: string;
+  /** 题目来源（自编 / 公开题库摘录） */
+  source?: string;
+  /** 题目版本，改题时递增，便于统计口径 */
+  version: number;
+}
+
+export interface ExamPaper {
+  id: string;
+  title: string;
+  /** 关联岗位（从岗位池组卷时写入） */
+  jobId?: string;
+  /** 关联投递记录 */
+  applicationId?: string;
+  /** 题目 id 列表（顺序即试卷顺序） */
+  questionIds: string[];
+  /** 限时（秒） */
+  durationSec: number;
+  /** 及格分（百分制） */
+  passScore: number;
+  createdAt: number;
+  /** 组卷时使用的方向与标签，便于复盘「这份卷子考了什么」 */
+  domain?: string;
+  tags?: string[];
+  /** 组卷时的岗位快照：岗位被删除/改名后，历史成绩仍能显示当时投的是哪个岗 */
+  jobCompany?: string;
+  jobPosition?: string;
+  /** 实际组卷构成（JD 知识点 / 方向基础 / 通用），前端按真实值展示比例。
+   *  fallback 是被迫从全库补的题数（题库某段不足时），total 是实际出题数 */
+  composition?: { jd: number; domain: number; general: number; fallback?: number; total?: number };
+  /** 题库版本：题库改动后，历史卷子的题目口径可追溯 */
+  bankVersion?: number;
+  /** 题目快照：questionId → 组卷当时的题干/选项/答案，题库改版不改变历史成绩的解释 */
+  snapshots?: Record<string, {
+    type: ExamQuestionType; stem: string; options?: string[];
+    answer: string | string[]; explanation: string; tags: string[]; version: number;
+    /** 组卷当时的方向与难度：详情页要能脱离题库独立渲染（老快照没有这两个字段） */
+    domain?: string;
+    difficulty?: 1 | 2 | 3 | 4 | 5;
+  }>;
+}
+
+export interface ExamAttempt {
+  id: string;
+  paperId: string;
+  /** 作答：questionId → 选中项文本 / 文本数组 / 填空字符串 */
+  answers: Record<string, string | string[]>;
+  /** 百分制得分 */
+  score: number;
+  correctCount: number;
+  totalCount: number;
+  /** 实际用时（秒） */
+  durationSec: number;
+  /** draft=作答中（草稿，可续答），submitted=已交卷，abandoned=放弃 */
+  status: 'draft' | 'submitted' | 'abandoned';
+  startedAt: number;
+  submittedAt?: number;
+  /** 交卷后按知识点统计的正确率：tag → { correct, total } */
+  tagStats?: Record<string, { correct: number; total: number }>;
+}
+
+export interface WrongQuestion {
+  questionId: string;
+  errorCount: number;
+  lastWrongAt: number;
+  /** 用户标记已掌握（不再进入下一轮练习） */
+  mastered: boolean;
+  /** 下次复习时间（简单间隔重复：错 1 次 1 天，2 次 3 天，3 次以上 7 天） */
+  nextReviewAt?: number;
+}
+
+export interface StudyPlan {
+  id: string;
+  jobId?: string;
+  targetRole: string;
+  weeklyQuestionGoal: number;
+  /** 累计完成题数（历史总量） */
+  completedCount: number;
+  /** 本周起始时间戳（周一 00:00，本地时区）：跨周后周完成数要归零 */
+  weekStartedAt?: number;
+  /** 本周已完成题数——「每周目标」原本拿累计数对比，永远显示超额 */
+  weekCompletedCount?: number;
+  /** 薄弱知识点（按错题率排序） */
+  weakTags: string[];
+  createdAt: number;
+  updatedAt: number;
+}
+
+// ============================================================
+//  编程题（ACM 标准输入输出）
+//  判题在独立子进程里跑：超时强杀、输出截断、进程树清理。
+//  这是「防呆」而不是「防恶意」——本机单机应用，做题的是用户自己；
+//  真要防恶意代码必须上 WASM 或容器，见 docs 讨论。
+// ============================================================
+
+export type ProgramLang = 'javascript' | 'python' | 'cpp';
+
+export interface CodeSample {
+  input: string;
+  output: string;
+  explain?: string;
+}
+
+export interface CodeTestCase {
+  input: string;
+  output: string;
+}
+
+export interface CodeQuestion {
+  id: string;
+  title: string;
+  domain: string;
+  tags: string[];
+  difficulty: 1 | 2 | 3 | 4 | 5;
+  /** 题面（支持换行） */
+  statement: string;
+  inputFormat: string;
+  outputFormat: string;
+  /** 公开样例：题面里展示，也可「运行样例」 */
+  samples: CodeSample[];
+  /** 隐藏用例：只用于判题，不下发给渲染层 */
+  testCases: CodeTestCase[];
+  timeLimitMs: number;
+  memoryLimitMb: number;
+  starterCode?: { javascript?: string; python?: string; cpp?: string };
+  hint?: string;
+  version: number;
+}
+
+/** AC=通过 WA=答案错 TLE=超时 RE=运行错误 OLE=输出超限 MLE=内存超限 CE=编译/启动失败 */
+export type CodeVerdict = 'AC' | 'WA' | 'TLE' | 'RE' | 'OLE' | 'MLE' | 'CE';
+
+export interface CodeCaseResult {
+  index: number;
+  verdict: CodeVerdict;
+  timeMs: number;
+  isSample: boolean;
+  /** 仅样例回传输入/期望/实际；隐藏用例只给 verdict 与耗时，避免泄题 */
+  input?: string;
+  expected?: string;
+  actual?: string;
+  stderr?: string;
+}
+
+export interface CodeRunResult {
+  verdict: CodeVerdict;
+  passed: number;
+  total: number;
+  timeMs: number;
+  cases: CodeCaseResult[];
+  message?: string;
+}
+
+/** 代码草稿：按「题目 + 语言」各存一份，切题/重启都不丢 */
+export interface CodeDraft {
+  questionId: string;
+  lang: ProgramLang;
+  code: string;
+  updatedAt: number;
+}
+
+/** 提交记录：只记「提交判题」的结果，运行样例不记 */
+export interface CodeSubmission {
+  id: string;
+  questionId: string;
+  lang: ProgramLang;
+  verdict: string;
+  passed: number;
+  total: number;
+  timeMs: number;
+  createdAt: number;
 }

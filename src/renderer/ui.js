@@ -14,7 +14,10 @@
         }
       });
     }
-    (children || []).forEach((c) => {
+    // children 容错：字符串/单个节点也接受，防止 el('span', {}, 'text') 抛错
+    // （历史上 renderCodeView 就这样写，导致编程题页整体渲染崩溃全黑）
+    const kids = children == null ? [] : (Array.isArray(children) ? children : [children]);
+    kids.forEach((c) => {
       if (c == null) return;
       node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
     });

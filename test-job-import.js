@@ -127,6 +127,10 @@ const bulk = `Java开发工程师
 乙乙网络有限公司`;
 const rb = JI.parse(bulk);
 assert(rb.candidates.length === 2, '批量粘贴切出 2 条（实得 ' + rb.candidates.length + '）');
+assert(rb.candidates.every((c) => typeof c.raw === 'string' && c.raw.length > 0),
+  '每个候选都带自己的原文 raw（多岗位入池时各存各的 JD）');
+assert(rb.candidates[0].raw.indexOf('甲甲科技') >= 0 && rb.candidates[1].raw.indexOf('乙乙网络') >= 0,
+  'raw 未跨岗位串文本');
 if (rb.candidates.length === 2) {
   assert(rb.candidates[0].company === '甲甲科技有限公司' && rb.candidates[1].company === '乙乙网络有限公司',
     '两条的公司名没有串位（实得 ' + rb.candidates[0].company + ' / ' + rb.candidates[1].company + '）');
