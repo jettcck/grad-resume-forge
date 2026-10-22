@@ -86,7 +86,7 @@
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
       "shortcutName": "简历锻造炉",
-      "script": "build/nsis-hooks.nsh"
+      "include": "build/nsis-hooks.nsh"
     },
     "linux": {
       "target": [
