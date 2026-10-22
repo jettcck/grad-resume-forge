@@ -663,6 +663,389 @@ export const CODE_BANK: CodeQuestion[] = [
   }
 ];
 
+// ============================================================
+//  C++ 起始骨架：读入部分写好，核心逻辑留 TODO。
+//  单独放一张表、最后合并进题库，避免把每道题的对象撑得太长。
+// ============================================================
+const CPP_STARTERS: Record<string, string> = {
+  'code-two-sum': `#include <iostream>
+#include <vector>
+#include <unordered_map>
+using namespace std;
+
+int main() {
+    int n;
+    long long target;
+    cin >> n >> target;
+    vector<long long> a(n);
+    for (auto &x : a) cin >> x;
+
+    // TODO: 用哈希表记录「值 -> 下标」，边遍历边查 target - a[i]
+    // 找到后输出两个下标（小的在前），记得 return
+
+    return 0;
+}
+`,
+  'code-reverse-string': `#include <iostream>
+#include <string>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    string s;
+    getline(cin, s);
+
+    // TODO: 反转 s 并输出
+
+    return 0;
+}
+`,
+  'code-fib': `#include <iostream>
+using namespace std;
+
+const long long MOD = 1000000007LL;
+
+int main() {
+    int n;
+    cin >> n;
+
+    // TODO: 两个变量滚动递推，避免递归爆栈
+    // 注意每步都对 MOD 取模
+
+    return 0;
+}
+`,
+  'code-max-subarray': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<long long> a(n);
+    for (auto &x : a) cin >> x;
+
+    // TODO: Kadane：cur = max(a[i], cur + a[i])
+    // 初值不能写成 0（全负数时答案是最大那个负数）
+
+    return 0;
+}
+`,
+  'code-brackets': `#include <iostream>
+#include <string>
+#include <stack>
+using namespace std;
+
+int main() {
+    string s;
+    cin >> s;
+
+    // TODO: 左括号入栈，右括号出栈比对，最后栈必须为空
+
+    return 0;
+}
+`,
+  'code-dedupe': `#include <iostream>
+#include <vector>
+#include <unordered_set>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<long long> a(n);
+    for (auto &x : a) cin >> x;
+
+    // TODO: 用 set 记录出现过的值，保持首次出现顺序输出
+
+    return 0;
+}
+`,
+  'code-word-count': `#include <iostream>
+#include <string>
+#include <sstream>
+#include <unordered_map>
+using namespace std;
+
+int main() {
+    string line;
+    getline(cin, line);
+    istringstream iss(line);
+    string w;
+    unordered_map<string, int> cnt;
+    while (iss >> w) cnt[w]++;
+
+    // TODO: 找次数最多的；次数相同时取字典序最小
+
+    return 0;
+}
+`,
+  'code-lc-reverse-list': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<long long> a(n);
+    for (auto &x : a) cin >> x;
+
+    // TODO: 反转后按空格输出（真实链表要用三指针迭代）
+
+    return 0;
+}
+`,
+  'code-lc-merge-sorted': `#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    vector<long long> a(n), b(m);
+    for (auto &x : a) cin >> x;
+    for (auto &x : b) cin >> x;
+
+    // TODO: 双指针归并，输出合并后的数组
+
+    return 0;
+}
+`,
+  'code-lc-remove-dup': `#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<long long> a(n);
+    for (auto &x : a) cin >> x;
+
+    // TODO: 快慢指针原地去重（有序数组重复项一定相邻）
+
+    return 0;
+}
+`,
+  'code-lc-tree-depth': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<long long> a(n);
+    for (auto &x : a) cin >> x;
+
+    // 层序数组：节点 i 的左子 2i+1、右子 2i+2，-1 表示空
+    // TODO: 递归求深度，注意 n 可达 1e4
+
+    return 0;
+}
+`,
+  'code-lc-inorder': `#include <iostream>
+#include <vector>
+using namespace std;
+
+int n;
+vector<long long> a;
+vector<long long> out;
+
+// TODO: 写一个中序遍历（左 → 根 → 右），把结果 push 进 out
+
+int main() {
+    cin >> n;
+    a.resize(n);
+    for (auto &x : a) cin >> x;
+
+    // TODO: 从根（下标 0）开始遍历，最后按空格输出 out
+
+    return 0;
+}
+`,
+  'code-lc-climb-stairs': `#include <iostream>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+
+    // TODO: f(n) = f(n-1) + f(n-2)，f(1)=1, f(2)=2
+
+    return 0;
+}
+`,
+  'code-lc-coin-change': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    int amount, n;
+    cin >> amount >> n;
+    vector<int> coins(n);
+    for (auto &c : coins) cin >> c;
+
+    // TODO: dp[i] = 凑出 i 的最少硬币数，初值用 amount+1 表示不可达
+
+    return 0;
+}
+`,
+  'code-lc-lis': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<long long> a(n);
+    for (auto &x : a) cin >> x;
+
+    // TODO: n 可达 1e5，O(n^2) 会超时
+    // 用 tails 数组 + lower_bound 做到 O(n log n)
+
+    return 0;
+}
+`,
+  'code-lc-knapsack': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    int n, W;
+    cin >> n >> W;
+
+    // TODO: 一维 dp，容量必须**倒序**遍历（保证每件只取一次）
+    vector<long long> dp(W + 1, 0);
+    for (int i = 0; i < n; i++) {
+        int w, v;
+        cin >> w >> v;
+        // TODO: for (int j = W; j >= w; j--) dp[j] = max(dp[j], dp[j-w]+v);
+    }
+
+    // cout << dp[W] << endl;
+    return 0;
+}
+`,
+  'code-lc-permute': `#include <iostream>
+#include <vector>
+using namespace std;
+
+int n;
+vector<int> cur;
+vector<bool> used;
+
+// TODO: 回溯，按 1..n 顺序枚举天然就是字典序
+
+int main() {
+    cin >> n;
+    used.assign(n + 1, false);
+
+    // TODO: 输出所有排列，每行一个
+
+    return 0;
+}
+`,
+  'code-lc-binary-search': `#include <iostream>
+#include <vector>
+using namespace std;
+
+int main() {
+    int n;
+    long long target;
+    cin >> n >> target;
+    vector<long long> a(n);
+    for (auto &x : a) cin >> x;
+
+    // TODO: 闭区间二分，注意 while 条件和 mid 更新，写错会死循环
+
+    return 0;
+}
+`,
+  'code-lc-longest-substr': `#include <iostream>
+#include <string>
+#include <unordered_map>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    string s;
+    getline(cin, s);
+
+    // TODO: 滑动窗口，左指针跳到「重复字符上次位置 + 1」
+    // 不能简单加一，否则 abba 会算错
+
+    return 0;
+}
+`,
+  'code-lc-merge-intervals': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    int n;
+    cin >> n;
+    vector<pair<int, int>> seg(n);
+    for (auto &p : seg) cin >> p.first >> p.second;
+
+    // TODO: 按左端点排序后线性合并（端点相等也算重叠）
+    // 输出格式：第一行合并后区间数，之后每行一个区间
+
+    return 0;
+}
+`,
+  'code-lc-islands': `#include <iostream>
+#include <vector>
+#include <string>
+using namespace std;
+
+int main() {
+    int n, m;
+    cin >> n >> m;
+    vector<string> g(n);
+    for (auto &row : g) cin >> row;
+
+    // TODO: 遍历每个格子，遇到 '1' 就计数并 DFS/BFS 把整块淹掉
+    // 建议用显式栈，避免递归爆栈
+
+    return 0;
+}
+`,
+  'code-lc-edit-distance': `#include <iostream>
+#include <string>
+#include <vector>
+#include <algorithm>
+using namespace std;
+
+int main() {
+    string a, b;
+    getline(cin, a);
+    getline(cin, b);
+
+    int m = a.size(), n = b.size();
+    vector<vector<int>> dp(m + 1, vector<int>(n + 1, 0));
+
+    // TODO: dp[i][j] 表示 a 前 i 个字符变成 b 前 j 个字符的最少操作数
+    // 边界：dp[i][0]=i、dp[0][j]=j
+
+    return 0;
+}
+`
+};
+
+// 合并 C++ 起始代码（不覆盖已有显式定义的）
+CODE_BANK.forEach((item) => {
+  const starter = CPP_STARTERS[item.id];
+  if (starter && !(item.starterCode && item.starterCode.cpp)) {
+    item.starterCode = Object.assign({}, item.starterCode, { cpp: starter });
+  }
+});
+
 export const CODE_MAP: Map<string, CodeQuestion> = new Map(CODE_BANK.map((q) => [q.id, q]));
 
 export function getCodeQuestion(id: string): CodeQuestion | null {

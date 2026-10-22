@@ -4629,9 +4629,9 @@ async function renderCodeView(root) {
     el('h3', {}, [q.title]),
     el('div', { class: 'code-meta-row' }, [
       el('span', {}, ['★'.repeat(q.difficulty)]),
-      el('span', {}, (q.tags || []).join(' · ')),
-      el('span', {}, '限时 ' + q.timeLimitMs + 'ms'),
-      el('span', {}, '内存 ' + q.memoryLimitMb + 'MB')
+      el('span', {}, [(q.tags || []).join(' · ')]),
+      el('span', {}, ['限时 ' + q.timeLimitMs + 'ms']),
+      el('span', {}, ['内存 ' + q.memoryLimitMb + 'MB'])
     ]),
     el('div', { class: 'code-statement' }, [q.statement]),
     el('div', { class: 'code-io' }, [
@@ -4746,10 +4746,11 @@ async function selectCodeQuestion(id) {
 /** 拉全部提交记录，算哪些题 AC 过（侧栏打勾） */
 async function loadSolvedIds() {
   try {
-    const res = await call(window.api.code.submissions());
-    const all = (res && res.data) || [];
+    // call() 返回 data 本身（数组）
+    const all = await call(window.api.code.submissions());
+    const list = Array.isArray(all) ? all : [];
     const map = {};
-    for (const s of all) {
+    for (const s of list) {
       if (s && s.verdict === 'AC') map[s.questionId] = true;
     }
     codeState.solvedIds = map;
@@ -4764,9 +4765,10 @@ async function loadCodeDrafts(q) {
     if (codeState.draftLoaded[key]) return;
     codeState.draftLoaded[key] = true;
     try {
-      const res = await call(window.api.code.getDraft(q.id, lang));
-      const saved = res && res.data && res.data.code;
-      codeState.drafts[lang] = typeof saved === 'string'
+      // call() 返回的是 data 本身（草稿对象或 null），不是 {ok,data} 包装
+      const draft = await call(window.api.code.getDraft(q.id, lang));
+      const saved = draft && typeof draft.code === 'string' ? draft.code : null;
+      codeState.drafts[lang] = saved != null
         ? saved
         : ((q.starterCode && q.starterCode[lang]) || '');
     } catch (_) {
@@ -4778,11 +4780,23 @@ async function loadCodeDrafts(q) {
 /** 拉当前题的提交记录（只记「提交判题」） */
 async function loadCodeSubmissions(id) {
   try {
-    const res = await call(window.api.code.submissions(id));
-    codeState.subs = (res && res.data) || [];
+    // call() 返回 data 本身（数组）
+    const list = await call(window.api.code.submissions(id));
+    codeState.subs = Array.isArray(list) ? list : [];
     codeState.subsFor = id;
     if (!codeState.solvedIds) codeState.solvedIds = {};
-    if (codeState.subs.some((s) => s.verdict === 'AC')) codeState.solvedIds[id] = true;
+    if (codeState.subs.some((s) => s.verdict === 'AC')) {
+      codeState.solvedIds[id] = true;
+      // 侧栏即时打勾，不用重进页面
+      const btns = document.querySelectorAll('.code-item');
+      for (const btn of btns) {
+        const title = btn.querySelector('.ci-title');
+        if (title && !title.textContent.startsWith('✓')) {
+          const q2 = (codeState.list || []).find((x) => x.id === id);
+          if (q2 && btn.textContent.includes(q2.title)) title.textContent = '✓ ' + q2.title;
+        }
+      }
+    }
     renderCodeSubs();
   } catch (_) { /* 拉不到不影响答题 */ }
 }

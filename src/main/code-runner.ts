@@ -376,7 +376,17 @@ export async function judgeCode(
     for (let i = 0; i < cases.length; i++) {
       const c = cases[i];
       const isSample = mode === 'samples' || i < question.samples.length;
-      const out = await runOnce(prepared, c.input, question.timeLimitMs + RUNTIME_GRACE_MS);
+      let out = await runOnce(prepared, c.input, question.timeLimitMs + RUNTIME_GRACE_MS);
+
+      // RE 重试一次：Windows Defender 会杀「刚编译出来的陌生 exe」，
+      // 表现为 exitCode != 0，与程序真崩溃无法区分。
+      // 真崩溃重试照样崩（只多花一次启动），误杀则第二次就过。
+      if (!out.spawnError && !out.timedOut && !out.outputExceeded && out.exitCode !== 0) {
+        const retry = await runOnce(prepared, c.input, question.timeLimitMs + RUNTIME_GRACE_MS);
+        if (!retry.spawnError && !retry.timedOut && !retry.outputExceeded && retry.exitCode === 0) {
+          out = retry;
+        }
+      }
 
       if (out.spawnError) {
         return {
