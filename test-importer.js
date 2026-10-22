@@ -441,6 +441,57 @@ const flatGlyphs = [
 assert(importer.layoutPageLines(flatGlyphs, 794).join('|') === importer.glyphsToLines(flatGlyphs).join('|'),
   '纯单栏：layoutPageLines 与 glyphsToLines 结果一致');
 
+// ---------------- 时间行 / 描述句 / 编号列表 ----------------
+// 时间单独占一行时，整条时间必须补进当前条目。
+// 曾经的 bug：BULLET_RE 是 ^\d+[.、)]，把「2021.」当成列表编号剥掉，
+// 于是时间行被判成项目符号行、跳过了「补 period」的分支，时间被塞进 description。
+const soloPeriod = importer.parseResumeText([
+  '孙七', '13500000000',
+  '教育背景', '四川大学 软件工程 本科', '2018.09 - 2022.06',
+  '实习经历', '美团', '后端开发实习生', '2021.07 - 2021.12',
+  '负责商家后台的订单查询接口优化'
+].join('\n'), ref);
+assert(soloPeriod.internships.length === 1, '时间单独一行：实习只有 1 段（实得 ' + soloPeriod.internships.length + '）');
+assert(soloPeriod.internships[0].period === '2021.07 - 2021.12',
+  '时间单独一行：period 被正确提取（实得 ' + JSON.stringify(soloPeriod.internships[0].period) + '）');
+assert(soloPeriod.internships[0].role === '后端开发实习生',
+  '时间单独一行：角色没被时间行挤掉（实得 ' + JSON.stringify(soloPeriod.internships[0].role) + '）');
+assert(!soloPeriod.internships[0].description.some((d) => /2021/.test(d)),
+  '时间没有被塞进描述（实得 ' + JSON.stringify(soloPeriod.internships[0].description) + '）');
+
+// 动词开头的描述句不能被当成新条目（否则一段实习会被切成两段）
+const verbLine = importer.parseResumeText([
+  '赵六', '13600000000',
+  '实习经历', '华为', '软件开发实习生', '2020.07 - 2020.10',
+  '参与基站配置管理系统的模块开发'
+].join('\n'), ref);
+assert(verbLine.internships.length === 1,
+  '「参与…」开头的描述不另起条目（实得 ' + verbLine.internships.length + ' 段）');
+assert((verbLine.internships[0].description || []).some((d) => /参与基站/.test(d)),
+  '该描述被归到上一段实习的 description');
+
+// 但真正的编号列表仍要当项目符号（不能被上一条修复带跑）
+const numbered = importer.parseResumeText([
+  '王五', '13700000000',
+  '项目经历', '校园二手平台', '独立开发',
+  '1. 负责商品发布与搜索模块',
+  '2. 实现站内私信'
+].join('\n'), ref);
+assert(numbered.projects.length === 1, '编号列表没有另起项目（实得 ' + numbered.projects.length + '）');
+assert((numbered.projects[0].description || []).length >= 2,
+  '编号列表的两条都进了描述（实得 ' + JSON.stringify(numbered.projects[0].description) + '）');
+
+// 跨页：文本拼接后，第 2 页的内容仍归属上一节（不新开一节）
+const acrossPage = importer.parseResumeText([
+  '孙七', '13500000000',
+  '实习经历', '美团', '后端开发实习生', '2021.07 - 2021.12',
+  '负责商家后台的订单查询接口优化',
+  '继续：整理了接口文档与压测脚本',
+  '项目经历', '校园二手交易平台', '前后端分离'
+].join('\n'), ref);
+assert(acrossPage.internships.length === 1 && acrossPage.projects.length === 1,
+  '跨页：实习 1 段、项目 1 段（实得 ' + acrossPage.internships.length + '/' + acrossPage.projects.length + '）');
+
 function done() {
   console.log('\n导入器自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
 }

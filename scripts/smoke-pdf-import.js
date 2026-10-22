@@ -33,7 +33,11 @@ app.whenReady().then(async () => {
         path.join(__dirname, '..', 'test-fixtures', 'resume-two-column.pdf'),
         // 侧边栏样本：顶部姓名/联系方式通栏 + 下方左窄右宽。
         // 整页级的中缝检测会因为“中部 x 区间被顶部占住”而失效，是最难的形态
-        path.join(__dirname, '..', 'test-fixtures', 'resume-sidebar.pdf')
+        path.join(__dirname, '..', 'test-fixtures', 'resume-sidebar.pdf'),
+        // 表格排版：技能表 / 获奖表，单元格在同一视觉行上被拼成一行
+        path.join(__dirname, '..', 'test-fixtures', 'resume-table.pdf'),
+        // 多页：第 2 页继续上一节的内容，验证跨页分节不断开、页码被过滤
+        path.join(__dirname, '..', 'test-fixtures', 'resume-two-page.pdf')
       ];
 
   for (const file of files) {
@@ -71,6 +75,27 @@ app.whenReady().then(async () => {
       t(/阿里巴巴/.test(text) && /浙江大学/.test(text), '双栏：左右两栏的内容都抽到了');
     }
 
+    // 表格排版：单元格在同一视觉行被拼成一行，这是正确的（表格行就是一视觉行）
+    if (/table/.test(name)) {
+      t(res.lines.some((l) => /^Java\s+精通\s+3 年$/.test(l.trim())),
+        '表格：技能行拼成「Java 精通 3 年」一行');
+      t(res.lines.some((l) => /^国家励志奖学金\s+国家级\s+2020$/.test(l.trim())),
+        '表格：获奖行拼成一行');
+      t(res.lines.indexOf('专业技能') < res.lines.findIndex((l) => /^Java/.test(l)),
+        '表格：技能表落在「专业技能」分节之后');
+      t(res.lines.indexOf('获奖情况') < res.lines.findIndex((l) => /^ACM/.test(l)),
+        '表格：获奖表落在「获奖情况」分节之后');
+    }
+
+    // 多页：跨页后上一节的内容不能被重新开一节
+    if (/two-page/.test(name)) {
+      t(res.pages === 2, '多页：样本确实是 2 页（实得 ' + res.pages + '）');
+      t(!res.lines.some((l) => /^第 \d+ 页/.test(l)), '多页：页码行已被过滤');
+      const idxIntern = res.lines.indexOf('实习经历');
+      const idxProject = res.lines.indexOf('项目经历');
+      t(idxIntern >= 0 && idxProject > idxIntern, '多页：第 2 页的项目经历排在实习经历之后（分节连续）');
+    }
+
     // 侧边栏专项：顶部通栏不能让中缝检测失效，也不能把通栏文字切断
     if (/sidebar/.test(name)) {
       const iSkill = res.lines.findIndex((l) => l.trim() === '专业技能');
@@ -95,9 +120,13 @@ app.whenReady().then(async () => {
     t(!fullErr, '完整导入链路可跑通' + (fullErr ? ' → ' + fullErr.message : ''));
     if (full) {
       const p = full.parsed;
-      // 三份样本的姓名/手机号不同，按样本给期望值（写死一个会误报）
-      const expectName = /sidebar/.test(name) ? '王五' : '张三';
-      const expectPhone = /sidebar/.test(name) ? '13700000000' : '13800000000';
+      // 各样本姓名/手机号不同，按样本给期望值（写死一个会误报）
+      const expectName = /sidebar/.test(name) ? '王五'
+        : /table/.test(name) ? '赵六'
+          : /two-page/.test(name) ? '孙七' : '张三';
+      const expectPhone = /sidebar/.test(name) ? '13700000000'
+        : /table/.test(name) ? '13600000000'
+          : /two-page/.test(name) ? '13500000000' : '13800000000';
       t(p.name === expectName && p.phone === expectPhone,
         '基本信息：' + p.name + ' / ' + p.phone + '（期望 ' + expectName + ' / ' + expectPhone + '）');
       if (/ats-classic/.test(name)) {
@@ -105,10 +134,16 @@ app.whenReady().then(async () => {
         t(p.education.length === 3, '教育经历 ' + p.education.length + ' 段（学校词表反查生效）');
         t(p.internships.length === 4, '实习/实践 ' + p.internships.length + ' 段');
         t(p.projects.length === 1, '项目经历 ' + p.projects.length + ' 段');
-      } else if (/two-column/.test(name)) {
-        t(p.education.length >= 1, '双栏：教育经历 ' + p.education.length + ' 段');
-        t(p.internships.length >= 1, '双栏：实习经历 ' + p.internships.length + ' 段');
-        t(p.projects.length >= 1, '双栏：项目经历 ' + p.projects.length + ' 段');
+      } else if (/two-column|sidebar|two-page/.test(name)) {
+        t(p.education.length >= 1, '分栏/多页：教育经历 ' + p.education.length + ' 段');
+        t(p.internships.length === 1, '分栏/多页：实习经历合并成 1 段（描述句没被当新条目，实得 ' + p.internships.length + '）');
+        t(p.projects.length >= 1, '分栏/多页：项目经历 ' + p.projects.length + ' 段');
+      } else if (/table/.test(name)) {
+        // 表格样本没有项目节，实习只有一段
+        t(p.education.length === 1, '表格：教育经历 1 段（实得 ' + p.education.length + '）');
+        t(p.internships.length === 1, '表格：实习经历 1 段（实得 ' + p.internships.length + '）');
+        t(p.internships[0] && p.internships[0].period === '2020.07 - 2020.10',
+          '表格：单独一行的实习时间段被提取（实得 ' + (p.internships[0] || {}).period + '）');
       }
     }
   }

@@ -8,7 +8,7 @@
 //  手写的最小 PDF 只能验证「能读」，验证不了「双栏会不会串行」。
 //
 //  运行：node scripts/run-electron.js scripts/make-pdf-fixtures.js
-//  产物：test-fixtures/resume-two-column.pdf / resume-single-column.pdf / resume-sidebar.pdf
+//  产物：resume-two-column / resume-single-column / resume-sidebar / resume-table / resume-two-page
 // ============================================================
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
@@ -49,7 +49,8 @@ const TWO_COLUMN_HTML = `<!doctype html><html><head><meta charset="utf-8"><style
     </div>
     <div class="col">
       <h2>实习经历</h2>
-      <p>阿里巴巴 后端开发实习生</p>
+      <p>阿里巴巴</p>
+      <p>后端开发实习生</p>
       <p class="muted">2023.06 - 2023.09</p>
       <p>负责订单系统的接口优化</p>
       <h2>项目经历</h2>
@@ -121,7 +122,8 @@ const SIDEBAR_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>${
       <p>北京大学 软件工程 本科</p>
       <p class="muted">2018.09 - 2022.06 · GPA 3.7</p>
       <h2>实习经历</h2>
-      <p>腾讯 后台开发实习生</p>
+      <p>腾讯</p>
+      <p>后台开发实习生</p>
       <p class="muted">2021.07 - 2021.10</p>
       <p>参与支付网关的对账模块开发</p>
       <h2>项目经历</h2>
@@ -130,6 +132,69 @@ const SIDEBAR_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>${
     </div>
   </div>
 </div></body></html>`;
+
+// 表格排版：技能表 + 获奖表。单元格文本在同一视觉行上被拼成一行
+// （「Java 精通 3 年」），要验证这种行不会破坏分节与条目解析。
+const TABLE_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 10px; }
+  th, td { border: 1px solid #ccc; padding: 5px 8px; text-align: left; font-size: 12.5px; }
+  th { background: #f2f2f2; font-weight: 600; }
+</style></head><body><div class="page">
+  <h1>赵六</h1>
+  <div class="contact">13600000000 · zhaoliu@example.com · 深圳</div>
+  <h2>教育背景</h2>
+  <p>中山大学 计算机科学与技术 本科</p>
+  <p class="muted">2017.09 - 2021.06 · GPA 3.5</p>
+  <h2>专业技能</h2>
+  <table>
+    <tr><th>技能</th><th>熟练度</th><th>使用年限</th></tr>
+    <tr><td>Java</td><td>精通</td><td>3 年</td></tr>
+    <tr><td>MySQL</td><td>熟练</td><td>2 年</td></tr>
+    <tr><td>Redis</td><td>熟练</td><td>2 年</td></tr>
+  </table>
+  <h2>实习经历</h2>
+  <p>华为</p>
+  <p>软件开发实习生</p>
+  <p class="muted">2020.07 - 2020.10</p>
+  <p>参与基站配置管理系统的模块开发</p>
+  <h2>获奖情况</h2>
+  <table>
+    <tr><th>奖项</th><th>级别</th><th>年份</th></tr>
+    <tr><td>ACM 校赛</td><td>二等奖</td><td>2019</td></tr>
+    <tr><td>国家励志奖学金</td><td>国家级</td><td>2020</td></tr>
+  </table>
+</div></body></html>`;
+
+// 多页：显式分页（page-break-after），页脚用 position:fixed 让每页都打印。
+// 不靠「内容溢出」来分页——printToPDF 会按纸张缩放，行数估算容易失手（试过 36 行仍是一页）。
+const TWO_PAGE_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}
+  .page { width: 794px; padding: 46px 54px; }
+  .break { page-break-after: always; }
+</style></head><body>
+  <div class="page break">
+    <h1>孙七</h1>
+    <div class="contact">13500000000 · sunqi@example.com · 成都</div>
+    <h2>教育背景</h2>
+    <p>四川大学 软件工程 本科</p>
+    <p class="muted">2018.09 - 2022.06 · GPA 3.6</p>
+    <h2>专业技能</h2>
+    <p>Java / Spring / MySQL / Redis</p>
+    <h2>实习经历</h2>
+    <p>美团</p>
+    <p>后端开发实习生</p>
+    <p class="muted">2021.07 - 2021.12</p>
+    <p>负责商家后台的订单查询接口优化，将列表页响应时间从 800ms 降到 220ms。</p>
+    <p>参与缓存层的设计，把热点店铺信息预热到 Redis，命中率提升到 92%。</p>
+  </div>
+  <div class="page">
+    <p>继续：整理了接口文档与压测脚本，交付给后续接手的同学使用。</p>
+    <p>继续：协助排查线上慢查询，补充了两个联合索引。</p>
+    <p>继续：参与周会汇报与代码评审，累计提交 30 余个 MR。</p>
+    <h2>项目经历</h2>
+    <p>校园二手交易平台（独立开发）</p>
+    <p>前后端分离，支持商品发布、搜索与站内私信</p>
+  </div>
+</body></html>`;
 
 async function render(win, html, outFile) {
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
@@ -150,6 +215,8 @@ app.whenReady().then(async () => {
     await render(win, TWO_COLUMN_HTML, path.join(OUT_DIR, 'resume-two-column.pdf'));
     await render(win, SINGLE_COLUMN_HTML, path.join(OUT_DIR, 'resume-single-column.pdf'));
     await render(win, SIDEBAR_HTML, path.join(OUT_DIR, 'resume-sidebar.pdf'));
+    await render(win, TABLE_HTML, path.join(OUT_DIR, 'resume-table.pdf'));
+    await render(win, TWO_PAGE_HTML, path.join(OUT_DIR, 'resume-two-page.pdf'));
   } finally {
     if (!win.isDestroyed()) win.destroy();
   }

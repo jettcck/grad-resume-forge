@@ -609,7 +609,10 @@ function parseEducation(lines: string[], ref: RefData): EducationEntry[] {
 }
 
 // ---------- 经历解析（实习 / 项目） ----------
-const BULLET_RE = /^[\-–—*•·▪◦>»>+]\s*|^\d+[.、)）]\s*/;
+// 列表编号只认 1–2 位数字（「1.」「12）」）。
+// 原来写的是 \d+，会把「2021.07 - 2021.12」的「2021.」当成编号剥掉，
+// 于是时间行被判成项目符号行、跳过「补 period」的分支，整条时间被塞进描述。
+const BULLET_RE = /^[\-–—*•·▪◦>»>+]\s*|^\d{1,2}[.、)）]\s*/;
 const TITLE_HINT_RE = /(公司|集团|科技|信息技术|网络|实验室|工作室|银行|有限|中心|平台|实习|工程师|开发|负责人|项目|系统|服务|工作室|事务所|设计院|医院|学校|证券|基金|诊所|药房)/;
 
 function looksLikeTitle(line: string): boolean {
@@ -619,6 +622,10 @@ function looksLikeTitle(line: string): boolean {
   //   被当成了新条目名，结果整段项目经历被切碎。）
   if (/[。！？!?]$/.test(line)) return false;
   if (/[，,、；;]/.test(line)) return false;
+  // 动词开头的短句是「做了什么」，不是「在哪做的」。
+  // 实测「参与基站配置管理系统的模块开发」因为含「开发」被当成新条目，
+  // 把一段实习切成两段（第二段名字是这句描述）。
+  if (/^(参与|负责|协助|完成|配合|支持|推进|跟进)/.test(line)) return false;
   if (matchPeriod(line)) return true;
   if (line.length <= 34 && TITLE_HINT_RE.test(line)) return true;
   return false;
@@ -648,9 +655,14 @@ function parseExperiences(lines: string[], ref?: RefData): ExperienceEntry[] {
       return;
     }
     // 「名称单独一行、时间单独一行」的排版：把孤立的时间行补进当前条目
-    if (cur && !cur.period && !isBullet && /^[\s\d.\/年月日\-–—~至到]+$/.test(line)) {
-      const p = matchPeriod(line);
-      if (p) { cur.period = p; return; }
+    // 「名称单独一行、时间单独一行」的排版：把孤立的时间行补进当前条目。
+    // 先剥掉可能的项目符号再判断——时间行本身就以数字开头，容易被误判成编号列表。
+    if (cur && !cur.period) {
+      const timeLine = line.replace(BULLET_RE, '').trim();
+      if (/^[\s\d.\/年月日\-–—~至到]+$/.test(timeLine)) {
+        const p = matchPeriod(timeLine);
+        if (p) { cur.period = p; return; }
+      }
     }
     // 分节里的第一行（且非项目符号）一律当作条目名：中文简历里它必然是
     // 机构名/项目名（如「校园组织与媒体实践」），而它往往不含任何触发关键词。
