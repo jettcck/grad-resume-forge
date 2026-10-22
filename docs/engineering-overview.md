@@ -211,7 +211,7 @@ node evals/agent-bench-llm.js --sample 20
 ## 8. 测试
 
 ```
-31 个测试文件 / 1,564 条断言
+32 个测试文件 / 1,594 条断言
 npm test   # 含 evals：mock 层评测 + LLM 层 self-test + 规则层评测
 ```
 
@@ -241,7 +241,7 @@ npm test   # 含 evals：mock 层评测 + LLM 层 self-test + 规则层评测
 
 ```bash
 npm run build                     # tsc + 三个子包
-npm test                          # 31 个测试文件 + evals
+npm test                          # 32 个测试文件 + evals
 node evals/agent-bench.js         # mock 层 65 用例基线（本文 §6.1 的数字）
 node scripts/audit-exam-bank.js   # 客观题库质量审核（151 题）
 node test-code.js                 # 43 题 × 3 语言判题
