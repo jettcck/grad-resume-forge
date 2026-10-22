@@ -376,6 +376,38 @@ export function snapshotToQuestion(id: string, snap: ExamSnapshot): ExamQuestion
 }
 
 /**
+ * 组卷时把题目内容冻结进试卷：题库改版后，历史成绩仍按当时的题干/答案解释。
+ *
+ * 放在 exam-core 而不是 main.ts 的原因：截图 mock 层也要用同一份实现，
+ * 否则 mock 建出来的卷子没有快照，UI 测试会走「无快照回退题库」的路径，
+ * 与真实主进程行为不一致——那种绿灯是假的。
+ *
+ * resolver 允许注入，方便测试用假题库。
+ */
+export function buildExamSnapshots(
+  ids: string[],
+  resolver: (id: string) => ExamQuestion | null = (id) => QUESTION_MAP.get(id) || null
+): ExamPaper['snapshots'] {
+  const out: NonNullable<ExamPaper['snapshots']> = {};
+  for (const id of ids) {
+    const q = resolver(id);
+    if (!q) continue;
+    out[id] = {
+      type: q.type,
+      stem: q.stem,
+      options: q.options,
+      answer: q.answer,
+      explanation: q.explanation,
+      tags: q.tags,
+      version: q.version,
+      domain: q.domain,
+      difficulty: q.difficulty
+    };
+  }
+  return out;
+}
+
+/**
  * 下发给渲染层的题目：剥掉 answer / explanation。
  * 答题页不需要答案，交卷后才随结果返回——避免「打开开发者工具直接看答案」。
  */

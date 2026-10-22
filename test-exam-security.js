@@ -182,4 +182,41 @@ assert(!allowed.has('other_question'), '卷外题目 id 不在允许集合里（
 assert(EXAM_BANK.some((q) => q.type === 'multiple'), '题库里存在多选题（校验分支有真实覆盖）');
 assert(EXAM_BANK.some((q) => q.type === 'fill'), '题库里存在填空题（校验分支有真实覆盖）');
 
+// ---------------- 8) 快照构建（exam-core，mock 层也用它） ----------------
+// 快照构建从 main.ts 移到 exam-core 的原因：截图 mock 层要用同一份实现。
+// 否则 mock 建的卷子没有快照，UI 测试走「无快照回退题库」的分支，绿灯是假的。
+const builtSnaps = core.buildExamSnapshots(ids);
+assert(Object.keys(builtSnaps).length === 3, 'buildExamSnapshots 生成全部题目的快照（实得 ' + Object.keys(builtSnaps).length + '）');
+const snapSample = builtSnaps[firstId];
+assert(!!snapSample.stem && !!snapSample.answer, '快照含题干与答案');
+assert(!!snapSample.domain && typeof snapSample.difficulty === 'number',
+  '快照含 domain / difficulty（详情页可脱离题库渲染）');
+assert(Array.isArray(snapSample.tags) && snapSample.tags.length > 0, '快照含知识点标签');
+
+// 缺题跳过，不抛错
+const partial = core.buildExamSnapshots([firstId, 'ghost_question_not_exist']);
+assert(Object.keys(partial).length === 1, '题库里没有的 id 被跳过（实得 ' + Object.keys(partial).length + ' 条）');
+
+// resolver 可注入：测试用假题库，不需要真实题库配合
+const fakeSnaps = core.buildExamSnapshots(['fake1'], (id) => (id === 'fake1' ? {
+  id: 'fake1', type: 'single', domain: 'backend', tags: ['假标签'], difficulty: 4,
+  stem: '假题干', options: ['A', 'B'], answer: 'A', explanation: '假解析', version: 7
+} : null));
+assert(fakeSnaps.fake1 && fakeSnaps.fake1.stem === '假题干' && fakeSnaps.fake1.difficulty === 4,
+  'buildExamSnapshots 支持注入 resolver（不依赖真实题库）');
+
+// 快照 + 公开形态是一条链路：构建 → 存 → 剥 → 下发
+const chainPaper = store.saveExamPaper(uid, {
+  title: '快照链路测试卷',
+  questionIds: ids,
+  durationSec: 600,
+  passScore: 60,
+  snapshots: core.buildExamSnapshots(ids)
+});
+const chainPublic = core.publicExamPaper(chainPaper);
+assert(!!chainPaper.snapshots && Object.keys(chainPaper.snapshots).length === 3, '落盘的卷子带快照');
+assert(!('snapshots' in chainPublic), '公开形态剥掉快照');
+assert(core.paperQuestions(chainPaper).every((q) => !('answer' in q)),
+  '由快照重建的题目同样不含答案');
+
 console.log('\n笔试安全自测完成: ' + pass + ' passed, ' + failCnt + ' failed | exitCode = ' + (process.exitCode || 0));

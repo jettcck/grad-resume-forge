@@ -460,6 +460,17 @@ assert(/enable-unsafe-swiftshader/.test(mainEntrySrc) && /'use-angle',\s*'swifts
 assert(/render-process-gone/.test(mainEntrySrc),
   '渲染进程异常退出会被记录，不再表现为无声黑屏');
 
+// ---- 截图 mock 的试卷行为必须与真实主进程一致 ----
+// 真实主进程：组卷时写快照、下发时剥快照、评分按快照。
+// mock 若只存不写快照，UI 测试会走「无快照回退题库」分支，绿灯是假的。
+const mockCreateBlock = (mockSrc.split("exam:paper:create")[1] || '').split('exam:paper:list')[0];
+assert(/buildExamSnapshots/.test(mockCreateBlock),
+  '截图 mock 组卷时写题目快照（与真实主进程一致）');
+assert(/publicExamPaper/.test(mockCreateBlock),
+  '截图 mock 组卷返回公开形态（不把 snapshots 下发到渲染层）');
+assert(/examCore\.gradePaper\(paper\.questionIds, answers \|\| \{\}, paper\.snapshots\)/.test(mockSrc),
+  '截图 mock 交卷按快照评分（与真实主进程一致）');
+
 // ---- Electron 入口必须走 run-electron.js ----
 // 背景：本机常驻 ELECTRON_RUN_AS_NODE=1，直接 `electron xxx` 会退化成纯 Node：
 //   `electron .` 起不来、`electron script.js` 里 app 是 undefined。

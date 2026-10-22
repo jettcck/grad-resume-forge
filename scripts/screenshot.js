@@ -158,23 +158,25 @@ function registerIpc() {
       durationSec: (input && input.durationSec) || 1800,
       passScore: (input && input.passScore) || 60,
       domain: built.domain,
-      tags: built.tags
+      tags: built.tags,
+      bankVersion: examBank.BANK_VERSION,
+      composition: built.composition,
+      // 与真实主进程一致：组卷时冻结题目快照。
+      // 不写快照的话 UI 测试会走「无快照回退题库」的分支，绿灯是假的。
+      snapshots: examCore.buildExamSnapshots(built.questionIds)
     });
-    const questions = paper.questionIds.map((id) => {
-      const q = examBank.getQuestion(id);
-      return { id: q.id, type: q.type, domain: q.domain, tags: q.tags, difficulty: q.difficulty, stem: q.stem, options: q.options, version: q.version };
-    });
-    return { paper, questions, composition: built.composition };
+    // 同样走 publicExamPaper：真实主进程不会把 snapshots 下发到渲染层
+    return {
+      paper: examCore.publicExamPaper(paper),
+      questions: examCore.paperQuestions(paper),
+      composition: built.composition
+    };
   });
-  hU('exam:paper:list', (uid) => store.listExamPapers(uid));
+  hU('exam:paper:list', (uid) => store.listExamPapers(uid).map(examCore.publicExamPaper));
   hU('exam:paper:get', (uid, paperId) => {
     const paper = store.getExamPaper(uid, paperId);
     if (!paper) throw new Error('试卷不存在或已删除');
-    const questions = paper.questionIds.map((id) => {
-      const q = examBank.getQuestion(id);
-      return { id: q.id, type: q.type, domain: q.domain, tags: q.tags, difficulty: q.difficulty, stem: q.stem, options: q.options, version: q.version };
-    });
-    return { paper, questions };
+    return { paper: examCore.publicExamPaper(paper), questions: examCore.paperQuestions(paper) };
   });
   hU('exam:attempt:start', (uid, paperId) => {
     const drafts = store.listExamAttempts(uid, paperId).filter((a) => a.status === 'draft');
@@ -186,7 +188,7 @@ function registerIpc() {
   hU('exam:attempt:submit', (uid, attemptId, answers) => {
     const attempt = store.getExamAttempt(uid, attemptId);
     const paper = store.getExamPaper(uid, attempt.paperId);
-    const graded = examCore.gradePaper(paper.questionIds, answers || {});
+    const graded = examCore.gradePaper(paper.questionIds, answers || {}, paper.snapshots);
     const saved = store.saveExamAttempt(uid, {
       id: attemptId, answers, score: graded.score, correctCount: graded.correctCount,
       totalCount: graded.totalCount, durationSec: 120, status: 'submitted', tagStats: graded.tagStats

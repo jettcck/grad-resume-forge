@@ -600,28 +600,6 @@ function startOfWeek(ts: number): number {
   return d.getTime();
 }
 
-// 组卷时把题目内容冻结进试卷：题库改版后，历史成绩仍按当时的题干/答案解释
-function buildExamSnapshots(ids: string[]): Record<string, {
-  type: import('./types').ExamQuestionType; stem: string; options?: string[];
-  answer: string | string[]; explanation: string; tags: string[]; version: number;
-  domain?: string; difficulty?: 1 | 2 | 3 | 4 | 5;
-}> {
-  const out: Record<string, {
-    type: import('./types').ExamQuestionType; stem: string; options?: string[];
-    answer: string | string[]; explanation: string; tags: string[]; version: number;
-    domain?: string; difficulty?: 1 | 2 | 3 | 4 | 5;
-  }> = {};
-  ids.forEach((id) => {
-    const q = getExamQuestion(id);
-    if (!q) return;
-    out[id] = {
-      type: q.type, stem: q.stem, options: q.options,
-      answer: q.answer, explanation: q.explanation, tags: q.tags, version: q.version,
-      domain: q.domain, difficulty: q.difficulty
-    };
-  });
-  return out;
-}
 
 ipcMain.handle('exam:bank', () => {
   try {
@@ -696,7 +674,7 @@ ipcMain.handle('exam:paper:create', (_e, input: Record<string, unknown>) => {
       bankVersion: EXAM_BANK_VERSION,
       composition: built.composition,
       // 题目快照：题库日后改题/删题，历史成绩仍按当时的内容解释
-      snapshots: buildExamSnapshots(built.questionIds)
+      snapshots: examCore.buildExamSnapshots(built.questionIds)
     });
 
     return ok({

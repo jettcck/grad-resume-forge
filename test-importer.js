@@ -267,6 +267,85 @@ assert((p3.notes || []).length > 0, '无分节文本给出提示');
   }
 })();
 
+// ---------------- 文本归一化：全角字符 ----------------
+// 中文简历里「２０２２」「Ｊａｖａ」很常见，不转的话手机号/年份/技术栈正则全部匹配不上
+assert(importer.normalizeExtractedText('２０２２年').includes('2022'),
+  '全角数字归一化为半角（２０２２ → 2022）');
+assert(importer.normalizeExtractedText('Ｊａｖａ 工程师').includes('Java'),
+  '全角字母归一化为半角（Ｊａｖａ → Java）');
+assert(importer.normalizeExtractedText('你好，世界。').includes('，')
+  && importer.normalizeExtractedText('你好，世界。').includes('。'),
+  '全角标点保持不变（转半角会破坏中文排版）');
+assert(!importer.normalizeExtractedText('缩进\u3000\u3000内容').includes('\u3000'),
+  '全角空格归一化为半角空格');
+
+const fullWidthText = '李四\n电话：１３８００００００００\n邮箱：ｌｉｓｉ＠ｅｘａｍｐｌｅ．ｃｏｍ\n教育背景\n某某大学 本科';
+const fwParsed = importer.parseResumeText(fullWidthText, ref);
+assert(fwParsed.phone === '13800000000', '全角手机号能被识别（实得 ' + fwParsed.phone + '）');
+assert(fwParsed.email === 'lisi@example.com', '全角邮箱能被识别（实得 ' + fwParsed.email + '）');
+
+// ---------------- 页眉页脚：页码噪声 ----------------
+const pagedText = [
+  '张三',
+  '第 1 页 / 共 2 页',
+  '教育背景',
+  '浙江大学 计算机 2020-2024',
+  'Page 2 of 2',
+  '实习经历',
+  '某某公司 后端开发 2023.06-2023.09'
+].join('\n');
+const pagedParsed = importer.parseResumeText(pagedText, ref);
+assert(pagedParsed.name === '张三', '页码噪声不影响姓名识别（实得 ' + pagedParsed.name + '）');
+assert(pagedParsed.education.length === 1, '页码噪声没被当成教育经历（实得 ' + pagedParsed.education.length + ' 段）');
+assert(pagedParsed.internships.length >= 1, '页码噪声没打断实习经历识别（实得 ' + pagedParsed.internships.length + ' 段）');
+const pagedNotes = (pagedParsed.notes || []).join('');
+assert(!/第 1 页|Page 2/.test(pagedNotes), '页码没有被写进解析备注');
+
+// 页码过滤只认「整行就是页码」：带上下文的 1/2 必须留着
+const noiseIn = ['第 1 页 / 共 2 页', 'Page 2 of 2', '- 3 -', '1/2', '专业排名 1/2（前 50%）'];
+const noiseOut = importer.stripPageNoise(noiseIn);
+assert(noiseOut.length === 1 && noiseOut[0] === '专业排名 1/2（前 50%）',
+  '页码过滤：四种整行页码被剔除，带上下文的 1/2 保留（实得 ' + JSON.stringify(noiseOut) + '）');
+assert(importer.stripPageNoise(['第 1 页', '共 2 页 第 1 页']).length === 1,
+  '非常规页脚（「共 2 页 第 1 页」）不误删，只删标准形态');
+
+// ---------------- PDF 文本项：按坐标聚行 ----------------
+// 为什么不用 hasEOL：双栏/表格排版里内容流顺序与视觉顺序不一致
+const shuffledItems = [
+  { str: '工程师', transform: [1, 0, 0, 1, 200, 700], width: 45 },  // 先出现但 x 更大
+  { str: '张三', transform: [1, 0, 0, 1, 50, 700], width: 20 }      // 后出现但 x 更小
+];
+const shuffledLines = importer.groupTextItemsByLine(shuffledItems);
+assert(shuffledLines.length === 1, '同一 y 的文本项聚成一行（实得 ' + shuffledLines.length + ' 行）');
+assert(shuffledLines[0] === '张三 工程师',
+  '同行的项按 x 排序且间隙补空格（实得 ' + JSON.stringify(shuffledLines[0]) + '）');
+
+const twoRows = [
+  { str: '第二行', transform: [1, 0, 0, 1, 50, 680], width: 45 },
+  { str: '第一行', transform: [1, 0, 0, 1, 50, 700], width: 45 }
+];
+const twoRowLines = importer.groupTextItemsByLine(twoRows);
+assert(twoRowLines.length === 2 && twoRowLines[0] === '第一行',
+  '不同 y 分成多行且按上到下排序（实得 ' + JSON.stringify(twoRowLines) + '）');
+
+const nearSameY = [
+  { str: '同', transform: [1, 0, 0, 1, 50, 700] , width: 10 },
+  { str: '行', transform: [1, 0, 0, 1, 62, 699.4], width: 10 }
+];
+assert(importer.groupTextItemsByLine(nearSameY).length === 1,
+  'y 有亚像素差异（字号不同/基线偏移）仍归为同一行');
+
+const glued = [
+  { str: '张三', transform: [1, 0, 0, 1, 50, 700], width: 18 },
+  { str: '13800000000', transform: [1, 0, 0, 1, 69, 700], width: 60 }
+];
+assert(importer.groupTextItemsByLine(glued)[0] === '张三13800000000',
+  '紧邻片段不硬插空格（避免把「张三」和手机号拆开时误加）');
+
+assert(importer.groupTextItemsByLine([]).length === 0, '空文本项返回空数组');
+assert(importer.groupTextItemsByLine([{ str: 123 }, { str: '' }]).length === 0,
+  '非字符串/空字符串项被忽略（不抛错）');
+
 function done() {
   console.log('\n导入器自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
 }

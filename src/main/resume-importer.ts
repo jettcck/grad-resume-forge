@@ -57,7 +57,33 @@ export function normalizeExtractedText(s: string): string {
   return s
     .replace(PUA_RE, '')
     .replace(RADICAL_RE, (c) => RADICAL_MAP[c] || c)
+    // 全角数字与字母 → 半角：中文简历里「２０２２」「Ｊａｖａ」很常见，
+    // 不转的话手机号/年份/技术栈的正则全部匹配不上。
+    // 只转 [０-９Ａ-Ｚａ-ｚ]，不碰全角标点（「，。」转半角会破坏中文排版）。
+    .replace(/[\uff10-\uff19\uff21-\uff3a\uff41-\uff5a]/g,
+      (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    // 全角联系方式符号：＠．－／ 在「ｌｉｓｉ＠ｅｘａｍｐｌｅ．ｃｏｍ」里必须一起转，
+    // 否则邮箱/网址正则匹配不上。
+    // 刻意不转全角冒号「：」——它在中文正文里高频（姓名：张三），
+    // 转成半角会让界面上的标点风格不统一，而邮箱格式本来就用不到冒号。
+    .replace(/[\uff20\uff0e\uff0d\uff0f]/g,
+      (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
+    // 全角空格归一化（有些 PDF 用 U+3000 做缩进）
+    .replace(/\u3000/g, ' ')
     .replace(/[ \t]{2,}/g, ' ');
+}
+
+/**
+ * 剔除页眉页脚噪声：多页简历每页都会带「第 1 页 / 共 2 页」「Page 1 of 2」「- 1 -」「1/2」。
+ * 混进来会破坏分节判定（被当成一条经历），对用户也毫无价值。
+ *
+ * 只匹配「整行就是页码」的形态，避免误删「专业排名 1/2」这类正文。
+ */
+export function stripPageNoise(lines: string[]): string[] {
+  // 中文页码有几种写法：「第 1 页」「第 1 页 共 2 页」「第 1 页 / 共 2 页」，
+  // 尾部那段要把「/ 共 2 页」整体当作可选，否则「/ 共」会被漏掉（第一版就漏在这）。
+  const PAGE_NOISE_RE = /^(?:第\s*\d+\s*页(?:\s*[/／]?\s*共?\s*\d+\s*页)?|page\s*\d+\s*(?:of\s*\d+)?|[-–—]\s*\d+\s*[-–—]|\d+\s*[/／]\s*\d+)$/i;
+  return lines.filter((s) => !PAGE_NOISE_RE.test(s));
 }
 
 // ---------- PDF 文本抽取 ----------
@@ -85,6 +111,68 @@ async function getPdfjs(): Promise<PdfjsModule> {
 }
 
 // 返回 { text, lines, pages }
+/**
+ * 把 pdfjs 的文本项按「视觉行」聚合，而不是依赖 hasEOL。
+ *
+ * 为什么不用 hasEOL：它来自 PDF 内容流的换行标记，双栏 / 表格 / 分块排版的简历里
+ * 完全不可靠——左右栏的文本项会按内容流顺序交错，拼出来是「张三 138xxxx 教育背景」
+ * 这种串行结果。按 y 坐标聚行、行内按 x 排序，才和肉眼看到的行一致。
+ *
+ * 坐标来自 textItem.transform：[a, b, c, d, x, y]。
+ * 同一行的 y 会有亚像素差异（字号不同、基线偏移），所以用容差归并。
+ */
+export function groupTextItemsByLine(items: Array<{
+  str?: unknown; width?: number; height?: number;
+  transform?: number[]; hasEOL?: boolean;
+}>): string[] {
+  const glyphs: Array<{ x: number; y: number; w: number; str: string }> = [];
+  for (const it of items) {
+    if (typeof it.str !== 'string' || !it.str) continue;
+    const tr = it.transform;
+    if (!Array.isArray(tr) || tr.length < 6) continue;
+    glyphs.push({
+      x: tr[4],
+      y: tr[5],
+      w: typeof it.width === 'number' ? it.width : 0,
+      str: it.str
+    });
+  }
+  if (!glyphs.length) return [];
+
+  // 行容差：取常见字号的 60%，并夹在 2–6pt 之间（太小会把上下行粘一起，太大会把同一行拆开）
+  const heights = glyphs.map((g) => g.w > 0 && g.str.length > 0 ? g.w / g.str.length : 0).filter((v) => v > 0);
+  const avgGlyphW = heights.length ? heights.reduce((a, b) => a + b, 0) / heights.length : 8;
+  const tol = Math.min(6, Math.max(2, avgGlyphW * 0.6));
+
+  // y 降序（PDF 坐标向上，视觉上从上到下），同 y 按 x 升序
+  const sorted = glyphs.slice().sort((a, b) => (Math.abs(a.y - b.y) <= tol ? a.x - b.x : b.y - a.y));
+
+  const rows: Array<{ y: number; parts: typeof glyphs }> = [];
+  for (const g of sorted) {
+    const row = rows[rows.length - 1];
+    if (row && Math.abs(row.y - g.y) <= tol) {
+      row.parts.push(g);
+    } else {
+      rows.push({ y: g.y, parts: [g] });
+    }
+  }
+
+  return rows
+    .map((row) => {
+      const parts = row.parts.slice().sort((a, b) => a.x - b.x);
+      let out = '';
+      let prevEnd = -1;
+      for (const p of parts) {
+        // 两个片段之间有明显水平间隙时补一个空格，避免「张三13800000000」粘成一片
+        if (prevEnd >= 0 && p.x - prevEnd > tol) out += ' ';
+        out += p.str;
+        prevEnd = p.x + p.w;
+      }
+      return normalizeExtractedText(out).trim();
+    })
+    .filter(Boolean);
+}
+
 async function extractPdfText(filePath: string): Promise<{ text: string; lines: string[]; pages: number }> {
   const pdfjs = await getPdfjs();
   const standardFonts = path.join(
@@ -112,17 +200,9 @@ async function extractPdfText(filePath: string): Promise<{ text: string; lines: 
     for (let p = 1; p <= pages; p++) {
       const page = await doc.getPage(p);
       const tc = await page.getTextContent();
-      let buf = '';
-      tc.items.forEach((it) => {
-        if (typeof (it as { str?: unknown }).str !== 'string') return;
-        buf += (it as { str: string }).str;
-        if ((it as { hasEOL?: boolean }).hasEOL) {
-          const t = normalizeExtractedText(buf).trim();
-          if (t) lines.push(t);
-          buf = '';
-        }
-      });
-      if (buf.trim()) lines.push(normalizeExtractedText(buf).trim());
+      lines.push(...groupTextItemsByLine(tc.items as unknown as Array<{
+        str?: unknown; width?: number; height?: number; transform?: number[]; hasEOL?: boolean;
+      }>));
     }
   } finally {
     try { await doc.destroy(); } catch (_) { /* 忽略 */ }
@@ -417,10 +497,12 @@ function parseExperiences(lines: string[], ref?: RefData): ExperienceEntry[] {
 export function parseResumeText(text: string, ref: RefData): ParsedProfile {
   // 归一化放在入口：PDF 抽取路径已经归一化过一次（幂等），但从别处粘贴进来的文本
   // （很多人是从 PDF 阅读器里复制的）同样会带康熙部首码位，这里兜住。
-  const rawLines = normalizeExtractedText(String(text || ''))
-    .split(/\r?\n/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const rawLines = stripPageNoise(
+    normalizeExtractedText(String(text || ''))
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+  );
   const notes: string[] = [];
 
   // 1) 分节
