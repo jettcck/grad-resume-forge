@@ -570,3 +570,23 @@ export interface CodeRunResult {
   cases: CodeCaseResult[];
   message?: string;
 }
+
+/** 代码草稿：按「题目 + 语言」各存一份，切题/重启都不丢 */
+export interface CodeDraft {
+  questionId: string;
+  lang: ProgramLang;
+  code: string;
+  updatedAt: number;
+}
+
+/** 提交记录：只记「提交判题」的结果，运行样例不记 */
+export interface CodeSubmission {
+  id: string;
+  questionId: string;
+  lang: ProgramLang;
+  verdict: string;
+  passed: number;
+  total: number;
+  timeMs: number;
+  createdAt: number;
+}

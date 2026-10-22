@@ -67,7 +67,11 @@ contextBridge.exposeInMainWorld('api', {
     list: () => ipcRenderer.invoke('code:list'),
     get: (questionId: string) => ipcRenderer.invoke('code:get', questionId),
     run: (input: unknown) => ipcRenderer.invoke('code:run', input),
-    submit: (input: unknown) => ipcRenderer.invoke('code:submit', input)
+    submit: (input: unknown) => ipcRenderer.invoke('code:submit', input),
+    getDraft: (questionId: string, lang: string) => ipcRenderer.invoke('code:draft:get', questionId, lang),
+    saveDraft: (questionId: string, lang: string, code: string) =>
+      ipcRenderer.invoke('code:draft:save', questionId, lang, code),
+    submissions: (questionId?: string) => ipcRenderer.invoke('code:submissions', questionId)
   },
   // 招聘平台投递记录同步：只读旁路，不向平台写入任何数据
   // collect 第三个参数 auto=true：点「抓取」即自动开窗口、自动走到记录页抓取

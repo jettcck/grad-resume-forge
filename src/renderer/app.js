@@ -4526,6 +4526,11 @@ const codeState = {
   lang: 'javascript',
   drafts: { javascript: '', python: '', cpp: '' },
   draftFor: null,
+  draftLoaded: {},   // questionId+lang → 是否已从本地加载过草稿
+  saveTimer: null,   // 草稿防抖保存定时器
+  subs: null,        // 当前题的提交记录
+  subsFor: null,
+  solvedIds: {},     // questionId → 是否 AC 过（侧栏打勾）
   result: null,
   busy: false
 };
@@ -4541,6 +4546,7 @@ async function renderCodeView(root) {
       ]);
       codeState.list = list || [];
       codeState.env = env || { javascript: true, python: false };
+      await loadSolvedIds();
     } catch (err) {
       toast(err.message, 'err');
       codeState.list = [];
@@ -4564,6 +4570,7 @@ async function renderCodeView(root) {
   ]);
 
   const list = codeState.list || [];
+  const solved = codeState.solvedIds || {};
   const sidebar = el('div', { class: 'code-side' }, [
     el('div', { class: 'code-side-title' }, ['题目 · ' + list.length]),
     el('div', { class: 'code-side-list' }, list.map((item) => el('button', {
@@ -4571,7 +4578,7 @@ async function renderCodeView(root) {
       type: 'button',
       onclick: () => selectCodeQuestion(item.id)
     }, [
-      el('span', { class: 'ci-title' }, [item.title]),
+      el('span', { class: 'ci-title' }, [(solved[item.id] ? '✓ ' : '') + item.title]),
       el('span', { class: 'ci-meta' }, ['★'.repeat(item.difficulty) + ' · ' + item.timeLimitMs + 'ms'])
     ])))
   ]);
@@ -4643,8 +4650,21 @@ async function renderCodeView(root) {
   // 编辑器
   const editor = el('textarea', { class: 'code-editor', spellcheck: 'false', placeholder: '在此编写代码…' });
   editor.value = codeState.drafts[codeState.lang] || '';
+  const draftKey = () => (codeState.question ? codeState.question.id + '|' + codeState.lang : null);
+  const saveDraft = () => {
+    if (codeState.saveTimer) { clearTimeout(codeState.saveTimer); codeState.saveTimer = null; }
+    codeState.saveTimer = setTimeout(() => {
+      codeState.saveTimer = null;
+      const key = draftKey();
+      if (!key) return;
+      const code = codeState.drafts[codeState.lang] || '';
+      window.api.code.saveDraft(codeState.question.id, codeState.lang, code)
+        .catch(() => { /* 存不上不打扰用户 */ });
+    }, 800);
+  };
   editor.addEventListener('input', () => {
     codeState.drafts[codeState.lang] = editor.value;
+    saveDraft();
   });
   editor.addEventListener('keydown', (e) => {
     // Tab 不要跳出编辑器：插入两个空格
@@ -4655,15 +4675,53 @@ async function renderCodeView(root) {
       editor.value = editor.value.slice(0, s) + '  ' + editor.value.slice(en);
       editor.selectionStart = editor.selectionEnd = s + 2;
       codeState.drafts[codeState.lang] = editor.value;
+      saveDraft();
     }
+  });
+  // 切走时立刻落盘，不等防抖
+  editor.addEventListener('blur', () => {
+    if (codeState.saveTimer) { clearTimeout(codeState.saveTimer); codeState.saveTimer = null; }
+    const key = draftKey();
+    if (!key) return;
+    window.api.code.saveDraft(codeState.question.id, codeState.lang, codeState.drafts[codeState.lang] || '')
+      .catch(() => {});
   });
 
   const resultBox = el('div', { class: 'code-result', id: 'code-result' });
+  const subsBox = el('div', { class: 'code-subs', id: 'code-subs' });
 
-  const main = el('div', { class: 'code-main' }, [problem, toolbar, editor, resultBox]);
+  const main = el('div', { class: 'code-main' }, [problem, toolbar, editor, resultBox, subsBox]);
   const layout = el('div', { class: 'code-layout' }, [sidebar, main]);
   root.append(head, layout);
   renderCodeResult();
+  renderCodeSubs();
+}
+
+/** 渲染当前题的提交记录（只展示最近 10 条） */
+function renderCodeSubs() {
+  const host = document.getElementById('code-subs');
+  if (!host) return;
+  host.innerHTML = '';
+  const q = codeState.question;
+  if (!q || codeState.subsFor !== q.id) return;
+  const subs = codeState.subs || [];
+  if (!subs.length) {
+    host.appendChild(el('div', { class: 'code-hint' }, ['本题还没有提交记录。点「提交判题」后会记在这里。']));
+    return;
+  }
+  const LANG_NAME = { javascript: 'JS', python: 'Python', cpp: 'C++' };
+  host.appendChild(el('div', { class: 'cs-head' }, [
+    el('b', {}, ['提交记录']),
+    el('span', {}, ['最近 ' + Math.min(subs.length, 10) + ' 条 · 共 ' + subs.length + ' 条'])
+  ]));
+  subs.slice(0, 10).forEach((s) => {
+    const label = CODE_VERDICT_LABEL[s.verdict] || s.verdict;
+    host.appendChild(el('div', { class: 'cs-row-item ' + String(s.verdict).toLowerCase() }, [
+      el('span', { class: 'cs-v' }, [label]),
+      el('span', { class: 'cs-detail' }, [(LANG_NAME[s.lang] || s.lang) + ' · ' + s.passed + '/' + s.total + ' · ' + s.timeMs + 'ms']),
+      el('span', { class: 'cs-time' }, [timeAgo(s.createdAt)])
+    ]));
+  });
 }
 
 async function selectCodeQuestion(id) {
@@ -4672,16 +4730,61 @@ async function selectCodeQuestion(id) {
     codeState.question = q;
     // 换题才重置草稿；同一题切语言不覆盖
     if (codeState.draftFor !== id) {
-      codeState.drafts.javascript = (q.starterCode && q.starterCode.javascript) || '';
-      codeState.drafts.python = (q.starterCode && q.starterCode.python) || '';
-      codeState.drafts.cpp = (q.starterCode && q.starterCode.cpp) || '';
       codeState.draftFor = id;
+      codeState.draftLoaded = {};
+      codeState.subs = null;
+      codeState.subsFor = null;
+      await Promise.all([loadCodeDrafts(q), loadCodeSubmissions(id)]);
     }
     codeState.result = null;
     await renderExamCenter();
   } catch (err) {
     toast(err.message, 'err');
   }
+}
+
+/** 拉全部提交记录，算哪些题 AC 过（侧栏打勾） */
+async function loadSolvedIds() {
+  try {
+    const res = await call(window.api.code.submissions());
+    const all = (res && res.data) || [];
+    const map = {};
+    for (const s of all) {
+      if (s && s.verdict === 'AC') map[s.questionId] = true;
+    }
+    codeState.solvedIds = map;
+  } catch (_) { /* 拉不到就不打勾 */ }
+}
+
+/** 从本地存储恢复草稿；没有存过才用起始代码 */
+async function loadCodeDrafts(q) {
+  const langs = ['javascript', 'python', 'cpp'];
+  await Promise.all(langs.map(async (lang) => {
+    const key = q.id + '|' + lang;
+    if (codeState.draftLoaded[key]) return;
+    codeState.draftLoaded[key] = true;
+    try {
+      const res = await call(window.api.code.getDraft(q.id, lang));
+      const saved = res && res.data && res.data.code;
+      codeState.drafts[lang] = typeof saved === 'string'
+        ? saved
+        : ((q.starterCode && q.starterCode[lang]) || '');
+    } catch (_) {
+      codeState.drafts[lang] = (q.starterCode && q.starterCode[lang]) || '';
+    }
+  }));
+}
+
+/** 拉当前题的提交记录（只记「提交判题」） */
+async function loadCodeSubmissions(id) {
+  try {
+    const res = await call(window.api.code.submissions(id));
+    codeState.subs = (res && res.data) || [];
+    codeState.subsFor = id;
+    if (!codeState.solvedIds) codeState.solvedIds = {};
+    if (codeState.subs.some((s) => s.verdict === 'AC')) codeState.solvedIds[id] = true;
+    renderCodeSubs();
+  } catch (_) { /* 拉不到不影响答题 */ }
 }
 
 async function runCode(mode) {
@@ -4707,6 +4810,10 @@ async function runCode(mode) {
     }));
     codeState.result = res;
     renderCodeResult();
+    // 提交判题才刷新记录；运行样例不记
+    if (mode === 'submit' && codeState.question) {
+      await loadCodeSubmissions(codeState.question.id);
+    }
   } catch (err) {
     toast(err.message, 'err');
   } finally {

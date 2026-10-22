@@ -158,3 +158,41 @@ assert(store.listExamAttempts(user2.id).length === 0, '作答按用户隔离');
 assert(store.getStudyPlan(user2.id) === null, '学习计划按用户隔离');
 
 console.log('\n笔试状态机自测完成: ' + pass + ' passed, ' + failCnt + ' failed | exitCode = ' + (process.exitCode || 0));
+
+// ---------------- 10) 编程题草稿 + 提交记录 ----------------
+store.saveCodeDraft(uid, 'code-a-plus-b', 'javascript', 'console.log(1)');
+store.saveCodeDraft(uid, 'code-a-plus-b', 'javascript', 'console.log(2)');
+store.saveCodeDraft(uid, 'code-a-plus-b', 'cpp', 'int main(){}');
+assert(store.getCodeDraft(uid, 'code-a-plus-b', 'javascript').code === 'console.log(2)',
+  '草稿按「题目+语言」覆盖更新');
+assert(store.getCodeDraft(uid, 'code-a-plus-b', 'cpp').code === 'int main(){}',
+  '同一题不同语言草稿互不覆盖');
+assert(store.getCodeDraft(uid, 'code-a-plus-b', 'python') === null, '没存过的语言返回 null');
+
+store.saveCodeDraft(uid, 'code-a-plus-b', 'javascript', '');
+assert(store.getCodeDraft(uid, 'code-a-plus-b', 'javascript').code === '',
+  '空代码也保存（用户清空编辑器要记住）');
+
+store.addCodeSubmission(uid, { questionId: 'code-a-plus-b', lang: 'cpp', verdict: 'AC', passed: 5, total: 5, timeMs: 12 });
+store.addCodeSubmission(uid, { questionId: 'code-a-plus-b', lang: 'cpp', verdict: 'WA', passed: 3, total: 5, timeMs: 40 });
+store.addCodeSubmission(uid, { questionId: 'code-reverse-string', lang: 'javascript', verdict: 'AC', passed: 4, total: 4, timeMs: 8 });
+
+const subs = store.listCodeSubmissions(uid);
+assert(subs.length === 3, '提交记录按用户保存（实得 ' + subs.length + '）');
+assert(subs[0].createdAt >= subs[2].createdAt, '提交记录倒序返回（最新在前）');
+assert(store.listCodeSubmissions(uid, 'code-a-plus-b').length === 2, '可按题目过滤提交记录');
+assert(store.listCodeSubmissions(uid, 'code-a-plus-b').some((s) => s.verdict === 'AC'),
+  'AC 记录可被侧栏勾选识别');
+
+const sub1 = store.addCodeSubmission(uid, { questionId: 'code-x', lang: 'python', verdict: 'AC' });
+assert(!!sub1.id && !!sub1.createdAt, '提交记录自动补 id 和时间');
+assert(store.listCodeSubmissions(user2.id).length === 0, '提交记录按用户隔离');
+assert(store.getCodeDraft(user2.id, 'code-a-plus-b', 'javascript') === null, '草稿按用户隔离');
+
+// 重启不丢：重新走一遍 load
+const dbPath = path.join(tmp, 'grad-resume-data', 'db.json');
+assert(fs.existsSync(dbPath), 'db.json 已生成');
+const reloaded = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+assert(!!reloaded.codeDrafts && !!reloaded.codeDrafts[uid] && !!reloaded.codeSubmissions,
+  '草稿与提交记录已落盘到 db.json');
+console.log('✅ PASS: 草稿与提交记录落盘');

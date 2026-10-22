@@ -943,6 +943,7 @@ ipcMain.handle('code:get', (_e, questionId: string) => {
 
 // 运行 / 提交：都在独立子进程里执行，主进程只负责收结果
 async function handleCodeJudge(
+  userId: string,
   input: { questionId?: string; lang?: string; code?: string },
   mode: 'samples' | 'all'
 ) {
@@ -954,15 +955,66 @@ async function handleCodeJudge(
   if (!code.trim()) return fail('代码为空');
   if (code.length > 100000) return fail('代码长度超过 10 万字符');
   const result = await codeRunner.judgeCode(q, lang, code, mode);
+
+  // 只有「提交判题」才记一条提交记录（运行样例不算，否则历史会被刷屏）
+  if (mode === 'all') {
+    try {
+      store.addCodeSubmission(userId, {
+        questionId: q.id,
+        lang: lang as never,
+        verdict: result.verdict,
+        passed: result.passed,
+        total: result.total,
+        timeMs: result.timeMs
+      });
+    } catch (_) { /* 记录失败不影响判题结果 */ }
+  }
   return ok(result);
 }
 
 ipcMain.handle('code:run', (_e, input: { questionId?: string; lang?: string; code?: string }) => {
-  return handleCodeJudge(input, 'samples').catch((err) => fail((err as Error).message));
+  try {
+    return handleCodeJudge(sessionUserId(_e), input, 'samples').catch((err) => fail((err as Error).message));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
 });
 
 ipcMain.handle('code:submit', (_e, input: { questionId?: string; lang?: string; code?: string }) => {
-  return handleCodeJudge(input, 'all').catch((err) => fail((err as Error).message));
+  try {
+    return handleCodeJudge(sessionUserId(_e), input, 'all').catch((err) => fail((err as Error).message));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 代码草稿：切题/重启都不丢
+ipcMain.handle('code:draft:get', (_e, questionId: string, lang: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.getCodeDraft(userId, String(questionId), String(lang)));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('code:draft:save', (_e, questionId: string, lang: string, code: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    if (String(code || '').length > 100000) return fail('代码长度超过 10 万字符');
+    return ok(store.saveCodeDraft(userId, String(questionId), String(lang), String(code || '')));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('code:submissions', (_e, questionId?: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.listCodeSubmissions(userId, questionId ? String(questionId) : undefined));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
 });
 
 ipcMain.handle('exam:plan:save', (_e, input: Record<string, unknown>) => {

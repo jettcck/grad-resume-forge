@@ -47,6 +47,10 @@ const DEMO_EMAIL = 'shot@demo.local';
 const DEMO_PASSWORD = 'demo123456';
 // 测试可动态切换：模拟「有可用模型」（云端/本地已配置）的场景
 let mockAgentAvailable = false;
+
+// 编程题草稿 / 提交记录的进程内内存（截图 mock 专用，不写用户库）
+const mockCodeDrafts = new Map();
+const mockCodeSubs = [];
 // 内存版设置存储（settings:get / settings:save 必须能往返，否则「偏好是否真的被记住」测不出来）。
 // 放在模块级：断言里要直接读它来验证通道选择确实写进去了。
 const savedSettings = {
@@ -236,6 +240,19 @@ function registerIpc() {
     const q = codeBank.getCodeQuestion(String((input && input.questionId) || ''));
     if (!q) throw new Error('题目不存在');
     return codeRunner.judgeCode(q, (input && (input.lang === 'python' || input.lang === 'cpp')) ? input.lang : 'javascript', String((input && input.code) || ''), 'all');
+  });
+  // 草稿 / 提交记录：截图 mock 用进程内内存，不碰用户真实库
+  h('code:draft:get', (_uid, questionId, lang) => {
+    const hit = mockCodeDrafts.get(String(questionId) + '|' + String(lang));
+    return hit ? { questionId: String(questionId), lang: String(lang), code: hit, updatedAt: Date.now() } : null;
+  });
+  h('code:draft:save', (_uid, questionId, lang, code) => {
+    mockCodeDrafts.set(String(questionId) + '|' + String(lang), String(code || ''));
+    return { questionId: String(questionId), lang: String(lang), code: String(code || ''), updatedAt: Date.now() };
+  });
+  h('code:submissions', (_uid, questionId) => {
+    const all = [...mockCodeSubs].reverse();
+    return questionId ? all.filter((s) => s.questionId === String(questionId)) : all;
   });
   // 官方授权导入：与主进程保持同一套去重规则（source+externalId 优先，其次公司+岗位）
   h('applications:importAuthorized', (uid, payload) => {

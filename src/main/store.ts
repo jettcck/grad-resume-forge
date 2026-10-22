@@ -10,7 +10,8 @@ import crypto from 'crypto';
 import type {
   StoredUser, PublicUser, Profile, Application, AgentSnapshot, AgentSnapshotMeta,
   ResumeVersion, ResumeVersionMeta, Job,
-  ExamPaper, ExamAttempt, WrongQuestion, StudyPlan
+  ExamPaper, ExamAttempt, WrongQuestion, StudyPlan,
+  CodeDraft, CodeSubmission
 } from './types';
 
 interface DbShape {
@@ -28,6 +29,10 @@ interface DbShape {
   examAttempts: Record<string, ExamAttempt[]>;
   examWrongs: Record<string, WrongQuestion[]>;
   examPlans: Record<string, StudyPlan[]>;
+  /** 编程题草稿：userId → `${questionId}::${lang}` → 草稿 */
+  codeDrafts: Record<string, Record<string, CodeDraft>>;
+  /** 编程题提交记录：userId → 最近提交（最新的在前） */
+  codeSubmissions: Record<string, CodeSubmission[]>;
   /** 数据格式版本：将来改结构时据此迁移，缺省视为 1（老库） */
   schemaVersion?: number;
 }
@@ -50,7 +55,9 @@ const db: DbShape = {
   examPapers: {},     // userId → 笔试试卷（组卷结果）
   examAttempts: {},   // userId → 作答记录（草稿 + 已交卷）
   examWrongs: {},     // userId → 错题本
-  examPlans: {}       // userId → 学习计划
+  examPlans: {},      // userId → 学习计划
+  codeDrafts: {},     // userId → 题目+语言 → 代码草稿
+  codeSubmissions: {} // userId → 编程题提交记录
 };
 
 // 快照上限：防止无限膨胀（每份档案通常 < 10KB）
@@ -287,6 +294,9 @@ function load(): void {
       db.examAttempts = asRecord(parsed.examAttempts);
       db.examWrongs = asRecord(parsed.examWrongs);
       db.examPlans = asRecord(parsed.examPlans);
+      // 编程题草稿与提交记录：老库缺省为空
+      db.codeDrafts = asRecord(parsed.codeDrafts);
+      db.codeSubmissions = asRecord(parsed.codeSubmissions);
     }
   } catch (err) {
     // 数据损坏时不崩溃，退回空库并备份原文件
@@ -988,6 +998,66 @@ export function saveStudyPlan(userId: string, input: Partial<StudyPlan>): StudyP
   else list.unshift(next);
   persist();
   return next;
+}
+
+// ============================================================
+//  编程题：代码草稿与提交记录
+// ============================================================
+
+const MAX_CODE_SUBMISSIONS = 300;
+const MAX_CODE_LENGTH = 200000;
+
+function codeDraftKey(questionId: string, lang: string): string {
+  return String(questionId).slice(0, 80) + '::' + String(lang).slice(0, 20);
+}
+
+/** 保存代码草稿：按「题目 + 语言」各存一份，切题/重启都不丢 */
+export function saveCodeDraft(userId: string, questionId: string, lang: string, code: string): CodeDraft {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  if (!db.codeDrafts[userId]) db.codeDrafts[userId] = {};
+  const draft: CodeDraft = {
+    questionId: String(questionId || '').slice(0, 80),
+    lang: (lang as CodeDraft['lang']) || 'javascript',
+    code: String(code == null ? '' : code).slice(0, MAX_CODE_LENGTH),
+    updatedAt: Date.now()
+  };
+  db.codeDrafts[userId]![codeDraftKey(draft.questionId, draft.lang)] = draft;
+  persist();
+  return draft;
+}
+
+export function getCodeDraft(userId: string, questionId: string, lang: string): CodeDraft | null {
+  const box = db.codeDrafts[userId];
+  if (!box) return null;
+  const hit = box[codeDraftKey(questionId, lang)];
+  return hit ? (JSON.parse(JSON.stringify(hit)) as CodeDraft) : null;
+}
+
+export function listCodeSubmissions(userId: string, questionId?: string): CodeSubmission[] {
+  const list = db.codeSubmissions[userId] || [];
+  return (questionId ? list.filter((s) => s.questionId === questionId) : list).slice();
+}
+
+/** 记一次提交（只有「提交判题」会调用，运行样例不记） */
+export function addCodeSubmission(userId: string, input: Partial<CodeSubmission>): CodeSubmission {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  if (!db.codeSubmissions[userId]) db.codeSubmissions[userId] = [];
+  const list = db.codeSubmissions[userId]!;
+  const now = Date.now();
+  const sub: CodeSubmission = {
+    id: 'sub_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    questionId: String(input.questionId || '').slice(0, 80),
+    lang: (input.lang as CodeSubmission['lang']) || 'javascript',
+    verdict: String(input.verdict || 'CE').slice(0, 8),
+    passed: Math.max(0, Math.round(Number(input.passed) || 0)),
+    total: Math.max(0, Math.round(Number(input.total) || 0)),
+    timeMs: Math.max(0, Math.round(Number(input.timeMs) || 0)),
+    createdAt: now
+  };
+  list.unshift(sub);
+  if (list.length > MAX_CODE_SUBMISSIONS) list.length = MAX_CODE_SUBMISSIONS;
+  persist();
+  return sub;
 }
 
 // 测试专用：直接访问内部 db（仅测试断言用）
