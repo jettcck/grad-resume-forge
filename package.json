@@ -85,7 +85,8 @@
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "简历锻造炉"
+      "shortcutName": "简历锻造炉",
+      "script": "build/nsis-hooks.nsh"
     },
     "linux": {
       "target": [
@@ -119,7 +120,13 @@
     },
     "deb": {
       "packageCategory": "office"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "build/fix-shortcuts.ps1",
+        "to": "fix-shortcuts.ps1"
+      }
+    ]
   },
   "dependencies": {
     "@mlc-ai/web-llm": "^0.2.85",
