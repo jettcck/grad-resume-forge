@@ -2770,6 +2770,7 @@ function timeAgo(ts) {
 }
 
 function appCard(a) {
+  const meta = extractAppJobMeta(a);
   const select = el('select', {
     onchange: (e) => saveApplication({ id: a.id, stage: e.target.value })
   }, STAGES.map((s) => el('option', { value: s.key, selected: (a.stage || 'wish') === s.key ? 'selected' : null }, [s.label])));
@@ -2794,6 +2795,11 @@ function appCard(a) {
       await saveApplicationToJobPool(a);
     }
   }, ['存池']));
+  // 编辑：补齐薪资/学历/经验等从官网拿到的字段，再存池时一并带走
+  actions.push(el('button', {
+    class: 'edit', type: 'button', title: '编辑这条投递记录',
+    onclick: (e) => { e.stopPropagation(); openEditApplication(a); }
+  }, ['编辑']));
   actions.push(el('button', { class: 'del', type: 'button', onclick: async () => {
     await call(window.api.applications.remove(state.user.id, a.id));
     state.applications = state.applications.filter((x) => x.id !== a.id);
@@ -2803,14 +2809,66 @@ function appCard(a) {
   return el('div', { class: 'app-card' }, [
     el('div', { class: 'co' }, [a.company]),
     el('div', { class: 'po' }, [a.position || '—']),
-    // 地点与来源：都是从官网/平台抄下来的原文，留在卡片上便于判断通勤
-    (a.place || a.source) ? el('div', { class: 'meta-line' }, [
+    // 地点 / 薪资 / 来源：都是从官网或平台抄下来的原文
+    (a.place || a.source || meta.salary) ? el('div', { class: 'meta-line' }, [
       a.place ? el('span', {}, ['📍 ' + a.place]) : null,
+      meta.salary ? el('span', { class: 'salary' }, ['💰 ' + meta.salary]) : null,
       a.source ? el('span', {}, [a.source]) : null
     ]) : null,
     el('div', { class: 'time' }, [timeAgo(a.updatedAt || a.createdAt)]),
     el('div', { class: 'row' }, actions)
   ]);
+}
+
+// 编辑投递记录：把官网上的薪资/学历/经验补齐，存池时就能一起带过去
+async function openEditApplication(a) {
+  const meta = extractAppJobMeta(a);
+  const data = await modalForm('编辑投递记录', [
+    { name: 'company', label: '公司名称（必填）', value: a.company, placeholder: '如：赞同科技' },
+    { name: 'position', label: '岗位名称', value: a.position || '', placeholder: '如：大模型算法工程师' },
+    { name: 'place', label: '工作地点', value: a.place || '', placeholder: '如：绵阳' },
+    { name: 'salary', label: '薪资', value: meta.salary, placeholder: '如:12k-18k·14薪' },
+    { name: 'education', label: '学历要求', value: meta.education, placeholder: '如：本科' },
+    { name: 'experience', label: '经验要求', value: meta.experience, placeholder: '如：应届' },
+    { name: 'url', label: '官网链接', value: a.url || '', placeholder: 'https://…' }
+  ], '保存');
+  if (!data) return;
+  const company = String(data.company || '').trim();
+  if (!company) { toast('公司名称必填', 'err'); return; }
+  await saveApplication({
+    id: a.id,
+    company: company,
+    position: String(data.position || '').trim(),
+    place: String(data.place || '').trim(),
+    salary: String(data.salary || '').trim(),
+    education: String(data.education || '').trim(),
+    experience: String(data.experience || '').trim(),
+    url: String(data.url || '').trim()
+  });
+}
+
+// 从投递记录里提取岗位结构化信息。
+// 新数据直接有 salary/education/experience 字段；老数据这些信息压在 notes
+// 的「薪资：12k · 学历：本科 · 经验：应届」文本里，这里做一次回退解析。
+function extractAppJobMeta(a) {
+  const meta = {
+    salary: String(a.salary || '').trim(),
+    education: String(a.education || '').trim(),
+    experience: String(a.experience || '').trim(),
+    skills: String(a.skills || '').trim()
+  };
+  const notes = String(a.notes || '');
+  if (notes) {
+    const pick = (label) => {
+      const m = notes.match(new RegExp(label + '\\s*[:：]\\s*([^·|,，;；\\n]+)'));
+      return m ? String(m[1]).trim() : '';
+    };
+    if (!meta.salary) meta.salary = pick('薪资');
+    if (!meta.education) meta.education = pick('学历');
+    if (!meta.experience) meta.experience = pick('经验');
+    if (!meta.skills) meta.skills = pick('技能');
+  }
+  return meta;
 }
 
 // 投递记录 → 岗位池：把看板上已有的公司/岗位/地点/链接搬进候选池。
@@ -2824,13 +2882,18 @@ async function saveApplicationToJobPool(a) {
     toast('「' + a.company + '」已在岗位池里', 'err');
     return;
   }
+  const meta = extractAppJobMeta(a);
   try {
     const saved = await call(window.api.jobs.save(state.user.id, {
       company: a.company,
       position: a.position || '',
       city: a.place || '',
       url: a.url || '',
-      source: a.source || '投递记录'
+      source: a.source || '投递记录',
+      salary: meta.salary,
+      education: meta.education,
+      experience: meta.experience,
+      skills: meta.skills
     }));
     state.jobs.unshift(saved);
     toast('已存入岗位池：' + saved.company, 'ok');
@@ -3036,6 +3099,59 @@ function jobCard(job) {
   return card;
 }
 
+// 从招聘官网/APP 复制整段岗位文本 → 解析出公司/岗位/薪资/学历/经验 → 存进岗位池。
+// 复用粘贴导入的解析器（纯本地正则，不联网），解析结果先让用户确认再落库。
+async function openPasteJobImport() {
+  if (!window.JobImport) { toast('导入模块没加载成功，请重启应用', 'err'); return; }
+  const text = await modalTextarea('粘贴岗位信息', {
+    label: '从招聘页复制的岗位文本（公司、岗位、薪资、地点等一起复制）',
+    placeholder: '把招聘官网/APP 上的岗位信息整段复制粘贴到这里…',
+    rows: 12,
+    submitText: '解析'
+  });
+  if (!text) return;
+
+  let parsed;
+  try {
+    parsed = window.JobImport.parse(text);
+  } catch (err) {
+    toast('解析失败：' + err.message, 'err');
+    return;
+  }
+  const c = (parsed.candidates && parsed.candidates[0]) || {};
+  const data = await modalForm('确认岗位信息', [
+    { name: 'company', label: '公司名称（必填）', value: c.company, placeholder: '如：字节跳动' },
+    { name: 'position', label: '岗位名称', value: c.position, placeholder: '如：大模型算法工程师' },
+    { name: 'salary', label: '薪资', value: c.salary, placeholder: '如:12k-18k·14薪' },
+    { name: 'city', label: '城市', value: c.place || c.city, placeholder: '如：北京' },
+    { name: 'education', label: '学历要求', value: c.education, placeholder: '如：本科' },
+    { name: 'experience', label: '经验要求', value: c.experience, placeholder: '如：应届' }
+  ], '存入岗位池');
+  if (!data) return;
+  const company = String(data.company || '').trim();
+  if (!company) { toast('公司名称必填', 'err'); return; }
+
+  try {
+    const saved = await call(window.api.jobs.save(state.user.id, {
+      company: company,
+      position: String(data.position || '').trim(),
+      salary: String(data.salary || '').trim(),
+      city: String(data.city || '').trim(),
+      education: String(data.education || '').trim(),
+      experience: String(data.experience || '').trim(),
+      jdText: text,
+      url: c.url || '',
+      source: c.platform || '粘贴导入'
+    }));
+    if (!state.jobs) state.jobs = [];
+    state.jobs.unshift(saved);
+    toast('已存入岗位池：' + saved.company, 'ok');
+    renderJobs();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
 // 投递看板 → 岗位池：一次性把还没进池的投递记录批量搬过来。
 // 这样在官网/平台上投过、或同步导入的记录，也能在池子里统一比较与补 JD。
 async function importApplicationsToJobs() {
@@ -3050,12 +3166,17 @@ async function importApplicationsToJobs() {
   let ok = 0, fail = 0;
   for (const a of todo) {
     try {
+      const meta = extractAppJobMeta(a);
       const saved = await call(window.api.jobs.save(state.user.id, {
         company: a.company,
         position: a.position || '',
         city: a.place || '',
         url: a.url || '',
-        source: a.source || '投递记录'
+        source: a.source || '投递记录',
+        salary: meta.salary,
+        education: meta.education,
+        experience: meta.experience,
+        skills: meta.skills
       }));
       state.jobs.unshift(saved);
       ok++;
@@ -3084,6 +3205,9 @@ async function renderJobs() {
   const toolbar = el('div', { class: 'toolbar' }, [
     el('button', { class: 'btn btn-primary', type: 'button', onclick: () => openJobEditor(null) },
       [window.Icons.icon('plus', 15), '添加岗位']),
+    // 从官网整段复制粘贴，自动解析薪资/学历/经验等，确认后入池
+    el('button', { class: 'btn btn-ghost', type: 'button', onclick: openPasteJobImport },
+      ['粘贴岗位']),
     // 把投递看板里从官网/平台拿到的记录批量搬进池子
     el('button', { class: 'btn btn-ghost', type: 'button', onclick: importApplicationsToJobs },
       ['从投递记录导入']),

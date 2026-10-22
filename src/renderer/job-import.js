@@ -364,6 +364,14 @@
         url: c.url || (hit ? hit.url || '' : ''),
         stage: hit ? (hit.stage || 'applied') : 'applied'
       };
+      // 薪资/学历/经验同时写进结构化字段（存池时可直接带走），
+      // notes 那段文本保留是为了兼容老版本数据与用户自己写的备注
+      if (c.salary) patch.salary = c.salary;
+      else if (hit && hit.salary) patch.salary = hit.salary;
+      if (c.education) patch.education = c.education;
+      else if (hit && hit.education) patch.education = hit.education;
+      if (c.experience) patch.experience = c.experience;
+      else if (hit && hit.experience) patch.experience = hit.experience;
       // 解析到的补充信息写进备注，不丢；但用户自己写过的备注优先保留
       const extra = [];
       if (c.salary) extra.push('薪资：' + c.salary);

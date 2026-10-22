@@ -318,6 +318,15 @@ export interface Application {
   placeSource?: string;
   /** 备注：粘贴导入时把识别到的薪资/平台/学历/经验写在这里，不丢信息 */
   notes?: string;
+  // ---------- 岗位结构化信息（从官网/平台抄下来的原文，存池时原样带走） ----------
+  /** 薪资范围，如「12k-18k·14薪」 */
+  salary?: string;
+  /** 学历要求，如「本科」 */
+  education?: string;
+  /** 经验要求，如「应届 / 3-5年」 */
+  experience?: string;
+  /** 技能要求，如「Java / Spring / Redis」 */
+  skills?: string;
   /** 招聘平台同步字段：仅接受用户授权导出的数据或官方接口返回值 */
   source?: string;
   externalId?: string;

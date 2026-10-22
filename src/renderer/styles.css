@@ -1190,6 +1190,9 @@ em { font-style: normal; color: var(--gold); }
 .app-card .open:hover { color: var(--gold); }
 .app-card .to-pool { color: var(--ink-2); font-size: 12px; transition: .18s; }
 .app-card .to-pool:hover { color: var(--gold-soft); }
+.app-card .edit { color: var(--ink-2); font-size: 12px; transition: .18s; }
+.app-card .edit:hover { color: var(--ink-0); }
+.app-card .meta-line .salary { color: var(--gold-soft); }
 
 /* ---------- 岗位池：候选岗卡片 ---------- */
 .job-list {
