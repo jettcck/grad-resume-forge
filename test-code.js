@@ -185,7 +185,325 @@ const CPP_SOLUTIONS = {
   'code-a-plus-b': '#include <iostream>\nusing namespace std;\nint main(){long long a,b;if(!(cin>>a>>b))return 0;cout<<a+b<<endl;return 0;}',
   'code-reverse-string': '#include <iostream>\n#include <string>\n#include <algorithm>\nusing namespace std;\nint main(){string s;getline(cin,s);reverse(s.begin(),s.end());cout<<s<<endl;return 0;}',
   'code-lc-climb-stairs': '#include <iostream>\nusing namespace std;\nint main(){int n;if(!(cin>>n))return 0;if(n==1){cout<<1<<endl;return 0;}long long a=1,b=2;for(int i=3;i<=n;i++){long long t=a+b;a=b;b=t;}cout<<b<<endl;return 0;}',
-  'code-lc-binary-search': '#include <iostream>\n#include <vector>\nusing namespace std;\nint main(){int n;long long target;if(!(cin>>n>>target))return 0;vector<long long> a(n);for(auto &x:a)cin>>x;int lo=0,hi=n-1,ans=-1;while(lo<=hi){int mid=(lo+hi)/2;if(a[mid]==target){ans=mid;break;}else if(a[mid]<target)lo=mid+1;else hi=mid-1;}cout<<ans<<endl;return 0;}'
+  'code-lc-binary-search': '#include <iostream>\n#include <vector>\nusing namespace std;\nint main(){int n;long long target;if(!(cin>>n>>target))return 0;vector<long long> a(n);for(auto &x:a)cin>>x;int lo=0,hi=n-1,ans=-1;while(lo<=hi){int mid=(lo+hi)/2;if(a[mid]==target){ans=mid;break;}else if(a[mid]<target)lo=mid+1;else hi=mid-1;}cout<<ans<<endl;return 0;}',
+
+  // ---- 第二批：补全剩余 19 题 ----
+  'code-two-sum': `#include <iostream>
+#include <vector>
+#include <unordered_map>
+using namespace std;
+int main(){
+    int n; long long t;
+    if(!(cin>>n>>t)) return 0;
+    vector<long long> a(n);
+    for(auto &x:a) cin>>x;
+    unordered_map<long long,int> seen;
+    for(int i=0;i<n;i++){
+        auto it=seen.find(t-a[i]);
+        if(it!=seen.end()){ cout<<it->second<<" "<<i<<endl; return 0; }
+        seen[a[i]]=i;
+    }
+    return 0;
+}`,
+  'code-fib': `#include <iostream>
+using namespace std;
+int main(){
+    int n; if(!(cin>>n)) return 0;
+    const long long MOD=1000000007;
+    long long a=0,b=1;
+    for(int i=0;i<n;i++){ long long t=(a+b)%MOD; a=b; b=t; }
+    cout<<a<<endl;
+    return 0;
+}`,
+  'code-max-subarray': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+int main(){
+    int n; if(!(cin>>n)) return 0;
+    vector<long long> a(n);
+    for(auto &x:a) cin>>x;
+    long long cur=a[0], best=a[0];
+    for(int i=1;i<n;i++){ cur=max(a[i],cur+a[i]); best=max(best,cur); }
+    cout<<best<<endl;
+    return 0;
+}`,
+  'code-brackets': `#include <iostream>
+#include <string>
+#include <stack>
+using namespace std;
+int main(){
+    string s; getline(cin,s);
+    if(!s.empty() && s.back()=='\\r') s.pop_back();
+    stack<char> st; bool ok=true;
+    for(char ch:s){
+        if(ch=='('||ch=='['||ch=='{') st.push(ch);
+        else if(ch==')'||ch==']'||ch=='}'){
+            char want = ch==')' ? '(' : (ch==']' ? '[' : '{');
+            if(st.empty()||st.top()!=want){ ok=false; break; }
+            st.pop();
+        }
+    }
+    if(!st.empty()) ok=false;
+    cout<<(ok?"YES":"NO")<<endl;
+    return 0;
+}`,
+  'code-dedupe': `#include <iostream>
+#include <vector>
+#include <unordered_set>
+using namespace std;
+int main(){
+    int n; if(!(cin>>n)) return 0;
+    vector<long long> a(n);
+    for(auto &x:a) cin>>x;
+    unordered_set<long long> seen; vector<long long> out;
+    for(auto x:a) if(seen.insert(x).second) out.push_back(x);
+    for(size_t i=0;i<out.size();i++){ if(i) cout<<" "; cout<<out[i]; }
+    cout<<endl;
+    return 0;
+}`,
+  'code-word-count': `#include <iostream>
+#include <string>
+#include <map>
+using namespace std;
+int main(){
+    map<string,int> cnt;
+    string w;
+    while(cin>>w) cnt[w]++;
+    string best; int bc=0;
+    for(auto &kv:cnt){
+        if(kv.second>bc || (kv.second==bc && kv.first<best)){ best=kv.first; bc=kv.second; }
+    }
+    if(bc) cout<<best<<" "<<bc<<endl;
+    return 0;
+}`,
+  'code-lc-reverse-list': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+int main(){
+    int n; if(!(cin>>n)) return 0;
+    vector<long long> a(n);
+    for(auto &x:a) cin>>x;
+    reverse(a.begin(),a.end());
+    for(int i=0;i<n;i++){ if(i) cout<<" "; cout<<a[i]; }
+    cout<<endl;
+    return 0;
+}`,
+  'code-lc-merge-sorted': `#include <iostream>
+#include <vector>
+using namespace std;
+int main(){
+    int n,m; if(!(cin>>n>>m)) return 0;
+    vector<long long> a(n),b(m);
+    for(auto &x:a) cin>>x;
+    for(auto &x:b) cin>>x;
+    vector<long long> o; o.reserve(n+m);
+    int i=0,j=0;
+    while(i<n && j<m){ if(a[i]<=b[j]) o.push_back(a[i++]); else o.push_back(b[j++]); }
+    while(i<n) o.push_back(a[i++]);
+    while(j<m) o.push_back(b[j++]);
+    for(size_t k=0;k<o.size();k++){ if(k) cout<<" "; cout<<o[k]; }
+    cout<<endl;
+    return 0;
+}`,
+  'code-lc-remove-dup': `#include <iostream>
+#include <vector>
+using namespace std;
+int main(){
+    int n; if(!(cin>>n)) return 0;
+    vector<long long> a(n);
+    for(auto &x:a) cin>>x;
+    vector<long long> out;
+    for(auto x:a) if(out.empty()||out.back()!=x) out.push_back(x);
+    for(size_t i=0;i<out.size();i++){ if(i) cout<<" "; cout<<out[i]; }
+    cout<<endl;
+    return 0;
+}`,
+  'code-lc-tree-depth': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+int n; vector<long long> a;
+int dep(int i){
+    if(i>=n || a[i]==-1) return 0;
+    return 1+max(dep(2*i+1),dep(2*i+2));
+}
+int main(){
+    if(!(cin>>n)) return 0;
+    a.resize(n);
+    for(auto &x:a) cin>>x;
+    cout<<dep(0)<<endl;
+    return 0;
+}`,
+  'code-lc-inorder': `#include <iostream>
+#include <vector>
+using namespace std;
+int n; vector<long long> a; vector<long long> out;
+void go(int i){
+    if(i>=n || a[i]==-1) return;
+    go(2*i+1); out.push_back(a[i]); go(2*i+2);
+}
+int main(){
+    if(!(cin>>n)) return 0;
+    a.resize(n);
+    for(auto &x:a) cin>>x;
+    go(0);
+    for(size_t i=0;i<out.size();i++){ if(i) cout<<" "; cout<<out[i]; }
+    cout<<endl;
+    return 0;
+}`,
+  'code-lc-coin-change': `#include <iostream>
+#include <vector>
+using namespace std;
+int main(){
+    int amount,cn; if(!(cin>>amount>>cn)) return 0;
+    vector<int> coins(cn);
+    for(auto &c:coins) cin>>c;
+    const int INF=1000000000;
+    vector<int> dp(amount+1,INF); dp[0]=0;
+    for(int i=1;i<=amount;i++)
+        for(int c:coins)
+            if(i>=c && dp[i-c]+1<dp[i]) dp[i]=dp[i-c]+1;
+    cout<<(dp[amount]>=INF?-1:dp[amount])<<endl;
+    return 0;
+}`,
+  'code-lc-lis': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+int main(){
+    int n; if(!(cin>>n)) return 0;
+    vector<long long> a(n);
+    for(auto &x:a) cin>>x;
+    vector<long long> tails;
+    for(auto x:a){
+        auto it=lower_bound(tails.begin(),tails.end(),x);
+        if(it==tails.end()) tails.push_back(x); else *it=x;
+    }
+    cout<<tails.size()<<endl;
+    return 0;
+}`,
+  'code-lc-knapsack': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+int main(){
+    int n,W; if(!(cin>>n>>W)) return 0;
+    vector<long long> dp(W+1,0);
+    for(int i=0;i<n;i++){
+        int w; long long v;
+        cin>>w>>v;
+        for(int j=W;j>=w;j--) dp[j]=max(dp[j],dp[j-w]+v);
+    }
+    cout<<dp[W]<<endl;
+    return 0;
+}`,
+  'code-lc-permute': `#include <iostream>
+#include <vector>
+using namespace std;
+int n; vector<int> cur; vector<bool> used;
+void go(){
+    if((int)cur.size()==n){
+        for(int i=0;i<n;i++){ if(i) cout<<" "; cout<<cur[i]; }
+        cout<<"\\n";
+        return;
+    }
+    for(int i=1;i<=n;i++){
+        if(used[i]) continue;
+        used[i]=true; cur.push_back(i); go(); cur.pop_back(); used[i]=false;
+    }
+}
+int main(){
+    if(!(cin>>n)) return 0;
+    used.assign(n+1,false);
+    go();
+    return 0;
+}`,
+  'code-lc-longest-substr': `#include <iostream>
+#include <string>
+#include <vector>
+#include <algorithm>
+using namespace std;
+int main(){
+    string s; getline(cin,s);
+    if(!s.empty() && s.back()=='\\r') s.pop_back();
+    vector<int> last(256,-1);
+    int left=0,best=0;
+    for(int i=0;i<(int)s.size();i++){
+        unsigned char ch=(unsigned char)s[i];
+        if(last[ch]>=left) left=last[ch]+1;
+        last[ch]=i;
+        best=max(best,i-left+1);
+    }
+    cout<<best<<endl;
+    return 0;
+}`,
+  'code-lc-merge-intervals': `#include <iostream>
+#include <vector>
+#include <algorithm>
+using namespace std;
+int main(){
+    int n; if(!(cin>>n)) return 0;
+    vector<pair<int,int>> seg(n);
+    for(auto &p:seg) cin>>p.first>>p.second;
+    sort(seg.begin(),seg.end());
+    vector<pair<int,int>> out;
+    for(auto &p:seg){
+        if(out.empty() || p.first>out.back().second) out.push_back(p);
+        else out.back().second=max(out.back().second,p.second);
+    }
+    cout<<out.size()<<endl;
+    for(auto &p:out) cout<<p.first<<" "<<p.second<<endl;
+    return 0;
+}`,
+  'code-lc-islands': `#include <iostream>
+#include <vector>
+#include <string>
+using namespace std;
+int main(){
+    int n,m; if(!(cin>>n>>m)) return 0;
+    vector<string> g(n);
+    for(auto &r:g) cin>>r;
+    int dx[4]={1,-1,0,0}, dy[4]={0,0,1,-1};
+    int cnt=0;
+    for(int i=0;i<n;i++) for(int j=0;j<m;j++){
+        if(g[i][j]!='1') continue;
+        cnt++;
+        vector<pair<int,int>> st{{i,j}};
+        g[i][j]='0';
+        while(!st.empty()){
+            auto [x,y]=st.back(); st.pop_back();
+            for(int d=0;d<4;d++){
+                int nx=x+dx[d], ny=y+dy[d];
+                if(nx>=0&&nx<n&&ny>=0&&ny<m&&g[nx][ny]=='1'){ g[nx][ny]='0'; st.push_back({nx,ny}); }
+            }
+        }
+    }
+    cout<<cnt<<endl;
+    return 0;
+}`,
+  'code-lc-edit-distance': `#include <iostream>
+#include <string>
+#include <vector>
+#include <algorithm>
+using namespace std;
+int main(){
+    string a,b;
+    getline(cin,a); getline(cin,b);
+    if(!a.empty() && a.back()=='\\r') a.pop_back();
+    if(!b.empty() && b.back()=='\\r') b.pop_back();
+    int m=a.size(), n=b.size();
+    vector<vector<int>> dp(m+1, vector<int>(n+1,0));
+    for(int i=0;i<=m;i++) dp[i][0]=i;
+    for(int j=0;j<=n;j++) dp[0][j]=j;
+    for(int i=1;i<=m;i++) for(int j=1;j<=n;j++){
+        dp[i][j] = (a[i-1]==b[j-1]) ? dp[i-1][j-1]
+                                   : 1+min({dp[i-1][j-1],dp[i-1][j],dp[i][j-1]});
+    }
+    cout<<dp[m][n]<<endl;
+    return 0;
+}`
 };
 
 (async () => {
