@@ -50,3 +50,6 @@ release-v112*/
 
 # 一次性发布脚本副本（版本化历史，不入库；主脚本 push-via-api.js 已在库内）
 push-via-api-*.js
+
+# 本地诊断临时目录（ollama 拉取日志等）
+_tmp/
