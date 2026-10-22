@@ -505,3 +505,68 @@ export interface StudyPlan {
   createdAt: number;
   updatedAt: number;
 }
+
+// ============================================================
+//  编程题（ACM 标准输入输出）
+//  判题在独立子进程里跑：超时强杀、输出截断、进程树清理。
+//  这是「防呆」而不是「防恶意」——本机单机应用，做题的是用户自己；
+//  真要防恶意代码必须上 WASM 或容器，见 docs 讨论。
+// ============================================================
+
+export type ProgramLang = 'javascript' | 'python';
+
+export interface CodeSample {
+  input: string;
+  output: string;
+  explain?: string;
+}
+
+export interface CodeTestCase {
+  input: string;
+  output: string;
+}
+
+export interface CodeQuestion {
+  id: string;
+  title: string;
+  domain: string;
+  tags: string[];
+  difficulty: 1 | 2 | 3 | 4 | 5;
+  /** 题面（支持换行） */
+  statement: string;
+  inputFormat: string;
+  outputFormat: string;
+  /** 公开样例：题面里展示，也可「运行样例」 */
+  samples: CodeSample[];
+  /** 隐藏用例：只用于判题，不下发给渲染层 */
+  testCases: CodeTestCase[];
+  timeLimitMs: number;
+  memoryLimitMb: number;
+  starterCode?: { javascript?: string; python?: string };
+  hint?: string;
+  version: number;
+}
+
+/** AC=通过 WA=答案错 TLE=超时 RE=运行错误 OLE=输出超限 MLE=内存超限 CE=编译/启动失败 */
+export type CodeVerdict = 'AC' | 'WA' | 'TLE' | 'RE' | 'OLE' | 'MLE' | 'CE';
+
+export interface CodeCaseResult {
+  index: number;
+  verdict: CodeVerdict;
+  timeMs: number;
+  isSample: boolean;
+  /** 仅样例回传输入/期望/实际；隐藏用例只给 verdict 与耗时，避免泄题 */
+  input?: string;
+  expected?: string;
+  actual?: string;
+  stderr?: string;
+}
+
+export interface CodeRunResult {
+  verdict: CodeVerdict;
+  passed: number;
+  total: number;
+  timeMs: number;
+  cases: CodeCaseResult[];
+  message?: string;
+}

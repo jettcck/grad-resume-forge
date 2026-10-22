@@ -61,6 +61,14 @@ contextBridge.exposeInMainWorld('api', {
     trends: (topN?: number) => ipcRenderer.invoke('exam:trends', topN),
     savePlan: (input: unknown) => ipcRenderer.invoke('exam:plan:save', input)
   },
+  // 编程题：代码在独立子进程里跑，渲染层只负责编辑与展示结果
+  code: {
+    env: () => ipcRenderer.invoke('code:env'),
+    list: () => ipcRenderer.invoke('code:list'),
+    get: (questionId: string) => ipcRenderer.invoke('code:get', questionId),
+    run: (input: unknown) => ipcRenderer.invoke('code:run', input),
+    submit: (input: unknown) => ipcRenderer.invoke('code:submit', input)
+  },
   // 招聘平台投递记录同步：只读旁路，不向平台写入任何数据
   // collect 第三个参数 auto=true：点「抓取」即自动开窗口、自动走到记录页抓取
   jobSync: {

@@ -213,6 +213,30 @@ function registerIpc() {
   h('exam:plan:list', (uid) => store.listStudyPlans(uid));
   h('exam:plan:save', (uid, input) => store.saveStudyPlan(uid, input));
   h('exam:trends', (uid, topN) => examCore.buildTagTrends(store.listExamAttempts(uid), topN || 3));
+  // 编程题：题库与判题器都用真实模块（判题会真起子进程，截图流程不会点进去）
+  const codeBank = require(path.join(ROOT, 'dist/main/code-bank'));
+  const codeRunner = require(path.join(ROOT, 'dist/main/code-runner'));
+  h('code:env', () => codeRunner.detectRuntimes());
+  h('code:list', () => codeBank.CODE_BANK.map((q) => ({
+    id: q.id, title: q.title, domain: q.domain, tags: q.tags, difficulty: q.difficulty,
+    timeLimitMs: q.timeLimitMs, memoryLimitMb: q.memoryLimitMb,
+    sampleCount: q.samples.length, testCount: q.testCases.length
+  })));
+  h('code:get', (questionId) => {
+    const q = codeBank.getCodeQuestion(String(questionId));
+    if (!q) throw new Error('题目不存在');
+    return codeBank.publicCodeQuestion(q);
+  });
+  h('code:run', (input) => {
+    const q = codeBank.getCodeQuestion(String((input && input.questionId) || ''));
+    if (!q) throw new Error('题目不存在');
+    return codeRunner.judgeCode(q, input && input.lang === 'python' ? 'python' : 'javascript', String((input && input.code) || ''), 'samples');
+  });
+  h('code:submit', (input) => {
+    const q = codeBank.getCodeQuestion(String((input && input.questionId) || ''));
+    if (!q) throw new Error('题目不存在');
+    return codeRunner.judgeCode(q, input && input.lang === 'python' ? 'python' : 'javascript', String((input && input.code) || ''), 'all');
+  });
   // 官方授权导入：与主进程保持同一套去重规则（source+externalId 优先，其次公司+岗位）
   h('applications:importAuthorized', (uid, payload) => {
     const source = String((payload && payload.source) || '').trim();

@@ -3765,6 +3765,10 @@ async function renderExamCenter() {
     await renderExamWrongs(root);
     return;
   }
+  if (examState.view === 'code') {
+    await renderCodeView(root);
+    return;
+  }
   await renderExamHome(root);
 }
 
@@ -3937,7 +3941,22 @@ async function renderExamHome(root) {
   root.append(head);
   if (resumeCard) root.append(resumeCard);
   if (upcomingCard) root.append(upcomingCard);
-  root.append(startCard, el('div', { class: 'exam-grid' }, [historyCard, wrongCard]));
+  root.append(startCard);
+  // 编程题入口：独立进程判题，和客观题分开
+  root.append(el('div', { class: 'exam-card code-entry' }, [
+    el('h3', {}, ['编程题（ACM 模式）']),
+    el('div', { class: 'exam-stat-line' }, [
+      el('span', {}, ['支持 JavaScript / Python']),
+      el('span', {}, ['独立子进程判题 · 超时强杀 · 输出截断'])
+    ]),
+    el('div', { class: 'exam-actions' }, [
+      el('button', {
+        class: 'btn btn-ghost btn-sm', type: 'button',
+        onclick: () => { examState.view = 'code'; renderExamCenter(); }
+      }, ['进入编程题 →'])
+    ])
+  ]));
+  root.append(el('div', { class: 'exam-grid' }, [historyCard, wrongCard]));
   root.append(buildTrendCard(trends));
 }
 
@@ -4489,6 +4508,238 @@ async function renderExamWrongs(root) {
   ]);
 
   root.append(head, filterbar, planCard, list);
+}
+
+// ============================================================
+//  编程题（ACM 标准输入输出）
+//  代码由主进程在独立子进程里执行，渲染层只负责编辑与展示结果。
+// ============================================================
+const CODE_VERDICT_LABEL = {
+  AC: '通过', WA: '答案错误', TLE: '超时', RE: '运行错误',
+  OLE: '输出超限', MLE: '内存超限', CE: '编译 / 启动失败'
+};
+
+const codeState = {
+  list: null,
+  env: null,
+  question: null,
+  lang: 'javascript',
+  drafts: { javascript: '', python: '' },
+  draftFor: null,
+  result: null,
+  busy: false
+};
+
+async function renderCodeView(root) {
+  stopExamTimer();
+
+  if (!codeState.list) {
+    try {
+      const [list, env] = await Promise.all([
+        call(window.api.code.list()),
+        call(window.api.code.env())
+      ]);
+      codeState.list = list || [];
+      codeState.env = env || { javascript: true, python: false };
+    } catch (err) {
+      toast(err.message, 'err');
+      codeState.list = [];
+    }
+  }
+
+  if (!codeState.question && codeState.list.length) {
+    await selectCodeQuestion(codeState.list[0].id);
+    return;
+  }
+
+  const q = codeState.question;
+  const head = el('div', { class: 'page-head' }, [
+    el('div', { class: 'page-kicker' }, ['STEP 05 / 编程题']),
+    el('h1', { class: 'page-title' }, ['ACM 模式：读标准输入，写标准输出']),
+    el('p', { class: 'page-desc' }, [
+      q
+        ? '当前题限时 ' + q.timeLimitMs + 'ms · 内存 ' + q.memoryLimitMb + 'MB · 代码在独立子进程执行，超时会强制结束'
+        : '从左侧选一道题开始'
+    ])
+  ]);
+
+  const list = codeState.list || [];
+  const sidebar = el('div', { class: 'code-side' }, [
+    el('div', { class: 'code-side-title' }, ['题目 · ' + list.length]),
+    el('div', { class: 'code-side-list' }, list.map((item) => el('button', {
+      class: 'code-item' + (q && q.id === item.id ? ' active' : ''),
+      type: 'button',
+      onclick: () => selectCodeQuestion(item.id)
+    }, [
+      el('span', { class: 'ci-title' }, [item.title]),
+      el('span', { class: 'ci-meta' }, ['★'.repeat(item.difficulty) + ' · ' + item.timeLimitMs + 'ms'])
+    ])))
+  ]);
+
+  if (!q) {
+    root.append(head, el('div', { class: 'exam-card' }, [el('div', { class: 'exam-empty' }, ['题库为空'])]));
+    return;
+  }
+
+  const pyReady = !!(codeState.env && codeState.env.python);
+  const langSelect = el('select', { class: 'exam-select', id: 'code-lang' }, [
+    el('option', { value: 'javascript', selected: codeState.lang === 'javascript' ? 'selected' : null }, ['JavaScript']),
+    el('option', { value: 'python', selected: codeState.lang === 'python' ? 'selected' : null }, [
+      pyReady ? 'Python 3' : 'Python 3（未检测到）'
+    ])
+  ]);
+  langSelect.addEventListener('change', () => {
+    codeState.lang = langSelect.value === 'python' ? 'python' : 'javascript';
+    if (codeState.lang === 'python' && !pyReady) {
+      toast('本机未检测到 Python 3，请安装后重试，或改用 JavaScript', 'err', 4200);
+    }
+    renderExamCenter();
+  });
+
+  const toolbar = el('div', { class: 'code-toolbar' }, [
+    el('label', { class: 'code-lang-wrap' }, ['语言', langSelect]),
+    el('div', { class: 'spacer' }),
+    el('button', {
+      class: 'btn btn-ghost btn-sm', type: 'button', id: 'code-btn-run',
+      onclick: () => runCode('run')
+    }, ['运行样例']),
+    el('button', {
+      class: 'btn btn-primary btn-sm', type: 'button', id: 'code-btn-submit',
+      onclick: () => runCode('submit')
+    }, ['提交判题'])
+  ]);
+
+  // 题面
+  const problem = el('div', { class: 'code-problem' }, [
+    el('h3', {}, [q.title]),
+    el('div', { class: 'code-meta-row' }, [
+      el('span', {}, ['★'.repeat(q.difficulty)]),
+      el('span', {}, (q.tags || []).join(' · ')),
+      el('span', {}, '限时 ' + q.timeLimitMs + 'ms'),
+      el('span', {}, '内存 ' + q.memoryLimitMb + 'MB')
+    ]),
+    el('div', { class: 'code-statement' }, [q.statement]),
+    el('div', { class: 'code-io' }, [
+      el('div', {}, [el('b', {}, ['输入格式']), el('div', {}, [q.inputFormat])]),
+      el('div', {}, [el('b', {}, ['输出格式']), el('div', {}, [q.outputFormat])])
+    ]),
+    el('div', { class: 'code-samples' }, (q.samples || []).map((s, i) => el('div', { class: 'code-sample' }, [
+      el('div', { class: 'cs-title' }, ['样例 ' + (i + 1)]),
+      el('div', { class: 'cs-row' }, [el('span', {}, ['输入']), el('pre', {}, [s.input])]),
+      el('div', { class: 'cs-row' }, [el('span', {}, ['输出']), el('pre', {}, [s.output])]),
+      s.explain ? el('div', { class: 'cs-explain' }, [s.explain]) : null
+    ]))),
+    q.hint ? el('div', { class: 'code-hint' }, ['提示：' + q.hint]) : null
+  ]);
+
+  // 编辑器
+  const editor = el('textarea', { class: 'code-editor', spellcheck: 'false', placeholder: '在此编写代码…' });
+  editor.value = codeState.drafts[codeState.lang] || '';
+  editor.addEventListener('input', () => {
+    codeState.drafts[codeState.lang] = editor.value;
+  });
+  editor.addEventListener('keydown', (e) => {
+    // Tab 不要跳出编辑器：插入两个空格
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const s = editor.selectionStart;
+      const en = editor.selectionEnd;
+      editor.value = editor.value.slice(0, s) + '  ' + editor.value.slice(en);
+      editor.selectionStart = editor.selectionEnd = s + 2;
+      codeState.drafts[codeState.lang] = editor.value;
+    }
+  });
+
+  const resultBox = el('div', { class: 'code-result', id: 'code-result' });
+
+  const main = el('div', { class: 'code-main' }, [problem, toolbar, editor, resultBox]);
+  const layout = el('div', { class: 'code-layout' }, [sidebar, main]);
+  root.append(head, layout);
+  renderCodeResult();
+}
+
+async function selectCodeQuestion(id) {
+  try {
+    const q = await call(window.api.code.get(id));
+    codeState.question = q;
+    // 换题才重置草稿；同一题切语言不覆盖
+    if (codeState.draftFor !== id) {
+      codeState.drafts.javascript = (q.starterCode && q.starterCode.javascript) || '';
+      codeState.drafts.python = (q.starterCode && q.starterCode.python) || '';
+      codeState.draftFor = id;
+    }
+    codeState.result = null;
+    await renderExamCenter();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function runCode(mode) {
+  if (!codeState.question || codeState.busy) return;
+  const code = codeState.drafts[codeState.lang] || '';
+  if (!code.trim()) { toast('先写点代码再运行', 'err'); return; }
+
+  codeState.busy = true;
+  const btnRun = document.getElementById('code-btn-run');
+  const btnSubmit = document.getElementById('code-btn-submit');
+  if (btnRun) btnRun.disabled = true;
+  if (btnSubmit) btnSubmit.disabled = true;
+  const busyText = mode === 'run' ? '运行中…' : '判题中…';
+  const busyBtn = mode === 'run' ? btnRun : btnSubmit;
+  if (busyBtn) busyBtn.textContent = busyText;
+
+  try {
+    const fn = mode === 'run' ? window.api.code.run : window.api.code.submit;
+    const res = await call(fn({
+      questionId: codeState.question.id,
+      lang: codeState.lang,
+      code: code
+    }));
+    codeState.result = res;
+    renderCodeResult();
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    codeState.busy = false;
+    if (btnRun) { btnRun.disabled = false; btnRun.textContent = '运行样例'; }
+    if (btnSubmit) { btnSubmit.disabled = false; btnSubmit.textContent = '提交判题'; }
+  }
+}
+
+function renderCodeResult() {
+  const host = document.getElementById('code-result');
+  if (!host) return;
+  host.innerHTML = '';
+  const r = codeState.result;
+  if (!r) {
+    host.appendChild(el('div', { class: 'code-hint' }, ['点「运行样例」先自测，确认无误再「提交判题」跑全部用例。']));
+    return;
+  }
+
+  const label = CODE_VERDICT_LABEL[r.verdict] || r.verdict;
+  host.appendChild(el('div', { class: 'code-verdict ' + String(r.verdict).toLowerCase() }, [
+    el('b', {}, [label]),
+    el('span', {}, ['通过 ' + r.passed + ' / ' + r.total + ' · 最慢 ' + r.timeMs + 'ms'])
+  ]));
+  if (r.message) host.appendChild(el('div', { class: 'code-msg' }, [r.message]));
+
+  (r.cases || []).forEach((c) => {
+    host.appendChild(el('div', { class: 'code-case ' + String(c.verdict).toLowerCase() }, [
+      el('div', { class: 'cc-head' }, [
+        el('span', { class: 'cc-idx' }, ['#' + (c.index + 1)]),
+        el('span', { class: 'cc-v' }, [c.verdict]),
+        el('span', { class: 'cc-t' }, [c.timeMs + 'ms']),
+        c.isSample ? el('span', { class: 'cc-tag' }, ['样例']) : null
+      ]),
+      c.input != null ? el('div', { class: 'cc-detail' }, [
+        el('div', { class: 'cc-line' }, [el('span', {}, ['输入']), el('pre', {}, [c.input])]),
+        el('div', { class: 'cc-line' }, [el('span', {}, ['期望']), el('pre', {}, [c.expected])]),
+        el('div', { class: 'cc-line' }, [el('span', {}, ['实际']), el('pre', {}, [c.actual])])
+      ]) : null,
+      c.stderr ? el('pre', { class: 'cc-err' }, [c.stderr]) : null
+    ]));
+  });
 }
 
 (async () => {

@@ -39,6 +39,8 @@ import {
   getQuestion as getExamQuestion,
   BANK_VERSION as EXAM_BANK_VERSION
 } from './exam-bank';
+import { CODE_BANK, getCodeQuestion, publicCodeQuestion } from './code-bank';
+import * as codeRunner from './code-runner';
 import * as auth from './auth';
 import * as engine from './resume-engine';
 import { createLlmClient } from '../../packages/llm-adapters/dist/index';
@@ -900,6 +902,67 @@ ipcMain.handle('exam:trends', (_e, topN?: number) => {
   } catch (err) {
     return fail((err as Error).message);
   }
+});
+
+// ---------------- 编程题（ACM 标准输入输出） ----------------
+ipcMain.handle('code:env', () => {
+  try {
+    return ok(codeRunner.detectRuntimes());
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('code:list', () => {
+  try {
+    return ok(CODE_BANK.map((q) => ({
+      id: q.id,
+      title: q.title,
+      domain: q.domain,
+      tags: q.tags,
+      difficulty: q.difficulty,
+      timeLimitMs: q.timeLimitMs,
+      memoryLimitMb: q.memoryLimitMb,
+      sampleCount: q.samples.length,
+      testCount: q.testCases.length
+    })));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('code:get', (_e, questionId: string) => {
+  try {
+    const q = getCodeQuestion(String(questionId));
+    if (!q) return fail('题目不存在');
+    return ok(publicCodeQuestion(q));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 运行 / 提交：都在独立子进程里执行，主进程只负责收结果
+async function handleCodeJudge(
+  input: { questionId?: string; lang?: string; code?: string },
+  mode: 'samples' | 'all'
+) {
+  const q = getCodeQuestion(String((input && input.questionId) || ''));
+  if (!q) return fail('题目不存在');
+  const lang = String((input && input.lang) || '');
+  if (lang !== 'javascript' && lang !== 'python') return fail('暂不支持该语言');
+  const code = String((input && input.code) || '');
+  if (!code.trim()) return fail('代码为空');
+  if (code.length > 100000) return fail('代码长度超过 10 万字符');
+  const result = await codeRunner.judgeCode(q, lang, code, mode);
+  return ok(result);
+}
+
+ipcMain.handle('code:run', (_e, input: { questionId?: string; lang?: string; code?: string }) => {
+  return handleCodeJudge(input, 'samples').catch((err) => fail((err as Error).message));
+});
+
+ipcMain.handle('code:submit', (_e, input: { questionId?: string; lang?: string; code?: string }) => {
+  return handleCodeJudge(input, 'all').catch((err) => fail((err as Error).message));
 });
 
 ipcMain.handle('exam:plan:save', (_e, input: Record<string, unknown>) => {
