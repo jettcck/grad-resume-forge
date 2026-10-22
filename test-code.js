@@ -65,7 +65,91 @@ const s=new Set(),o=[];for(const x of a){if(!s.has(x)){s.add(x);o.push(x);}}cons
   'code-word-count': `const w=require('fs').readFileSync(0,'utf8').trim().split(/\\s+/).filter(Boolean);
 const c=new Map();for(const x of w)c.set(x,(c.get(x)||0)+1);
 let best=null,bc=0;for(const [k,v] of c){if(v>bc||(v===bc&&k<best)){best=k;bc=v;}}
-console.log(best+' '+bc);`
+console.log(best+' '+bc);`,
+
+  // ---- 第二批：Hot 100 高频题型 ----
+  'code-lc-reverse-list': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const n=Number(L[0]);const a=n?L[1].trim().split(/\\s+/).map(Number):[];
+console.log(a.reverse().join(' '));`,
+  'code-lc-merge-sorted': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const [n,m]=L[0].trim().split(/\\s+/).map(Number);
+const a=n?L[1].trim().split(/\\s+/).map(Number):[];
+const b=m?L[2].trim().split(/\\s+/).map(Number):[];
+let i=0,j=0,out=[];
+while(i<n&&j<m){ if(a[i]<=b[j]) out.push(a[i++]); else out.push(b[j++]); }
+while(i<n) out.push(a[i++]);
+while(j<m) out.push(b[j++]);
+console.log(out.join(' '));`,
+  'code-lc-remove-dup': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const a=L[1].trim().split(/\\s+/).map(Number);
+const out=[];for(const x of a){ if(!out.length||out[out.length-1]!==x) out.push(x); }
+console.log(out.join(' '));`,
+  'code-lc-tree-depth': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const n=Number(L[0]);const a=L[1].trim().split(/\\s+/).map(Number);
+const dep=(i)=> (i>=n||a[i]===-1)?0:1+Math.max(dep(2*i+1),dep(2*i+2));
+console.log(dep(0));`,
+  'code-lc-inorder': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const n=Number(L[0]);const a=L[1].trim().split(/\\s+/).map(Number);
+const out=[];
+(function go(i){ if(i>=n||a[i]===-1) return; go(2*i+1); out.push(a[i]); go(2*i+2); })(0);
+console.log(out.join(' '));`,
+  'code-lc-climb-stairs': `const n=Number(require('fs').readFileSync(0,'utf8').trim());
+let a=1,b=2;if(n===1){console.log(1);}else{for(let i=3;i<=n;i++){[a,b]=[b,a+b];}console.log(b);}`,
+  'code-lc-coin-change': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const [amount,cn]=L[0].trim().split(/\\s+/).map(Number);
+const coins=L[1].trim().split(/\\s+/).map(Number);
+const dp=new Array(amount+1).fill(Infinity);dp[0]=0;
+for(let i=1;i<=amount;i++)for(const c of coins)if(i>=c&&dp[i-c]+1<dp[i])dp[i]=dp[i-c]+1;
+console.log(dp[amount]===Infinity?-1:dp[amount]);`,
+  'code-lc-lis': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const n=Number(L[0]);const a=L[1].trim().split(/\\s+/).map(Number);
+const tails=[];
+for(const x of a){let lo=0,hi=tails.length;while(lo<hi){const mid=(lo+hi)>>1;if(tails[mid]<x)lo=mid+1;else hi=mid;}tails[lo]=x;}
+console.log(tails.length);`,
+  'code-lc-knapsack': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const [n,W]=L[0].trim().split(/\\s+/).map(Number);
+const dp=new Array(W+1).fill(0);
+for(let i=1;i<=n;i++){const [w,v]=L[i].trim().split(/\\s+/).map(Number);for(let j=W;j>=w;j--)dp[j]=Math.max(dp[j],dp[j-w]+v);}
+console.log(dp[W]);`,
+  'code-lc-permute': `const n=Number(require('fs').readFileSync(0,'utf8').trim());
+const used=new Array(n+1).fill(false),cur=[],out=[];
+(function go(){ if(cur.length===n){out.push(cur.join(' '));return;} for(let i=1;i<=n;i++){ if(used[i])continue; used[i]=true;cur.push(i);go();cur.pop();used[i]=false; } })();
+console.log(out.join('\\n'));`,
+  'code-lc-binary-search': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const [n,target]=L[0].trim().split(/\\s+/).map(Number);
+const a=L[1].trim().split(/\\s+/).map(Number);
+let lo=0,hi=n-1,ans=-1;
+while(lo<=hi){const mid=(lo+hi)>>1;if(a[mid]===target){ans=mid;break;}else if(a[mid]<target)lo=mid+1;else hi=mid-1;}
+console.log(ans);`,
+  'code-lc-longest-substr': `const s=require('fs').readFileSync(0,'utf8').replace(/\\n$/,'');
+const last=new Map();let left=0,best=0;
+for(let i=0;i<s.length;i++){const ch=s[i];if(last.has(ch)&&last.get(ch)>=left)left=last.get(ch)+1;last.set(ch,i);best=Math.max(best,i-left+1);}
+console.log(best);`,
+  'code-lc-merge-intervals': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const n=Number(L[0]);
+const seg=L.slice(1,1+n).map(s=>s.trim().split(/\\s+/).map(Number));
+seg.sort((x,y)=>x[0]-y[0]||x[1]-y[1]);
+const out=[];
+for(const [l,r] of seg){ if(!out.length||l>out[out.length-1][1]) out.push([l,r]); else out[out.length-1][1]=Math.max(out[out.length-1][1],r); }
+console.log(out.length);
+console.log(out.map(x=>x.join(' ')).join('\\n'));`,
+  'code-lc-islands': `const L=require('fs').readFileSync(0,'utf8').trim().split('\\n');
+const [n,m]=L[0].trim().split(/\\s+/).map(Number);
+const g=L.slice(1,1+n).map(r=>r.trim().split(''));
+let cnt=0;
+for(let i=0;i<n;i++)for(let j=0;j<m;j++){ if(g[i][j]!=='1')continue; cnt++; g[i][j]='0'; const st=[[i,j]];
+  while(st.length){const [x,y]=st.pop();for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;if(nx>=0&&nx<n&&ny>=0&&ny<m&&g[nx][ny]==='1'){g[nx][ny]='0';st.push([nx,ny]);}}}
+}
+console.log(cnt);`,
+  'code-lc-edit-distance': `const raw=require('fs').readFileSync(0,'utf8');
+const parts=raw.split('\\n').map(s=>s.replace(/\\r$/,''));
+const a=parts[0]||'',b=parts[1]||'';
+const m=a.length,n=b.length;
+const dp=Array.from({length:m+1},()=>new Array(n+1).fill(0));
+for(let i=0;i<=m;i++)dp[i][0]=i;
+for(let j=0;j<=n;j++)dp[0][j]=j;
+for(let i=1;i<=m;i++)for(let j=1;j<=n;j++)dp[i][j]= a[i-1]===b[j-1]?dp[i-1][j-1]:1+Math.min(dp[i-1][j-1],dp[i-1][j],dp[i][j-1]);
+console.log(dp[m][n]);`
 };
 
 const PY_SOLUTIONS = {
@@ -76,7 +160,24 @@ const PY_SOLUTIONS = {
   'code-max-subarray': 'n=int(input())\na=list(map(int,input().split()))\ncur=best=a[0]\nfor x in a[1:]:\n    cur=max(x,cur+x)\n    best=max(best,cur)\nprint(best)',
   'code-brackets': "s=input().strip()\nst=[]\nm={')':'(',']':'[','}':'{'}\nok=True\nfor ch in s:\n    if ch in '([{': st.append(ch)\n    elif ch in ')]}':\n        if not st or st.pop()!=m[ch]: ok=False;break\nif st: ok=False\nprint('YES' if ok else 'NO')",
   'code-dedupe': "n=int(input())\na=list(map(int,input().split()))\nseen=set();out=[]\nfor x in a:\n    if x not in seen:\n        seen.add(x);out.append(x)\nprint(' '.join(map(str,out)))",
-  'code-word-count': "w=input().split()\nc={}\nfor x in w: c[x]=c.get(x,0)+1\nbest=None;bc=0\nfor k,v in c.items():\n    if v>bc or (v==bc and k<best):\n        best,bc=k,v\nprint(best,bc)"
+  'code-word-count': "w=input().split()\nc={}\nfor x in w: c[x]=c.get(x,0)+1\nbest=None;bc=0\nfor k,v in c.items():\n    if v>bc or (v==bc and k<best):\n        best,bc=k,v\nprint(best,bc)",
+
+  // ---- 第二批：Hot 100 高频题型 ----
+  'code-lc-reverse-list': "n=int(input())\na=list(map(int,input().split())) if n else []\nprint(' '.join(map(str,a[::-1])))",
+  'code-lc-merge-sorted': "n,m=map(int,input().split())\na=list(map(int,input().split())) if n else []\nb=list(map(int,input().split())) if m else []\ni=j=0;out=[]\nwhile i<n and j<m:\n    if a[i]<=b[j]: out.append(a[i]);i+=1\n    else: out.append(b[j]);j+=1\nout+=a[i:];out+=b[j:]\nprint(' '.join(map(str,out)))",
+  'code-lc-remove-dup': "n=int(input())\na=list(map(int,input().split()))\nout=[]\nfor x in a:\n    if not out or out[-1]!=x: out.append(x)\nprint(' '.join(map(str,out)))",
+  'code-lc-tree-depth': "n=int(input())\na=list(map(int,input().split()))\ndef dep(i):\n    if i>=n or a[i]==-1: return 0\n    return 1+max(dep(2*i+1),dep(2*i+2))\nprint(dep(0))",
+  'code-lc-inorder': "n=int(input())\na=list(map(int,input().split()))\nout=[]\ndef go(i):\n    if i>=n or a[i]==-1: return\n    go(2*i+1);out.append(a[i]);go(2*i+2)\ngo(0)\nprint(' '.join(map(str,out)))",
+  'code-lc-climb-stairs': "n=int(input())\na,b=1,2\nif n==1: print(1)\nelse:\n    for _ in range(3,n+1): a,b=b,a+b\n    print(b)",
+  'code-lc-coin-change': "amount,n=map(int,input().split())\ncoins=list(map(int,input().split()))\nINF=float('inf')\ndp=[INF]*(amount+1);dp[0]=0\nfor i in range(1,amount+1):\n    for c in coins:\n        if i>=c and dp[i-c]+1<dp[i]: dp[i]=dp[i-c]+1\nprint(-1 if dp[amount]==INF else dp[amount])",
+  'code-lc-lis': "import bisect\nn=int(input())\na=list(map(int,input().split()))\ntails=[]\nfor x in a:\n    i=bisect.bisect_left(tails,x)\n    if i==len(tails): tails.append(x)\n    else: tails[i]=x\nprint(len(tails))",
+  'code-lc-knapsack': "n,W=map(int,input().split())\ndp=[0]*(W+1)\nfor _ in range(n):\n    w,v=map(int,input().split())\n    for j in range(W,w-1,-1):\n        dp[j]=max(dp[j],dp[j-w]+v)\nprint(dp[W])",
+  'code-lc-permute': "n=int(input())\nused=[False]*(n+1);cur=[];out=[]\ndef go():\n    if len(cur)==n:\n        out.append(' '.join(map(str,cur)));return\n    for i in range(1,n+1):\n        if used[i]: continue\n        used[i]=True;cur.append(i);go();cur.pop();used[i]=False\ngo()\nprint('\\n'.join(out))",
+  'code-lc-binary-search': "n,target=map(int,input().split())\na=list(map(int,input().split()))\nlo,hi,ans=0,n-1,-1\nwhile lo<=hi:\n    mid=(lo+hi)//2\n    if a[mid]==target: ans=mid;break\n    elif a[mid]<target: lo=mid+1\n    else: hi=mid-1\nprint(ans)",
+  'code-lc-longest-substr': "s=input()\nlast={};left=0;best=0\nfor i,ch in enumerate(s):\n    if ch in last and last[ch]>=left: left=last[ch]+1\n    last[ch]=i\n    best=max(best,i-left+1)\nprint(best)",
+  'code-lc-merge-intervals': "n=int(input())\nseg=[tuple(map(int,input().split())) for _ in range(n)]\nseg.sort()\nout=[]\nfor l,r in seg:\n    if not out or l>out[-1][1]: out.append([l,r])\n    else: out[-1][1]=max(out[-1][1],r)\nprint(len(out))\nprint('\\n'.join(str(l)+' '+str(r) for l,r in out))",
+  'code-lc-islands': "n,m=map(int,input().split())\ng=[list(input().strip()) for _ in range(n)]\ncnt=0\nfor i in range(n):\n    for j in range(m):\n        if g[i][j]!='1': continue\n        cnt+=1;st=[(i,j)];g[i][j]='0'\n        while st:\n            x,y=st.pop()\n            for dx,dy in ((1,0),(-1,0),(0,1),(0,-1)):\n                nx,ny=x+dx,y+dy\n                if 0<=nx<n and 0<=ny<m and g[nx][ny]=='1':\n                    g[nx][ny]='0';st.append((nx,ny))\nprint(cnt)",
+  'code-lc-edit-distance': "raw=open(0).read()\nparts=raw.split('\\n')\na=parts[0].rstrip('\\r')\nb=parts[1].rstrip('\\r') if len(parts)>1 else ''\nm,n=len(a),len(b)\ndp=[[0]*(n+1) for _ in range(m+1)]\nfor i in range(m+1): dp[i][0]=i\nfor j in range(n+1): dp[0][j]=j\nfor i in range(1,m+1):\n    for j in range(1,n+1):\n        dp[i][j]=dp[i-1][j-1] if a[i-1]==b[j-1] else 1+min(dp[i-1][j-1],dp[i-1][j],dp[i][j-1])\nprint(dp[m][n])"
 };
 
 (async () => {
