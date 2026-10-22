@@ -161,4 +161,33 @@ assert(allTags().length >= 20, '知识点标签数量充足（实得 ' + allTags
 assert(getQuestion(single.id) === single, 'getQuestion 按 id 命中');
 assert(getQuestion('不存在') === null, 'getQuestion 未命中返回 null');
 
+// ---------------- 10) 非技术方向题库（第六步扩充） ----------------
+assert(EXAM_BANK.length >= 150, '题库规模 ≥150 题（实得 ' + EXAM_BANK.length + '）');
+
+const NON_TECH = ['product', 'operation', 'finance', 'hr', 'admin', 'english', 'aptitude'];
+NON_TECH.forEach((d) => {
+  const n = EXAM_BANK.filter((q) => q.domain === d).length;
+  assert(n >= 6, d + ' 方向题量 ≥6（实得 ' + n + '）');
+});
+assert(allDomains().length >= 10, '至少覆盖 10 个方向（实得 ' + allDomains().length + '）');
+
+// 指定方向组卷：JD 份额应转给方向题，而不是从全库乱抽
+const pmPaper = core.buildPaper({ domain: 'product', count: 10, seed: 5 });
+const pmHits = pmPaper.questionIds.filter((id) => QUESTION_MAP.get(id).domain === 'product').length;
+assert(pmHits >= 7, '指定产品方向时 ≥70% 题目来自该方向（实得 ' + pmHits + '/10）');
+const enPaper = core.buildPaper({ domain: 'english', count: 10, seed: 6 });
+const enHits = enPaper.questionIds.filter((id) => QUESTION_MAP.get(id).domain === 'english').length;
+assert(enHits >= 7, '指定英语方向时 ≥70% 题目来自该方向（实得 ' + enHits + '/10）');
+
+// 非技术 JD 的标签提取
+const finTags = core.extractTags('财务专员：负责总账、报表编制、税务申报，熟悉增值税与资产负债率分析。');
+assert(finTags.includes('财务'), '财务 JD 识别出「财务」标签');
+assert(finTags.includes('报表') || finTags.includes('税务'), '财务 JD 识别出报表/税务标签');
+
+const hrTags = core.extractTags('人力资源专员：负责招聘、绩效、员工关系与培训。');
+assert(hrTags.includes('招聘') && hrTags.includes('绩效'), 'HR JD 识别出招聘/绩效标签');
+
+const pmTags = core.extractTags('产品经理：负责需求分析与优先级排序，撰写 PRD，做 A/B 测试。');
+assert(pmTags.includes('产品'), '产品 JD 识别出「产品」标签');
+
 console.log('\n笔试中心自测完成: ' + pass + ' passed, ' + failCnt + ' failed | exitCode = ' + (process.exitCode || 0));

@@ -30,6 +30,9 @@ const DOMAIN_LABELS = {
   backend: '后端', frontend: '前端', algorithm: '算法', data: '数据', llm: '大模型 / Agent',
   finance: '金融财务', marketing: '市场运营', design: '创意设计', eng: '机械电气',
   civil: '土木建筑', education: '教育培训', medical: '医药卫生', business: '人力行政',
+  // 笔试中心新增方向
+  product: '产品', operation: '运营', hr: '人力资源', admin: '行政',
+  english: '英语', aptitude: '行测', review: '错题强化',
   general: '通用'
 };
 
@@ -3668,6 +3671,23 @@ function renderJobsFromState() {
 // ============================================================
 const EXAM_TYPE_LABEL = { single: '单选', multiple: '多选', judge: '判断', fill: '填空' };
 
+// 组卷方向：留空表示按岗位 JD 自动判定
+const EXAM_DOMAINS = [
+  { key: '', label: '不限（按岗位 JD 自动）' },
+  { key: 'backend', label: '后端 / Java' },
+  { key: 'frontend', label: '前端' },
+  { key: 'algorithm', label: '算法' },
+  { key: 'data', label: '数据' },
+  { key: 'product', label: '产品' },
+  { key: 'operation', label: '运营' },
+  { key: 'finance', label: '金融财务' },
+  { key: 'hr', label: '人力资源' },
+  { key: 'admin', label: '行政' },
+  { key: 'english', label: '英语' },
+  { key: 'aptitude', label: '行测' },
+  { key: 'general', label: '通用能力' }
+];
+
 const examState = {
   view: 'home',       // home | answering | result | wrongs
   paper: null,
@@ -3776,21 +3796,27 @@ async function renderExamHome(root) {
   const durationSelect = el('select', { class: 'exam-select', id: 'exam-duration-select' },
     [15, 30, 45, 60].map((m, i) => el('option', { value: String(m), selected: i === 1 ? 'selected' : null }, [m + ' 分钟']))
   );
+  // 方向：不选则按岗位 JD 自动判定；显式选择可强制考某个方向（跨专业求职常用）
+  const directionSelect = el('select', { class: 'exam-select', id: 'exam-domain-select' },
+    EXAM_DOMAINS.map((d) => el('option', { value: d.key }, [d.label]))
+  );
 
   const startCard = el('div', { class: 'exam-card' }, [
     el('h3', {}, ['开始一套新卷']),
     el('div', { class: 'exam-form-row' }, [
       el('label', {}, ['目标岗位', jobSelect]),
+      el('label', {}, ['方向', directionSelect]),
       el('label', {}, ['题量', countSelect]),
       el('label', {}, ['限时', durationSelect])
     ]),
     el('div', { class: 'exam-form-tip' }, [
-      '组卷比例：60% 岗位 JD 知识点 · 30% 岗位方向基础 · 10% 通用职业能力'
+      '按岗位 JD 自动配比：60% 岗位知识点 · 30% 方向基础 · 10% 通用；无 JD 时按所选方向组卷'
     ]),
     el('button', {
       class: 'btn btn-primary', type: 'button',
       onclick: () => startExam({
         jobId: jobSelect.value || undefined,
+        domain: directionSelect.value || undefined,
         count: Number(countSelect.value),
         durationSec: Number(durationSelect.value) * 60,
         passScore: 60
