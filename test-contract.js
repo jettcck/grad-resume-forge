@@ -460,4 +460,17 @@ assert(/enable-unsafe-swiftshader/.test(mainEntrySrc) && /'use-angle',\s*'swifts
 assert(/render-process-gone/.test(mainEntrySrc),
   '渲染进程异常退出会被记录，不再表现为无声黑屏');
 
+// ---- Electron 入口必须走 run-electron.js ----
+// 背景：本机常驻 ELECTRON_RUN_AS_NODE=1，直接 `electron xxx` 会退化成纯 Node：
+//   `electron .` 起不来、`electron script.js` 里 app 是 undefined。
+// 表现是「命令跑完了但什么都没发生」，极难排查。统一走包装脚本剥掉该变量。
+const pkgJson = JSON.parse(R('package.json'));
+const directElectron = Object.keys(pkgJson.scripts)
+  .filter((k) => /(^|&&|;)\s*electron\s/.test(pkgJson.scripts[k]));
+assert(directElectron.length === 0,
+  'npm script 不直接调 electron（会因 ELECTRON_RUN_AS_NODE 退化成 Node，应走 scripts/run-electron.js）：'
+  + (directElectron.join(', ') || '无'));
+assert(/delete env\.ELECTRON_RUN_AS_NODE/.test(R('scripts/run-electron.js')),
+  'run-electron.js 会剥掉 ELECTRON_RUN_AS_NODE');
+
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

@@ -131,12 +131,15 @@ ffmpeg -i demo-raw.mp4 -vf "scale=1280:-2" -c:v libx264 -crf 28 -an demo.mp4
 **仍缺**：Agent 运行中（步骤条）与运行记录 trace。这两处需要触发一次 Agent 运行，
 截图脚本目前走的是规则引擎通道，补这两张要另外接一段——按 `demo-script.md` 手动录一段更省事。
 
-### 截图脚本的两个坑（已修，记下来免得再踩）
+### 截图脚本的两个坑（都已修）
 
-1. `npm run smoke:ui` 必须在**剥掉 `ELECTRON_RUN_AS_NODE`** 的环境下跑，
-   否则 electron 会退化成 Node，报 `Cannot read properties of undefined (reading 'whenReady')`：
-   ```bash
-   env -u ELECTRON_RUN_AS_NODE npm run smoke:ui
-   ```
-2. mock 的 exam handler 曾把「第一个入参」当 userId 用（真实主进程是从 session 取的），
-   导致组卷时抛「用户不存在」。已加 `hU()` 包装，把当前登录的演示用户 id 注入进去。
+1. **`ELECTRON_RUN_AS_NODE=1` 会让 electron 退化成 Node**
+   本机这个变量常驻，导致 `electron .` / 各 smoke 入口全部失效
+   （报 `Cannot read properties of undefined (reading 'whenReady')`）。
+   修法：新增 `scripts/run-electron.js` 统一剥掉该变量再 spawn，
+   `npm start` / `npm run dev` / 四个 smoke 入口全部改走它——现在**直接 `npm run smoke:ui` 即可**，
+   不用再手工 `env -u`。
+
+2. **mock 的 exam handler 曾把「第一个入参」当 userId 用**
+   真实主进程是从 session 取的，mock 层没有 session，导致组卷时抛「用户不存在」。
+   已加 `hU()` 包装把当前演示用户 id 注入；`test-contract.js` 的静态扫描也同步识别 `hU`。

@@ -6,8 +6,8 @@
   "scripts": {
     "build": "npm run build:core && tsc",
     "typecheck": "tsc --noEmit",
-    "start": "tsc && electron .",
-    "dev": "tsc && electron . --dev",
+    "start": "tsc && node scripts/run-electron.js .",
+    "dev": "tsc && node scripts/run-electron.js . --dev",
     "test": "npm run build:core && tsc && node test-renderer-apply.js && node test-geo.js && node test-place-search.js && node test-job-import.js && node test-job-sync.js && node test-jobs.js && node test-exam.js && node test-exam-store.js && node test-code.js && node test-map.js && node test-engine.js && node test-importer.js && node test-portfolio.js && node test-agent.js && node test-runtime.js && node test-retrieval.js && node test-cli.js && node test-e2e.js && node test-versions.js && node test-contract.js && node test-stream.js && node test-validate.js && node test-backup.js && node test-updater.js && node test-embedded.js && node test-secure-store.js && node test-interview.js && node test-assistant.js && node evals/agent-bench.js && node evals/agent-bench-llm.js --self-test && node evals/run-evals.js",
     "eval": "node evals/run-evals.js",
     "eval:retrieval": "node evals/retrieval-eval.js --no-vector",
@@ -19,10 +19,10 @@
     "release": "tsc && electron-builder --win --x64 --publish always",
     "release:linux": "tsc && electron-builder --linux --x64 --publish always",
     "audit:ui": "node scripts/audit-ui.js",
-    "smoke:ipc": "electron scripts/smoke-real-ipc.js --no-sandbox --disable-gpu",
-    "smoke:ui": "electron scripts/screenshot.js --no-sandbox --disable-gpu",
+    "smoke:ipc": "node scripts/run-electron.js scripts/smoke-real-ipc.js --no-sandbox --disable-gpu",
+    "smoke:ui": "node scripts/run-electron.js scripts/screenshot.js --no-sandbox --disable-gpu",
     "smoke:si": "node scripts/smoke-single-instance.js",
-    "smoke:pdf": "electron scripts/smoke-pdf-import.js --no-sandbox",
+    "smoke:pdf": "node scripts/run-electron.js scripts/smoke-pdf-import.js --no-sandbox",
     "smoke:packaged": "node scripts/smoke-packaged.js",
     "smoke:installer": "node scripts/smoke-installer.js",
     "build:core": "tsc -p packages/agent-core/tsconfig.json && tsc -p packages/llm-adapters/tsconfig.json && tsc -p packages/retrieval/tsconfig.json && tsc -p packages/agent-cli/tsconfig.json",
@@ -31,7 +31,7 @@
     "agent:replay": "node packages/agent-cli/dist/index.js replay",
     "eval:agent": "node evals/agent-bench.js",
     "eval:agent:llm": "node evals/agent-bench-llm.js",
-    "smoke:map": "electron scripts/smoke-map-live.js --no-sandbox --disable-gpu"
+    "smoke:map": "node scripts/run-electron.js scripts/smoke-map-live.js --no-sandbox --disable-gpu"
   },
   "author": "",
   "license": "MIT",
