@@ -454,14 +454,18 @@ export interface ExamPaper {
   /** 组卷时的岗位快照：岗位被删除/改名后，历史成绩仍能显示当时投的是哪个岗 */
   jobCompany?: string;
   jobPosition?: string;
-  /** 实际组卷构成（JD 知识点 / 方向基础 / 通用），前端按真实值展示比例 */
-  composition?: { jd: number; domain: number; general: number };
+  /** 实际组卷构成（JD 知识点 / 方向基础 / 通用），前端按真实值展示比例。
+   *  fallback 是被迫从全库补的题数（题库某段不足时），total 是实际出题数 */
+  composition?: { jd: number; domain: number; general: number; fallback?: number; total?: number };
   /** 题库版本：题库改动后，历史卷子的题目口径可追溯 */
   bankVersion?: number;
   /** 题目快照：questionId → 组卷当时的题干/选项/答案，题库改版不改变历史成绩的解释 */
   snapshots?: Record<string, {
     type: ExamQuestionType; stem: string; options?: string[];
     answer: string | string[]; explanation: string; tags: string[]; version: number;
+    /** 组卷当时的方向与难度：详情页要能脱离题库独立渲染（老快照没有这两个字段） */
+    domain?: string;
+    difficulty?: 1 | 2 | 3 | 4 | 5;
   }>;
 }
 
@@ -499,7 +503,12 @@ export interface StudyPlan {
   jobId?: string;
   targetRole: string;
   weeklyQuestionGoal: number;
+  /** 累计完成题数（历史总量） */
   completedCount: number;
+  /** 本周起始时间戳（周一 00:00，本地时区）：跨周后周完成数要归零 */
+  weekStartedAt?: number;
+  /** 本周已完成题数——「每周目标」原本拿累计数对比，永远显示超额 */
+  weekCompletedCount?: number;
   /** 薄弱知识点（按错题率排序） */
   weakTags: string[];
   createdAt: number;

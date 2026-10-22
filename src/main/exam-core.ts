@@ -164,8 +164,10 @@ export interface BuiltPaper {
   questionIds: string[];
   tags: string[];
   domain: string;
-  /** 各段占比的实际题数，便于前端展示「这份卷子考了什么」 */
-  composition: { jd: number; domain: number; general: number };
+  /** 各段占比的实际题数，便于前端展示「这份卷子考了什么」。
+   *  fallback 是被迫从全库兜底补的题数，total 是实际出题数——
+   *  三者之和可能小于 total，差额就是兜底量，前端据此提示「本卷含 N 道通用补位题」。 */
+  composition: { jd: number; domain: number; general: number; fallback: number; total: number };
 }
 
 // 简易可复现随机：同一 seed 得到同一套卷（测试与「重做同一份」都要稳定）
@@ -271,16 +273,24 @@ export function buildPaper(opts: BuildPaperOptions = {}): BuiltPaper {
 
   // 4) 兜底：任何一段不足都从全库补足
   const picked = [...jdPicked, ...domainPicked, ...generalPicked];
+  const beforeFallback = picked.length;
   if (picked.length < count) {
     picked.push(...take(EXAM_BANK, count - picked.length));
   }
+  const fallback = picked.length - beforeFallback;
 
   const ordered = shuffle(picked.slice(0, count), rng);
   return {
     questionIds: ordered.map((x) => x.id),
     tags,
     domain,
-    composition: { jd: jdPicked.length, domain: domainPicked.length, general: generalPicked.length }
+    composition: {
+      jd: jdPicked.length,
+      domain: domainPicked.length,
+      general: generalPicked.length,
+      fallback,
+      total: ordered.length
+    }
   };
 }
 
@@ -343,13 +353,90 @@ export function isCorrect(question: ExamQuestion, userAnswer: string | string[] 
   return String(asArray(userAnswer)[0] || '').trim() === String(asArray(question.answer)[0] || '').trim();
 }
 
+/** 快照里的一条题目内容（结构与 ExamPaper['snapshots'] 的值一致） */
+export type ExamSnapshot = NonNullable<ExamPaper['snapshots']>[string];
+
+/**
+ * 把试卷快照还原成 ExamQuestion：让旧卷子脱离当前题库也能渲染与判分。
+ * 老快照没有 domain / difficulty，给安全默认值（不影响判分，只影响展示）。
+ */
+export function snapshotToQuestion(id: string, snap: ExamSnapshot): ExamQuestion {
+  return {
+    id,
+    type: snap.type,
+    domain: snap.domain || 'general',
+    tags: snap.tags || [],
+    difficulty: snap.difficulty || 3,
+    stem: snap.stem,
+    options: snap.options,
+    answer: snap.answer,
+    explanation: snap.explanation,
+    version: snap.version || 1
+  };
+}
+
+/**
+ * 下发给渲染层的题目：剥掉 answer / explanation。
+ * 答题页不需要答案，交卷后才随结果返回——避免「打开开发者工具直接看答案」。
+ */
+export function publicExamQuestion(q: ExamQuestion) {
+  return {
+    id: q.id,
+    type: q.type,
+    domain: q.domain,
+    tags: q.tags,
+    difficulty: q.difficulty,
+    stem: q.stem,
+    options: q.options,
+    version: q.version
+  };
+}
+
+/**
+ * 下发给渲染层的试卷：剥掉 snapshots（里面带 answer / explanation）。
+ *
+ * 安全边界：create / list / get 三个接口都必须走这里。
+ * 直接返回 store 里的 paper 会把整份答案送到渲染层，交卷前就能读到。
+ */
+export function publicExamPaper(paper: ExamPaper) {
+  const { snapshots, ...rest } = paper;
+  return { ...rest, questionCount: paper.questionIds.length };
+}
+
+/** 试卷题目（已剥答案）：优先用快照，老数据没有快照才回退当前题库 */
+export function paperQuestions(paper: ExamPaper) {
+  return paper.questionIds
+    .map((id) => {
+      const q = resolveQuestion(id, paper.snapshots);
+      return q ? publicExamQuestion(q) : null;
+    })
+    .filter((q): q is NonNullable<typeof q> => !!q);
+}
+
+/**
+ * 取一道题：有快照用快照（历史口径），没有才回退当前题库（老数据兼容）。
+ * 两者都没有才返回 null（题目确实丢失）。
+ */
+export function resolveQuestion(
+  id: string,
+  snapshots?: ExamPaper['snapshots']
+): ExamQuestion | null {
+  const snap = snapshots && snapshots[id];
+  if (snap) return snapshotToQuestion(id, snap);
+  return QUESTION_MAP.get(id) || null;
+}
+
 /**
  * 交卷评分：百分制，不倒扣。
  * 未作答按错处理，但不计入错题本（只把「答错」的题归档）。
+ *
+ * snapshots 传入时优先按快照判分：题库改题/删题后，旧卷子仍按组卷当时的答案与解析评分，
+ * 不会出现「旧卷子分数变了」或「题目被删导致少算一题」。没有快照的老数据回退当前题库。
  */
 export function gradePaper(
   questionIds: string[],
-  answers: Record<string, string | string[]>
+  answers: Record<string, string | string[]>,
+  snapshots?: ExamPaper['snapshots']
 ): GradeResult {
   const details: GradeDetail[] = [];
   const tagStats: Record<string, { correct: number; total: number }> = {};
@@ -357,8 +444,8 @@ export function gradePaper(
   let correctCount = 0;
 
   for (const qid of questionIds) {
-    const question = QUESTION_MAP.get(qid);
-    if (!question) continue; // 题库改版后老卷子里的题可能已删除
+    const question = resolveQuestion(qid, snapshots);
+    if (!question) continue; // 既无快照、题库里也没有：老卷子里的题确实没了
     const userAnswer = answers[qid] == null ? null : answers[qid];
     const ok = isCorrect(question, userAnswer);
     // 是否真的动过手：空数组 / 空白字符串都算「没作答」

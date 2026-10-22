@@ -793,7 +793,10 @@ export function saveExamPaper(userId: string, input: Partial<ExamPaper>): ExamPa
       ? {
           jd: Math.max(0, Math.round(Number(input.composition.jd) || 0)),
           domain: Math.max(0, Math.round(Number(input.composition.domain) || 0)),
-          general: Math.max(0, Math.round(Number(input.composition.general) || 0))
+          general: Math.max(0, Math.round(Number(input.composition.general) || 0)),
+          // 兜底题数与实际出题数：让「这份卷子有多少题是补位的」可追溯
+          fallback: Math.max(0, Math.round(Number(input.composition.fallback) || 0)),
+          total: Math.max(0, Math.round(Number(input.composition.total) || 0))
         }
       : undefined,
     // 题目快照：题库改版后，历史成绩仍按当时的题干/答案解释
@@ -972,6 +975,8 @@ export function saveStudyPlan(userId: string, input: Partial<StudyPlan>): StudyP
     targetRole: '',
     weeklyQuestionGoal: 30,
     completedCount: 0,
+    weekStartedAt: 0,
+    weekCompletedCount: 0,
     weakTags: [],
     createdAt: now,
     updatedAt: now
@@ -988,6 +993,12 @@ export function saveStudyPlan(userId: string, input: Partial<StudyPlan>): StudyP
     completedCount: typeof input.completedCount === 'number'
       ? Math.max(0, Math.round(input.completedCount))
       : base.completedCount,
+    weekStartedAt: typeof input.weekStartedAt === 'number'
+      ? Math.max(0, Math.round(input.weekStartedAt))
+      : base.weekStartedAt,
+    weekCompletedCount: typeof input.weekCompletedCount === 'number'
+      ? Math.max(0, Math.round(input.weekCompletedCount))
+      : base.weekCompletedCount,
     weakTags: Array.isArray(input.weakTags)
       ? input.weakTags.map((t) => String(t).slice(0, 40)).slice(0, 30)
       : base.weakTags,
