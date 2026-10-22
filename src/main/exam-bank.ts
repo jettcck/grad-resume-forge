@@ -425,3 +425,6 @@ export function allTags(): string[] {
 export function allDomains(): string[] {
   return [...new Set(EXAM_BANK.map((item) => item.domain))].sort();
 }
+
+/** 题库版本：题目内容变更时递增。试卷保存该值，便于追溯「这份卷子是哪版题库出的」 */
+export const BANK_VERSION = 1;

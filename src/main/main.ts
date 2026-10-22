@@ -36,7 +36,8 @@ import {
   EXAM_BANK,
   allTags as allExamTags,
   allDomains as allExamDomains,
-  getQuestion as getExamQuestion
+  getQuestion as getExamQuestion,
+  BANK_VERSION as EXAM_BANK_VERSION
 } from './exam-bank';
 import * as auth from './auth';
 import * as engine from './resume-engine';
@@ -536,6 +537,26 @@ function publicExamQuestion(q: import('./types').ExamQuestion) {
   };
 }
 
+// 组卷时把题目内容冻结进试卷：题库改版后，历史成绩仍按当时的题干/答案解释
+function buildExamSnapshots(ids: string[]): Record<string, {
+  type: import('./types').ExamQuestionType; stem: string; options?: string[];
+  answer: string | string[]; explanation: string; tags: string[]; version: number;
+}> {
+  const out: Record<string, {
+    type: import('./types').ExamQuestionType; stem: string; options?: string[];
+    answer: string | string[]; explanation: string; tags: string[]; version: number;
+  }> = {};
+  ids.forEach((id) => {
+    const q = getExamQuestion(id);
+    if (!q) return;
+    out[id] = {
+      type: q.type, stem: q.stem, options: q.options,
+      answer: q.answer, explanation: q.explanation, tags: q.tags, version: q.version
+    };
+  });
+  return out;
+}
+
 ipcMain.handle('exam:bank', () => {
   try {
     return ok({
@@ -559,17 +580,26 @@ ipcMain.handle('exam:paper:create', (_e, input: Record<string, unknown>) => {
     let targetRole = input.targetRole ? String(input.targetRole) : '';
     let applicationId = input.applicationId ? String(input.applicationId) : '';
     let title = '模拟笔试';
+    let jobCompany = '';
+    let jobPosition = '';
 
-    // 从岗位池组卷：自动带上 JD、技能要求与关联投递
+    // 从岗位池组卷：自动带上 JD、技能要求与关联投递。
+    // 岗位不存在时直接拒绝 —— 以前会静默退化成通用卷，用户以为在按岗位练，其实不是。
     if (jobId) {
       const job = store.getJob(userId, jobId);
-      if (job) {
-        jdText = jdText || job.jdText || '';
-        skills = skills || job.skills || '';
-        targetRole = targetRole || (job.position || '');
-        applicationId = applicationId || (job.applicationId || '');
-        title = job.company + ' · ' + (job.position || '岗位') + ' 模拟笔试';
-      }
+      if (!job) return fail('岗位不存在或已删除，请刷新岗位池');
+      jdText = jdText || job.jdText || '';
+      skills = skills || job.skills || '';
+      targetRole = targetRole || (job.position || '');
+      applicationId = applicationId || (job.applicationId || '');
+      title = job.company + ' · ' + (job.position || '岗位') + ' 模拟笔试';
+      jobCompany = job.company;
+      jobPosition = job.position || '';
+    }
+
+    // 关联的投递记录也必须存在（岗位上的 applicationId 可能指向已被删除的记录）
+    if (applicationId && !store.listApplications(userId).some((a) => a.id === applicationId)) {
+      applicationId = '';
     }
 
     const count = Number(input.count) || 20;
@@ -580,6 +610,10 @@ ipcMain.handle('exam:paper:create', (_e, input: Record<string, unknown>) => {
       domain: input.domain ? String(input.domain) : undefined
     });
 
+    // 统一校验：所有试卷入口都要过这一关（题目存在、数量、时长边界）
+    const invalid = examCore.validatePaperInput({ questionIds: built.questionIds, durationSec });
+    if (invalid) return fail(invalid);
+
     const paper = store.saveExamPaper(userId, {
       title,
       jobId: jobId || undefined,
@@ -588,7 +622,13 @@ ipcMain.handle('exam:paper:create', (_e, input: Record<string, unknown>) => {
       durationSec,
       passScore,
       domain: built.domain,
-      tags: built.tags
+      tags: built.tags,
+      jobCompany: jobCompany || undefined,
+      jobPosition: jobPosition || undefined,
+      bankVersion: EXAM_BANK_VERSION,
+      composition: built.composition,
+      // 题目快照：题库日后改题/删题，历史成绩仍按当时的内容解释
+      snapshots: buildExamSnapshots(built.questionIds)
     });
 
     const questions = paper.questionIds
@@ -674,8 +714,34 @@ ipcMain.handle('exam:attempt:submit', (_e, attemptId: string, answers: Record<st
     const paper = store.getExamPaper(userId, attempt.paperId);
     if (!paper) return fail('试卷不存在或已删除');
 
+    // 已交卷：幂等返回第一次结果。
+    // 重复提交（连点、超时与手动交卷撞车）不得再累加错题次数、学习计划完成数，
+    // 也不得重复回写投递记录 —— 这里直接短路，不再写任何库。
+    if (attempt.status === 'submitted') {
+      const regraded = examCore.gradePaper(paper.questionIds, attempt.answers || {});
+      return ok({
+        attempt,
+        duplicate: true,
+        result: {
+          score: attempt.score,
+          correctCount: attempt.correctCount,
+          totalCount: attempt.totalCount,
+          passScore: paper.passScore,
+          passed: attempt.score >= paper.passScore,
+          durationSec: attempt.durationSec,
+          tagStats: attempt.tagStats || regraded.tagStats,
+          details: regraded.details
+        }
+      });
+    }
+    if (attempt.status === 'abandoned') return fail('该作答已放弃，请重新组卷');
+
     const graded = examCore.gradePaper(paper.questionIds, answers || {});
-    const durationSec = Math.max(0, Math.round((Date.now() - attempt.startedAt) / 1000));
+    // 用时封顶到限时：超时后才点交卷不应记出「用了 3 小时」这种脏数据
+    const durationSec = Math.min(
+      Math.max(60, Number(paper.durationSec) || 1800),
+      Math.max(0, Math.round((Date.now() - attempt.startedAt) / 1000))
+    );
 
     const saved = store.saveExamAttempt(userId, {
       id: attempt.id,
@@ -693,17 +759,23 @@ ipcMain.handle('exam:attempt:submit', (_e, attemptId: string, answers: Record<st
       store.mergeWrongQuestions(userId, graded.wrongIds.map((id) => ({ questionId: id })));
     }
 
-    // 学习计划：累计完成题量 + 重新计算薄弱知识点
+    // 学习计划：按岗位拆分，只统计同一岗位（或无岗位的通用卷）的历史，避免互相覆盖
+    const scopeJobId = paper.jobId || '';
+    const scopePaperIds = new Set(
+      store.listExamPapers(userId)
+        .filter((p) => (p.jobId || '') === scopeJobId)
+        .map((p) => p.id)
+    );
     const allStats = store.listExamAttempts(userId)
-      .filter((a) => a.status === 'submitted' && a.tagStats)
+      .filter((a) => a.status === 'submitted' && a.tagStats && scopePaperIds.has(a.paperId))
       .map((a) => a.tagStats!);
     const weak = examCore.weakTagsFromStats(allStats).filter((w) => w.rate < 0.8).slice(0, 8);
-    const plan = store.getStudyPlan(userId);
+    const plan = store.getStudyPlan(userId, paper.jobId);
     store.saveStudyPlan(userId, {
-      targetRole: plan ? plan.targetRole : '',
+      jobId: paper.jobId,
+      targetRole: plan ? plan.targetRole : (paper.jobPosition || ''),
       completedCount: (plan ? plan.completedCount : 0) + graded.totalCount,
-      weakTags: weak.map((w) => w.tag),
-      jobId: paper.jobId
+      weakTags: weak.map((w) => w.tag)
     });
 
     // 回写投递记录：笔试完成 → 下一步行动
@@ -802,10 +874,19 @@ ipcMain.handle('exam:review:create', (_e, count?: number) => {
   }
 });
 
-ipcMain.handle('exam:plan:get', (_e) => {
+ipcMain.handle('exam:plan:get', (_e, jobId?: string) => {
   try {
     const userId = sessionUserId(_e);
-    return ok(store.getStudyPlan(userId));
+    return ok(store.getStudyPlan(userId, jobId ? String(jobId) : undefined));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:plan:list', (_e) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.listStudyPlans(userId));
   } catch (err) {
     return fail((err as Error).message);
   }

@@ -209,7 +209,8 @@ function registerIpc() {
     });
     return { paper, questions };
   });
-  h('exam:plan:get', (uid) => store.getStudyPlan(uid));
+  h('exam:plan:get', (uid, jobId) => store.getStudyPlan(uid, jobId));
+  h('exam:plan:list', (uid) => store.listStudyPlans(uid));
   h('exam:plan:save', (uid, input) => store.saveStudyPlan(uid, input));
   // 官方授权导入：与主进程保持同一套去重规则（source+externalId 优先，其次公司+岗位）
   h('applications:importAuthorized', (uid, payload) => {

@@ -1,0 +1,139 @@
+'use strict';
+
+// ============================================================
+//  笔试中心：状态机 / 幂等 / 数据隔离自测
+//  覆盖：重复交卷不重复统计、终态不可回退、孤立草稿拒绝、
+//        学习计划按岗位拆分、试卷快照与真实组卷构成、未作答分类
+// ============================================================
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'grf-exam-'));
+process.env.GRF_TEST_DIR = tmp;
+const store = require('./dist/main/store');
+const auth = require('./dist/main/auth');
+const core = require('./dist/main/exam-core');
+const { EXAM_BANK, getQuestion, BANK_VERSION } = require('./dist/main/exam-bank');
+
+let pass = 0, failCnt = 0;
+function assert(cond, msg) {
+  if (cond) { pass++; console.log('✅ PASS:', msg); }
+  else { failCnt++; console.log('❌ FAIL:', msg); process.exitCode = 1; }
+}
+
+store.init(tmp);
+const user = auth.register({ email: 'exam@test.local', password: 'pass123456', name: '笔试测试' });
+const uid = user.id;
+
+const ids = EXAM_BANK.slice(0, 4).map((q) => q.id);
+const paper = store.saveExamPaper(uid, {
+  title: '测试卷',
+  jobId: 'job_x',
+  jobCompany: '赞同科技',
+  jobPosition: '大模型算法工程师',
+  questionIds: ids,
+  durationSec: 1800,
+  passScore: 60,
+  domain: 'backend',
+  bankVersion: BANK_VERSION,
+  composition: { jd: 3, domain: 1, general: 0 },
+  snapshots: {
+    [ids[0]]: { type: 'single', stem: '快照题干', options: ['A', 'B'], answer: 'A', explanation: '解析', tags: ['java'], version: 1 }
+  }
+});
+
+// ---------------- 1) 试卷快照与构成 ----------------
+assert(paper.jobCompany === '赞同科技' && paper.jobPosition === '大模型算法工程师', '试卷保存岗位快照');
+assert(paper.bankVersion === BANK_VERSION, '试卷记录题库版本');
+assert(paper.composition && paper.composition.jd === 3, '试卷记录真实组卷构成');
+assert(paper.snapshots && paper.snapshots[ids[0]].stem === '快照题干', '试卷保存题目内容快照');
+
+// ---------------- 2) 草稿生命周期 ----------------
+const att = store.saveExamAttempt(uid, { paperId: paper.id, answers: {}, status: 'draft', totalCount: ids.length });
+assert(att.status === 'draft' && att.id, '新建草稿');
+
+const saved = store.saveExamAttempt(uid, { id: att.id, answers: { [ids[0]]: 'A' }, status: 'draft' });
+assert(saved.answers[ids[0]] === 'A', '草稿可保存作答');
+
+// 不存在的 id 不能被写成孤立草稿
+let threw = false;
+try { store.saveExamAttempt(uid, { id: 'att_not_exist', answers: {} }); } catch (_) { threw = true; }
+assert(threw, '不存在的 attemptId 被拒绝（不产生孤立草稿）');
+
+// ---------------- 3) 交卷后终态 ----------------
+const submitted = store.saveExamAttempt(uid, {
+  id: att.id, answers: { [ids[0]]: 'A' }, score: 75, correctCount: 3,
+  totalCount: 4, durationSec: 600, status: 'submitted', tagStats: { java: { correct: 1, total: 1 } }
+});
+assert(submitted.status === 'submitted' && submitted.score === 75, '交卷写入成绩');
+
+// 已交卷不能再回草稿（否则时间/答案会被改写，统计失真）
+threw = false;
+try { store.saveExamAttempt(uid, { id: att.id, answers: {}, status: 'draft' }); } catch (_) { threw = true; }
+assert(threw, '已交卷不能回退为草稿');
+
+// 重复交卷：幂等返回原记录，分数不被覆盖
+const again = store.saveExamAttempt(uid, {
+  id: att.id, answers: {}, score: 100, status: 'submitted'
+});
+assert(again.score === 75, '重复交卷不覆盖第一次成绩（实得 ' + again.score + '）');
+assert(again.correctCount === 3, '重复交卷不覆盖正确数');
+
+// 已交卷不能再改答案
+threw = false;
+try { store.saveExamAttempt(uid, { id: att.id, answers: { [ids[0]]: 'B' } }); } catch (_) { threw = true; }
+assert(threw, '已交卷不能再修改答案');
+
+// 放弃态同样不可写
+const att2 = store.saveExamAttempt(uid, { paperId: paper.id, answers: {}, status: 'draft' });
+store.saveExamAttempt(uid, { id: att2.id, status: 'abandoned' });
+threw = false;
+try { store.saveExamAttempt(uid, { id: att2.id, answers: {}, status: 'draft' }); } catch (_) { threw = true; }
+assert(threw, '已放弃的作答不能回退');
+
+// ---------------- 4) 学习计划按岗位拆分 ----------------
+store.saveStudyPlan(uid, { jobId: 'job_a', targetRole: '后端', completedCount: 20, weakTags: ['java'] });
+store.saveStudyPlan(uid, { jobId: 'job_b', targetRole: '算法', completedCount: 10, weakTags: ['sql'] });
+store.saveStudyPlan(uid, { completedCount: 5, weakTags: ['logic'] });
+
+const planA = store.getStudyPlan(uid, 'job_a');
+const planB = store.getStudyPlan(uid, 'job_b');
+const planGeneral = store.getStudyPlan(uid);
+assert(planA.completedCount === 20 && planA.targetRole === '后端', '岗位 A 的计划独立保存');
+assert(planB.completedCount === 10 && planB.targetRole === '算法', '岗位 B 的计划不被 A 覆盖');
+assert(planGeneral.completedCount === 5, '通用计划与岗位计划互不影响');
+assert(store.listStudyPlans(uid).length === 3, '三个计划并存（实得 ' + store.listStudyPlans(uid).length + '）');
+
+// 再考一次 job_a：只累加自己的进度
+store.saveStudyPlan(uid, { jobId: 'job_a', completedCount: 20 + 20, weakTags: ['java', 'spring'] });
+assert(store.getStudyPlan(uid, 'job_a').completedCount === 40, '同一岗位进度累加正确');
+assert(store.getStudyPlan(uid, 'job_b').completedCount === 10, '累加不影响其它岗位');
+
+// ---------------- 5) 未作答 vs 答错 ----------------
+const q0 = getQuestion(ids[0]);
+const q1 = getQuestion(ids[1]);
+const graded = core.gradePaper([q0.id, q1.id], {
+  // q0 故意答错（选一个非答案项），q1 留空
+  [q0.id]: q0.type === 'multiple' ? ['不存在的选项'] : (q0.options || []).find((o) => o !== q0.answer) || 'x'
+});
+const d0 = graded.details.find((d) => d.questionId === q0.id);
+const d1 = graded.details.find((d) => d.questionId === q1.id);
+assert(d0.reason === 'wrong', '答错标记为 wrong');
+assert(d1.reason === 'unanswered', '留空标记为 unanswered');
+assert(graded.wrongIds.includes(q0.id), '答错的进错题池');
+assert(!graded.wrongIds.includes(q1.id), '未作答不进错题池');
+
+// ---------------- 6) 试卷校验 ----------------
+assert(core.validatePaperInput({ questionIds: ids, durationSec: 1800 }) === null, '合法试卷通过校验');
+assert(core.validatePaperInput({ questionIds: ids, durationSec: 30 }) !== null, '时长过短被拒绝');
+assert(core.validatePaperInput({ questionIds: ['bad_id'] }) !== null, '不存在的题目被拒绝');
+assert(core.validatePaperInput({ questionIds: new Array(60).fill(ids[0]) }) !== null, '超过 50 题被拒绝');
+
+// ---------------- 7) 用户隔离 ----------------
+const user2 = auth.register({ email: 'exam2@test.local', password: 'pass123456', name: '用户二' });
+assert(store.listExamPapers(user2.id).length === 0, '试卷按用户隔离');
+assert(store.listExamAttempts(user2.id).length === 0, '作答按用户隔离');
+assert(store.getStudyPlan(user2.id) === null, '学习计划按用户隔离');
+
+console.log('\n笔试状态机自测完成: ' + pass + ' passed, ' + failCnt + ' failed | exitCode = ' + (process.exitCode || 0));

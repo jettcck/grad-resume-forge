@@ -451,6 +451,18 @@ export interface ExamPaper {
   /** 组卷时使用的方向与标签，便于复盘「这份卷子考了什么」 */
   domain?: string;
   tags?: string[];
+  /** 组卷时的岗位快照：岗位被删除/改名后，历史成绩仍能显示当时投的是哪个岗 */
+  jobCompany?: string;
+  jobPosition?: string;
+  /** 实际组卷构成（JD 知识点 / 方向基础 / 通用），前端按真实值展示比例 */
+  composition?: { jd: number; domain: number; general: number };
+  /** 题库版本：题库改动后，历史卷子的题目口径可追溯 */
+  bankVersion?: number;
+  /** 题目快照：questionId → 组卷当时的题干/选项/答案，题库改版不改变历史成绩的解释 */
+  snapshots?: Record<string, {
+    type: ExamQuestionType; stem: string; options?: string[];
+    answer: string | string[]; explanation: string; tags: string[]; version: number;
+  }>;
 }
 
 export interface ExamAttempt {

@@ -56,7 +56,8 @@ contextBridge.exposeInMainWorld('api', {
     wrongs: () => ipcRenderer.invoke('exam:wrong:list'),
     masterWrong: (questionId: string, mastered: boolean) => ipcRenderer.invoke('exam:wrong:master', questionId, mastered),
     createReview: (count?: number) => ipcRenderer.invoke('exam:review:create', count),
-    getPlan: () => ipcRenderer.invoke('exam:plan:get'),
+    getPlan: (jobId?: string) => ipcRenderer.invoke('exam:plan:get', jobId),
+    listPlans: () => ipcRenderer.invoke('exam:plan:list'),
     savePlan: (input: unknown) => ipcRenderer.invoke('exam:plan:save', input)
   },
   // 招聘平台投递记录同步：只读旁路，不向平台写入任何数据

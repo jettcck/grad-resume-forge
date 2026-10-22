@@ -775,7 +775,21 @@ export function saveExamPaper(userId: string, input: Partial<ExamPaper>): ExamPa
     passScore: Math.min(100, Math.max(0, Math.round(Number(input.passScore) || 60))),
     createdAt: now,
     domain: input.domain ? String(input.domain).slice(0, 40) : undefined,
-    tags: Array.isArray(input.tags) ? input.tags.map((t) => String(t).slice(0, 40)).slice(0, 30) : undefined
+    tags: Array.isArray(input.tags) ? input.tags.map((t) => String(t).slice(0, 40)).slice(0, 30) : undefined,
+    jobCompany: input.jobCompany ? String(input.jobCompany).slice(0, 120) : undefined,
+    jobPosition: input.jobPosition ? String(input.jobPosition).slice(0, 120) : undefined,
+    bankVersion: typeof input.bankVersion === 'number' ? input.bankVersion : undefined,
+    composition: input.composition && typeof input.composition === 'object'
+      ? {
+          jd: Math.max(0, Math.round(Number(input.composition.jd) || 0)),
+          domain: Math.max(0, Math.round(Number(input.composition.domain) || 0)),
+          general: Math.max(0, Math.round(Number(input.composition.general) || 0))
+        }
+      : undefined,
+    // 题目快照：题库改版后，历史成绩仍按当时的题干/答案解释
+    snapshots: input.snapshots && typeof input.snapshots === 'object'
+      ? (JSON.parse(JSON.stringify(input.snapshots)) as ExamPaper['snapshots'])
+      : undefined
   };
   const idx = list.findIndex((x) => x.id === paper.id);
   if (idx >= 0) list[idx] = paper; else list.unshift(paper);
@@ -801,8 +815,18 @@ export function saveExamAttempt(userId: string, input: Partial<ExamAttempt>): Ex
   const list = db.examAttempts[userId]!;
   const now = Date.now();
 
-  let att = input.id ? list.find((x) => x.id === input.id) : undefined;
-  if (!att) {
+  let att: ExamAttempt | undefined;
+  if (input.id) {
+    att = list.find((x) => x.id === input.id);
+    // 带 id 却找不到：拒绝，避免把拼错/过期的 id 悄悄写成一条孤立草稿
+    if (!att) throw new Error('作答记录不存在或已删除');
+    // 终态不可回退：已交卷/已放弃的记录不再接受任何写入。
+    // 重复交卷按幂等处理（原样返回第一次结果），其余写操作直接拒绝。
+    if (att.status === 'submitted' || att.status === 'abandoned') {
+      if (input.status === 'submitted' && att.status === 'submitted') return att;
+      throw new Error(att.status === 'submitted' ? '已交卷的作答不能再修改' : '已放弃的作答不能再修改');
+    }
+  } else {
     att = {
       id: 'att_' + now + '_' + Math.random().toString(36).slice(2, 8),
       paperId: String(input.paperId || ''),
@@ -905,19 +929,36 @@ export function setWrongMastered(userId: string, questionId: string, mastered: b
   return hit;
 }
 
-export function getStudyPlan(userId: string): StudyPlan | null {
-  const list = db.examPlans[userId] || [];
-  return list.length ? (JSON.parse(JSON.stringify(list[0])) as StudyPlan) : null;
+/** 学习计划的归属键：有岗位按岗位，没有则归到通用计划 */
+function planKey(jobId?: string): string {
+  return String(jobId || '').slice(0, 80);
 }
 
-/** 学习计划每个用户一份（单例），重复保存即更新 */
+export function listStudyPlans(userId: string): StudyPlan[] {
+  return (db.examPlans[userId] || []).slice();
+}
+
+export function getStudyPlan(userId: string, jobId?: string): StudyPlan | null {
+  const key = planKey(jobId);
+  const hit = (db.examPlans[userId] || []).find((p) => planKey(p.jobId) === key);
+  return hit ? (JSON.parse(JSON.stringify(hit)) as StudyPlan) : null;
+}
+
+/**
+ * 学习计划按 jobId 拆分（每个岗位一份，另有一份通用计划）。
+ * 以前每个用户只有一份，考第二个岗位时会覆盖前一个岗位的进度与薄弱项。
+ */
 export function saveStudyPlan(userId: string, input: Partial<StudyPlan>): StudyPlan {
   if (!findUserById(userId)) throw new Error('用户不存在');
   if (!db.examPlans[userId]) db.examPlans[userId] = [];
   const list = db.examPlans[userId]!;
   const now = Date.now();
-  const base: StudyPlan = list[0] || {
+  const key = planKey(input.jobId);
+  const idx = list.findIndex((p) => planKey(p.jobId) === key);
+
+  const base: StudyPlan = idx >= 0 ? list[idx]! : {
     id: 'plan_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    jobId: key || undefined,
     targetRole: '',
     weeklyQuestionGoal: 30,
     completedCount: 0,
@@ -925,13 +966,15 @@ export function saveStudyPlan(userId: string, input: Partial<StudyPlan>): StudyP
     createdAt: now,
     updatedAt: now
   };
+
   const next: StudyPlan = {
     ...base,
-    jobId: input.jobId !== undefined ? (input.jobId ? String(input.jobId) : undefined) : base.jobId,
+    jobId: key || undefined,
     targetRole: input.targetRole !== undefined ? String(input.targetRole).slice(0, 80) : base.targetRole,
     weeklyQuestionGoal: typeof input.weeklyQuestionGoal === 'number'
       ? Math.min(500, Math.max(1, Math.round(input.weeklyQuestionGoal)))
       : base.weeklyQuestionGoal,
+    // 允许显式传 0（重置进度）
     completedCount: typeof input.completedCount === 'number'
       ? Math.max(0, Math.round(input.completedCount))
       : base.completedCount,
@@ -940,7 +983,9 @@ export function saveStudyPlan(userId: string, input: Partial<StudyPlan>): StudyP
       : base.weakTags,
     updatedAt: now
   };
-  list[0] = next;
+
+  if (idx >= 0) list[idx] = next;
+  else list.unshift(next);
   persist();
   return next;
 }

@@ -3680,12 +3680,38 @@ const examState = {
   plan: null,
   timer: null,
   remaining: 0,
-  saveTimer: null
+  saveTimer: null,
+  autoSaveTimer: null,
+  deadline: 0
 };
 
 function stopExamTimer() {
   if (examState.timer) { clearInterval(examState.timer); examState.timer = null; }
   if (examState.saveTimer) { clearTimeout(examState.saveTimer); examState.saveTimer = null; }
+  // 每 20 秒的兜底保存也要停：切走/交卷后不该再往后端写
+  if (examState.autoSaveTimer) { clearInterval(examState.autoSaveTimer); examState.autoSaveTimer = null; }
+}
+
+function setSaveHint(text, isErr) {
+  const hint = document.getElementById('exam-save-hint');
+  if (!hint) return;
+  hint.textContent = text;
+  hint.classList.toggle('err', !!isErr);
+}
+
+// 除「改动后防抖保存」外的兜底：每 20 秒存一次。
+// 用户可能长时间盯着题不动笔，只靠 debounce 会一直不落盘。
+function startAutoSaveLoop() {
+  if (examState.autoSaveTimer) clearInterval(examState.autoSaveTimer);
+  examState.autoSaveTimer = setInterval(async () => {
+    if (examState.view !== 'answering' || !examState.attempt) return;
+    try {
+      await call(window.api.exam.saveDraft(examState.attempt.id, examState.answers));
+      setSaveHint('草稿已保存 · ' + new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+    } catch (err) {
+      setSaveHint('草稿保存失败：' + err.message, true);
+    }
+  }, 20000);
 }
 
 function examAnsweredCount() {
@@ -3776,12 +3802,16 @@ async function renderExamHome(root) {
   let wrongs = [];
   let plan = null;
   let bankInfo = null;
+  let papers = [];
+  let plans = [];
   try {
-    [attempts, wrongs, plan, bankInfo] = await Promise.all([
+    [attempts, wrongs, plan, bankInfo, papers, plans] = await Promise.all([
       call(window.api.exam.listAttempts()),
       call(window.api.exam.wrongs()),
       call(window.api.exam.getPlan()),
-      call(window.api.exam.bank())
+      call(window.api.exam.bank()),
+      call(window.api.exam.listPapers()),
+      call(window.api.exam.listPlans())
     ]);
   } catch (err) {
     toast(err.message, 'err');
@@ -3814,15 +3844,35 @@ async function renderExamHome(root) {
 
   const submitted = (attempts || []).filter((a) => a.status === 'submitted').slice(0, 8);
   const activeWrongs = (wrongs || []).filter((w) => !w.mastered);
+  const paperMap = new Map((papers || []).map((p) => [p.id, p]));
 
   const historyCard = el('div', { class: 'exam-card' }, [
     el('h3', {}, ['最近成绩']),
     submitted.length
-      ? el('div', { class: 'exam-history' }, submitted.map((a) => el('div', { class: 'exam-history-row' }, [
-          el('span', { class: 'eh-score' + (a.score >= 60 ? ' ok' : ' bad') }, [String(a.score)]),
-          el('span', { class: 'eh-meta' }, [a.correctCount + '/' + a.totalCount + ' 题正确 · 用时 ' + fmtClock(a.durationSec)]),
-          el('span', { class: 'eh-time' }, [timeAgo(a.submittedAt || a.startedAt)])
-        ])))
+      ? el('div', { class: 'exam-history' }, submitted.map((a) => {
+          const p = paperMap.get(a.paperId);
+          const passScore = p ? p.passScore : 60;
+          // 岗位快照优先：岗位被删/改名后，历史成绩仍能看出当时投的是哪个岗
+          const title = p
+            ? (p.jobCompany ? p.jobCompany + ' · ' + (p.jobPosition || '未填岗位') : p.title)
+            : '（试卷已删除）';
+          return el('div', { class: 'exam-history-row' }, [
+            el('span', { class: 'eh-score' + (a.score >= passScore ? ' ok' : ' bad') }, [String(a.score)]),
+            el('div', { class: 'eh-body' }, [
+              el('div', { class: 'eh-title' }, [
+                title,
+                a.score >= passScore
+                  ? el('span', { class: 'eh-pass' }, ['通过'])
+                  : el('span', { class: 'eh-fail' }, ['未通过'])
+              ]),
+              el('div', { class: 'eh-meta' }, [
+                a.correctCount + '/' + a.totalCount + ' 题正确 · 用时 ' + fmtClock(a.durationSec)
+                + (p && p.domain ? ' · ' + (DOMAIN_LABELS[p.domain] || p.domain) : '')
+              ])
+            ]),
+            el('span', { class: 'eh-time' }, [timeAgo(a.submittedAt || a.startedAt)])
+          ]);
+        }))
       : el('div', { class: 'exam-empty' }, ['还没有考试记录，先做一套试试。'])
   ]);
 
@@ -3831,6 +3881,8 @@ async function renderExamHome(root) {
     el('div', { class: 'exam-stat-line' }, [
       el('span', {}, ['未掌握 ' + activeWrongs.length + ' 题']),
       el('span', {}, ['累计 ' + (wrongs || []).length + ' 题']),
+      // 每个岗位一份学习计划：这里显示一共在练几个岗位
+      plans.length > 1 ? el('span', {}, [plans.length + ' 个岗位独立进度']) : null,
       plan && plan.weakTags && plan.weakTags.length
         ? el('span', {}, ['薄弱：' + plan.weakTags.slice(0, 4).join(' / ')])
         : null
@@ -3853,7 +3905,8 @@ async function renderExamHome(root) {
   root.append(startCard, el('div', { class: 'exam-grid' }, [historyCard, wrongCard]));
 }
 
-// 继续未完成的草稿：重新取回试卷题目并恢复已存作答
+// 继续未完成的草稿：重新取回试卷题目并恢复已存作答。
+// 剩余时间按「开始时间 + 限时」算；已经超时的话直接自动交卷，不给补答的机会。
 async function resumeDraft(attempt) {
   try {
     const data = await call(window.api.exam.getPaper(attempt.paperId));
@@ -3864,9 +3917,18 @@ async function resumeDraft(attempt) {
     examState.answers = Object.assign({}, started.attempt.answers || {});
     examState.index = 0;
     examState.result = null;
+
+    const remain = examRemainingSec(data.paper, started.attempt.startedAt);
+    if (remain <= 0) {
+      toast('这份卷子已超过限时，正在自动交卷', 'err');
+      examState.view = 'answering';
+      await submitExam(true);
+      return;
+    }
+
     examState.view = 'answering';
+    startExamTimer(data.paper, started.attempt.startedAt);
     await renderExamCenter();
-    startExamTimer(data.paper.durationSec);
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -3883,8 +3945,9 @@ async function startExam(opts) {
     examState.index = 0;
     examState.result = null;
     examState.view = 'answering';
+    // 先起计时（写入剩余秒数），再渲染，答题页首帧就有正确倒计时
+    startExamTimer(created.paper, started.attempt.startedAt);
     await renderExamCenter();
-    startExamTimer(created.paper.durationSec);
   } catch (err) {
     toast(err.message, 'err');
   }
@@ -3901,33 +3964,48 @@ async function startReviewExam() {
     examState.index = 0;
     examState.result = null;
     examState.view = 'answering';
+    // 先起计时（写入剩余秒数），再渲染，答题页首帧就有正确倒计时
+    startExamTimer(created.paper, started.attempt.startedAt);
     await renderExamCenter();
-    startExamTimer(created.paper.durationSec);
   } catch (err) {
     toast(err.message, 'err');
   }
 }
 
 // ---------------- 视图 2：答题 ----------------
-function startExamTimer(totalSec) {
+// 倒计时基于「开始时间 + 限时」的绝对截止时刻，每秒用 Date.now() 重算。
+// 这样刷新页面 / 恢复草稿 / 系统休眠后都不会白送时间——
+// 之前每次进入答题页都从满时长重新计时，关掉再进等于无限续杯。
+function examRemainingSec(paper, startedAt) {
+  const durationSec = Math.max(60, Number(paper && paper.durationSec) || 1800);
+  const start = Number(startedAt) || Date.now();
+  return Math.max(0, Math.ceil((start + durationSec * 1000 - Date.now()) / 1000));
+}
+
+function startExamTimer(paper, startedAt) {
   stopExamTimer();
-  examState.remaining = Number(totalSec) || 1800;
-  // 先把倒计时渲染出来，避免第一秒空白
-  const clock0 = document.getElementById('exam-clock');
-  if (clock0) clock0.textContent = fmtClock(examState.remaining);
-  examState.timer = setInterval(() => {
-    examState.remaining--;
+  const durationSec = Math.max(60, Number(paper && paper.durationSec) || 1800);
+  const start = Number(startedAt) || Date.now();
+  const deadline = start + durationSec * 1000;
+  examState.deadline = deadline;
+  examState.remaining = examRemainingSec(paper, start);
+
+  const tick = () => {
+    const remain = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+    examState.remaining = remain;
     const clock = document.getElementById('exam-clock');
     if (clock) {
-      clock.textContent = fmtClock(examState.remaining);
-      clock.classList.toggle('urgent', examState.remaining <= 60);
+      clock.textContent = fmtClock(remain);
+      clock.classList.toggle('urgent', remain <= 60);
     }
-    if (examState.remaining <= 0) {
+    if (remain <= 0) {
       stopExamTimer();
       toast('时间到，已自动交卷', 'err');
       submitExam(true);
     }
-  }, 1000);
+  };
+  tick();
+  examState.timer = setInterval(tick, 1000);
 }
 
 function scheduleDraftSave() {
@@ -3936,9 +4014,11 @@ function scheduleDraftSave() {
     if (!examState.attempt) return;
     try {
       await call(window.api.exam.saveDraft(examState.attempt.id, examState.answers));
-      const hint = document.getElementById('exam-save-hint');
-      if (hint) hint.textContent = '草稿已保存 · ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
-    } catch (_) { /* 草稿保存失败不打断答题 */ }
+      setSaveHint('草稿已保存 · ' + new Date().toLocaleTimeString('zh-CN', { hour12: false }));
+    } catch (err) {
+      // 失败必须留在界面上：只弹一个 2.6 秒就消失的 toast，等于没提示
+      setSaveHint('草稿保存失败：' + err.message, true);
+    }
   }, 700);
 }
 
@@ -3947,7 +4027,15 @@ function renderExamAnswering(root) {
   const questions = examState.questions;
 
   const head = el('div', { class: 'exam-bar' }, [
-    el('div', { class: 'exam-bar-title' }, [paper.title || '模拟笔试']),
+    el('div', { class: 'exam-bar-title' }, [
+      paper.title || '模拟笔试',
+      // 真实组卷构成：没有 JD 时这里会显示 0 道 JD 题，而不是笼统的「60%」
+      paper.composition
+        ? el('span', { class: 'exam-comp' }, [
+            'JD ' + paper.composition.jd + ' · 方向 ' + paper.composition.domain + ' · 通用 ' + paper.composition.general
+          ])
+        : null
+    ]),
     el('div', { class: 'exam-bar-stat' }, [
       el('span', { id: 'exam-progress' }, ['已答 ' + examAnsweredCount() + ' / ' + questions.length]),
       el('span', { id: 'exam-clock', class: 'exam-clock' }, [fmtClock(examState.remaining)])
@@ -3981,6 +4069,7 @@ function renderExamAnswering(root) {
   root.append(head, navBox, qBox, footer);
   renderExamNav();
   renderExamQuestionBox();
+  startAutoSaveLoop();
 }
 
 function gotoQuestion(i) {
@@ -4129,6 +4218,9 @@ function renderExamResult(root) {
           const q = examState.questions.find((x) => x.id === d.questionId);
           return el('div', { class: 'exam-detail-item' }, [
             el('div', { class: 'ed-stem' }, [q ? q.stem : d.questionId]),
+            el('div', { class: 'ed-reason' + (d.reason === 'unanswered' ? ' unanswered' : '') }, [
+              d.reason === 'unanswered' ? '⚠ 未作答（只扣分，不进错题本）' : '✕ 答错'
+            ]),
             el('div', { class: 'ed-row' }, [
               el('span', { class: 'ed-label bad' }, ['你的答案']),
               el('span', {}, [fmtAnswer(d.userAnswer)])

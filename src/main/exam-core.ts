@@ -231,6 +231,8 @@ export function buildPaper(opts: BuildPaperOptions = {}): BuiltPaper {
 export interface GradeDetail {
   questionId: string;
   correct: boolean;
+  /** correct=答对，wrong=答了但错，unanswered=没作答（只扣分，不进错题本） */
+  reason: 'correct' | 'wrong' | 'unanswered';
   userAnswer: string | string[] | null;
   correctAnswer: string | string[];
   explanation: string;
@@ -301,8 +303,10 @@ export function gradePaper(
     if (!question) continue; // 题库改版后老卷子里的题可能已删除
     const userAnswer = answers[qid] == null ? null : answers[qid];
     const ok = isCorrect(question, userAnswer);
+    // 是否真的动过手：空数组 / 空白字符串都算「没作答」
+    const answered = userAnswer != null && asArray(userAnswer).some((x) => String(x).trim());
     if (ok) correctCount++;
-    else if (userAnswer != null && asArray(userAnswer).some((x) => String(x).trim())) {
+    else if (answered) {
       // 只有真正作答却答错的才进错题本；空着不算错题
       wrongIds.push(qid);
     }
@@ -315,6 +319,7 @@ export function gradePaper(
     details.push({
       questionId: qid,
       correct: ok,
+      reason: ok ? 'correct' : (answered ? 'wrong' : 'unanswered'),
       userAnswer: userAnswer as string | string[] | null,
       correctAnswer: question.answer,
       explanation: question.explanation,
