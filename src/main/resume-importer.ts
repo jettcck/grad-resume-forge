@@ -121,11 +121,14 @@ async function getPdfjs(): Promise<PdfjsModule> {
  * 坐标来自 textItem.transform：[a, b, c, d, x, y]。
  * 同一行的 y 会有亚像素差异（字号不同、基线偏移），所以用容差归并。
  */
-export function groupTextItemsByLine(items: Array<{
+export interface PdfGlyph { x: number; y: number; w: number; str: string }
+
+/** 从 pdfjs 的 textContent.items 抽出带坐标的字形项 */
+export function extractGlyphs(items: Array<{
   str?: unknown; width?: number; height?: number;
   transform?: number[]; hasEOL?: boolean;
-}>): string[] {
-  const glyphs: Array<{ x: number; y: number; w: number; str: string }> = [];
+}>): PdfGlyph[] {
+  const glyphs: PdfGlyph[] = [];
   for (const it of items) {
     if (typeof it.str !== 'string' || !it.str) continue;
     const tr = it.transform;
@@ -137,6 +140,54 @@ export function groupTextItemsByLine(items: Array<{
       str: it.str
     });
   }
+  return glyphs;
+}
+
+/**
+ * 检测双栏排版的中缝位置。
+ *
+ * 原理：把页面宽度切成 2px 的格子，标记「哪些横向区间有字形」，然后在页面中部
+ * （30%–70%）找最长的连续空白。双栏简历中间必有一条贯穿的空白带；
+ * 单栏正文会横跨整个宽度，中部不会有长空白，所以不会误判。
+ *
+ * 阈值取 max(24px, 页宽 3%)：太松会把「段落之间的大边距」当成栏缝，
+ * 太紧会漏掉栏间距较窄的模板。
+ *
+ * @returns 中缝中心 x 坐标；不是双栏则返回 null
+ */
+export function detectColumnGutter(glyphs: PdfGlyph[], pageWidth: number): number | null {
+  if (!glyphs.length || !(pageWidth > 0)) return null;
+  const BIN = 2;
+  const binCount = Math.ceil(pageWidth / BIN);
+  const covered = new Array<boolean>(binCount).fill(false);
+  for (const g of glyphs) {
+    const from = Math.max(0, Math.floor(g.x / BIN));
+    const to = Math.min(binCount - 1, Math.ceil((g.x + g.w) / BIN));
+    for (let i = from; i <= to; i++) covered[i] = true;
+  }
+
+  const lo = Math.floor(binCount * 0.3);
+  const hi = Math.ceil(binCount * 0.7);
+  let bestStart = -1;
+  let bestLen = 0;
+  let curStart = -1;
+  for (let i = lo; i < hi; i++) {
+    if (!covered[i]) {
+      if (curStart < 0) curStart = i;
+      const len = i - curStart + 1;
+      if (len > bestLen) { bestLen = len; bestStart = curStart; }
+    } else {
+      curStart = -1;
+    }
+  }
+  if (bestStart < 0) return null;
+  const gutterPx = bestLen * BIN;
+  if (gutterPx < Math.max(24, pageWidth * 0.03)) return null;
+  return bestStart * BIN + gutterPx / 2;
+}
+
+/** 把字形项按视觉行聚成文本行（调用方先决定给哪些 glyphs） */
+export function glyphsToLines(glyphs: PdfGlyph[]): string[] {
   if (!glyphs.length) return [];
 
   // 行容差：取常见字号的 60%，并夹在 2–6pt 之间（太小会把上下行粘一起，太大会把同一行拆开）
@@ -173,6 +224,14 @@ export function groupTextItemsByLine(items: Array<{
     .filter(Boolean);
 }
 
+/** 兼容入口：直接从 textContent.items 聚行（不处理分栏） */
+export function groupTextItemsByLine(items: Array<{
+  str?: unknown; width?: number; height?: number;
+  transform?: number[]; hasEOL?: boolean;
+}>): string[] {
+  return glyphsToLines(extractGlyphs(items));
+}
+
 async function extractPdfText(filePath: string): Promise<{ text: string; lines: string[]; pages: number }> {
   const pdfjs = await getPdfjs();
   const standardFonts = path.join(
@@ -200,9 +259,19 @@ async function extractPdfText(filePath: string): Promise<{ text: string; lines: 
     for (let p = 1; p <= pages; p++) {
       const page = await doc.getPage(p);
       const tc = await page.getTextContent();
-      lines.push(...groupTextItemsByLine(tc.items as unknown as Array<{
+      const glyphs = extractGlyphs(tc.items as unknown as Array<{
         str?: unknown; width?: number; height?: number; transform?: number[]; hasEOL?: boolean;
-      }>));
+      }>);
+      const pageWidth = page.getViewport({ scale: 1 }).width;
+      const gutter = detectColumnGutter(glyphs, pageWidth);
+      if (gutter != null) {
+        // 双栏：先读完左栏再读右栏——这才是人读简历的顺序。
+        // 按 y 直接聚行会把左右栏同一高度的两行拼成一行（「教育背景 实习经历」）。
+        lines.push(...glyphsToLines(glyphs.filter((g) => g.x < gutter)));
+        lines.push(...glyphsToLines(glyphs.filter((g) => g.x >= gutter)));
+      } else {
+        lines.push(...glyphsToLines(glyphs));
+      }
     }
   } finally {
     try { await doc.destroy(); } catch (_) { /* 忽略 */ }

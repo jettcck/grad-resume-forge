@@ -346,6 +346,59 @@ assert(importer.groupTextItemsByLine([]).length === 0, '空文本项返回空数
 assert(importer.groupTextItemsByLine([{ str: 123 }, { str: '' }]).length === 0,
   '非字符串/空字符串项被忽略（不抛错）');
 
+// ---------------- 双栏检测（中缝） ----------------
+// 双栏简历是排版常态，但只要不检测中缝，按 y 聚行就会把左右栏同一高度的两行拼成
+// 「教育背景 实习经历」——这是最容易被用户当成"解析乱码"的情况。
+const leftCol = [
+  { x: 40, y: 700, w: 60, str: '教育背景' },
+  { x: 40, y: 680, w: 90, str: '浙江大学 计算机' }
+];
+const rightCol = [
+  { x: 420, y: 700, w: 60, str: '实习经历' },
+  { x: 420, y: 680, w: 90, str: '阿里巴巴 后端' }
+];
+const gutter = importer.detectColumnGutter([...leftCol, ...rightCol], 794);
+assert(gutter != null && gutter > 300 && gutter < 450,
+  '双栏：中缝落在两栏之间（实得 ' + gutter + '）');
+
+// 按中缝切开后，两栏各自成行，互不串
+const leftLines = importer.glyphsToLines([...leftCol, ...rightCol].filter((g) => g.x < gutter));
+const rightLines = importer.glyphsToLines([...leftCol, ...rightCol].filter((g) => g.x >= gutter));
+assert(leftLines.join('|') === '教育背景|浙江大学 计算机',
+  '双栏：左栏独立成行（实得 ' + JSON.stringify(leftLines) + '）');
+assert(rightLines.join('|') === '实习经历|阿里巴巴 后端',
+  '双栏：右栏独立成行（实得 ' + JSON.stringify(rightLines) + '）');
+
+// 单栏不能误判：文本横跨整个宽度，中部没有连续空白
+const singleCol = [
+  { x: 40, y: 700, w: 700, str: '这是一段横跨整页的正文，中间没有任何分栏' },
+  { x: 40, y: 680, w: 700, str: '第二行同样横跨整页宽度' }
+];
+assert(importer.detectColumnGutter(singleCol, 794) === null, '单栏文本不被误判为双栏');
+
+// 窄间隙（小于 24px）不算栏缝：段落间的正常留白不该触发分栏
+const narrowGap = [
+  { x: 40, y: 700, w: 300, str: '左' },
+  { x: 350, y: 700, w: 300, str: '右' }
+];
+assert(importer.detectColumnGutter(narrowGap, 794) === null,
+  '窄间隙（< 24px）不当作栏缝（实得 ' + importer.detectColumnGutter(narrowGap, 794) + '）');
+
+assert(importer.detectColumnGutter([], 794) === null, '空字形集返回 null（不抛错）');
+assert(importer.detectColumnGutter(leftCol, 0) === null, '页宽为 0 时返回 null（不除零）');
+
+// 抽取层：glyphs 过滤后仍能正确聚行（模拟 extractPdfText 的调用方式）
+const mixed = [
+  { str: '左一', transform: [1, 0, 0, 1, 40, 700], width: 30 },
+  { str: '右一', transform: [1, 0, 0, 1, 420, 700], width: 30 },
+  { str: '左二', transform: [1, 0, 0, 1, 40, 680], width: 30 }
+];
+const mixedGlyphs = importer.extractGlyphs(mixed);
+const mixedGutter = importer.detectColumnGutter(mixedGlyphs, 794);
+assert(mixedGutter != null, '透传 textContent.items 也能检出中缝');
+assert(importer.glyphsToLines(mixedGlyphs.filter((g) => g.x < mixedGutter)).join('|') === '左一|左二',
+  'extractGlyphs + 中缝过滤 + 聚行的组合可用');
+
 function done() {
   console.log('\n导入器自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
 }
