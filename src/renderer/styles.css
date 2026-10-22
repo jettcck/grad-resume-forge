@@ -1947,3 +1947,27 @@ em { font-style: normal; color: var(--gold); }
 .ed-reason.unanswered { color: var(--ink-2); }
 /* 草稿保存失败状态 */
 .exam-save-hint.err { color: #d4695f; }
+
+/* 知识点趋势图 */
+.trend-wrap { display: flex; flex-direction: column; gap: 10px; }
+.trend-svg { width: 100%; height: 150px; display: block; }
+.trend-legend { display: flex; flex-wrap: wrap; gap: 14px; }
+.trend-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--ink-1); font-family: var(--font-mono);
+}
+.trend-item i { width: 10px; height: 3px; border-radius: 2px; display: inline-block; }
+.trend-note { font-size: 10.5px; color: var(--ink-2); font-family: var(--font-mono); opacity: .8; }
+
+/* 即将参加的笔试 */
+.upcoming-list { display: flex; flex-direction: column; gap: 8px; }
+.upcoming-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 0; border-bottom: 1px dashed var(--line);
+}
+.upcoming-row:last-child { border-bottom: none; }
+.up-when {
+  font-family: var(--font-mono); font-size: 12px; color: var(--gold-soft);
+  min-width: 82px; flex: none;
+}
+.up-co { flex: 1; font-size: 12.5px; color: var(--ink-1); }

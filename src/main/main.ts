@@ -4,7 +4,7 @@
 //  主进程入口（TypeScript 版）
 // ============================================================
 
-import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, session } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell, clipboard, session, Notification } from 'electron';
 import path from 'path';
 import fs from 'fs';
 import { pathToFileURL } from 'url';
@@ -887,6 +887,16 @@ ipcMain.handle('exam:plan:list', (_e) => {
   try {
     const userId = sessionUserId(_e);
     return ok(store.listStudyPlans(userId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 知识点趋势：取最薄弱的 topN 个知识点及其历次正确率
+ipcMain.handle('exam:trends', (_e, topN?: number) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(examCore.buildTagTrends(store.listExamAttempts(userId), Number(topN) || 3));
   } catch (err) {
     return fail((err as Error).message);
   }
@@ -1841,4 +1851,39 @@ app.whenReady().then(() => {
       autoUpdater.checkForUpdates().catch(() => {}); // 失败静默，不打扰用户
     }, 15000);
   }
+
+  // 笔试提醒：启动 8 秒后查一次，之后每 30 分钟查一次。
+  // 只提醒 24 小时内即将开始的笔试，同一场（投递 id + 时间）只提醒一次。
+  setTimeout(checkExamReminders, 8000);
+  setInterval(checkExamReminders, 30 * 60 * 1000);
 });
+
+// ---------------- 笔试提醒 ----------------
+// 数据来源是本机投递记录的 examAt（岗位池「设置笔试时间」写入），不联网、不上传。
+const notifiedExams = new Set<string>();
+
+function checkExamReminders(): void {
+  try {
+    if (!Notification.isSupported()) return;
+    const db = store._dbForTest();
+    const now = Date.now();
+    for (const uid of Object.keys(db.applications || {})) {
+      for (const a of db.applications[uid] || []) {
+        if (!a.examAt) continue;
+        const t = Date.parse(String(a.examAt).replace(/-/g, '/'));
+        if (isNaN(t)) continue;
+        const diffMs = t - now;
+        if (diffMs < 0 || diffMs > 24 * 3600 * 1000) continue; // 只提醒 24 小时内
+        const key = a.id + '|' + a.examAt;
+        if (notifiedExams.has(key)) continue;
+        notifiedExams.add(key);
+        const hours = diffMs / 3600000;
+        const when = hours < 1 ? '不到 1 小时后' : Math.round(hours) + ' 小时后';
+        new Notification({
+          title: '笔试提醒 · ' + when,
+          body: (a.company || '') + ' · ' + (a.position || '') + '\n' + a.examAt
+        }).show();
+      }
+    }
+  } catch (_) { /* 通知不可用不影响主流程 */ }
+}

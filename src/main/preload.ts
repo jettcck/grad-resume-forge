@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld('api', {
     createReview: (count?: number) => ipcRenderer.invoke('exam:review:create', count),
     getPlan: (jobId?: string) => ipcRenderer.invoke('exam:plan:get', jobId),
     listPlans: () => ipcRenderer.invoke('exam:plan:list'),
+    trends: (topN?: number) => ipcRenderer.invoke('exam:trends', topN),
     savePlan: (input: unknown) => ipcRenderer.invoke('exam:plan:save', input)
   },
   // 招聘平台投递记录同步：只读旁路，不向平台写入任何数据

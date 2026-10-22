@@ -130,7 +130,28 @@ assert(core.validatePaperInput({ questionIds: ids, durationSec: 30 }) !== null, 
 assert(core.validatePaperInput({ questionIds: ['bad_id'] }) !== null, '不存在的题目被拒绝');
 assert(core.validatePaperInput({ questionIds: new Array(60).fill(ids[0]) }) !== null, '超过 50 题被拒绝');
 
-// ---------------- 7) 用户隔离 ----------------
+// ---------------- 8) 知识点趋势 ----------------
+assert(core.buildTagTrends([]).length === 0, '无作答记录时趋势为空');
+assert(core.buildTagTrends([
+  { status: 'submitted', tagStats: { java: { correct: 1, total: 3 } }, submittedAt: 1 }
+]).length === 0, '样本不足 2 次的知识点不进入趋势');
+
+const trendAttempts = [
+  { status: 'submitted', tagStats: { java: { correct: 1, total: 4 }, sql: { correct: 3, total: 4 } }, submittedAt: 1000 },
+  { status: 'submitted', tagStats: { java: { correct: 3, total: 4 }, sql: { correct: 4, total: 4 } }, submittedAt: 2000 },
+  { status: 'submitted', tagStats: { java: { correct: 4, total: 5 } }, submittedAt: 3000 },
+  { status: 'draft', tagStats: { java: { correct: 0, total: 9 } }, submittedAt: 4000 }
+];
+const trends = core.buildTagTrends(trendAttempts, 3);
+assert(trends.length === 2, '只返回有足够样本的知识点（实得 ' + trends.length + '）');
+assert(trends[0].tag === 'java', '最薄弱的知识点排第一位（java）');
+assert(trends[0].points.length === 3, '趋势点按已交卷次数生成（实得 ' + trends[0].points.length + '）');
+assert(Math.abs(trends[0].points[0] - 0.25) < 1e-9 && Math.abs(trends[0].points[2] - 0.8) < 1e-9,
+  '趋势点按时间顺序递增（0.25 → 0.8）');
+assert(trends.every((t) => t.rate >= 0 && t.rate <= 1), '正确率在 0-1 之间');
+assert(core.buildTagTrends(trendAttempts, 1).length === 1, 'topN 生效');
+
+// ---------------- 9) 用户隔离 ----------------
 const user2 = auth.register({ email: 'exam2@test.local', password: 'pass123456', name: '用户二' });
 assert(store.listExamPapers(user2.id).length === 0, '试卷按用户隔离');
 assert(store.listExamAttempts(user2.id).length === 0, '作答按用户隔离');

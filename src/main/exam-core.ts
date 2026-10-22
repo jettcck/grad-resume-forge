@@ -5,7 +5,7 @@
 //  评分规则：单选与判断完全正确得分；多选集合完全一致才得分；
 //           填空做归一化后比较；全部不倒扣。
 // ============================================================
-import type { ExamQuestion, ExamPaper, WrongQuestion } from './types';
+import type { ExamQuestion, ExamPaper, WrongQuestion, ExamAttempt } from './types';
 import { EXAM_BANK, QUESTION_MAP } from './exam-bank';
 
 // ---------------- 知识点关键词 ----------------
@@ -497,4 +497,54 @@ export function validatePaperInput(input: Partial<ExamPaper>): string | null {
   const dur = Number(input.durationSec);
   if (dur !== undefined && (!isFinite(dur) || dur < 60 || dur > 7200)) return '限时需在 1 分钟到 2 小时之间';
   return null;
+}
+
+// ---------------- 知识点趋势 ----------------
+
+export interface TagTrend {
+  tag: string;
+  /** 该知识点的历史总正确率（0-1），用于排序与图例 */
+  rate: number;
+  /** 按时间顺序的每次正确率（0-1），前端据此画折线 */
+  points: number[];
+}
+
+/**
+ * 从已交卷记录里归纳知识点趋势：取最薄弱的 topN 个知识点，
+ * 各自按时间顺序给出历次正确率。数据全部来自 attempt.tagStats，不需要额外存储。
+ * 只统计出现过 2 次以上的知识点——单次样本的「100% / 0%」没有趋势意义。
+ */
+export function buildTagTrends(attempts: ExamAttempt[], topN = 3): TagTrend[] {
+  const done = (attempts || [])
+    .filter((a) => a && a.status === 'submitted' && a.tagStats)
+    .sort((a, b) => (a.submittedAt || a.startedAt || 0) - (b.submittedAt || b.startedAt || 0));
+
+  const agg: Record<string, { correct: number; total: number }> = {};
+  done.forEach((a) => {
+    Object.entries(a.tagStats || {}).forEach(([tag, st]) => {
+      if (!st) return;
+      const cur = agg[tag] || { correct: 0, total: 0 };
+      cur.correct += Number(st.correct) || 0;
+      cur.total += Number(st.total) || 0;
+      agg[tag] = cur;
+    });
+  });
+
+  return Object.entries(agg)
+    .map(([tag, st]) => {
+      // 每次考试该知识点的正确率（该次没考到就不出点）
+      const points = done
+        .map((a) => {
+          const s = (a.tagStats || {})[tag];
+          return s && s.total ? s.correct / s.total : null;
+        })
+        .filter((v): v is number => v != null);
+      return { tag, rate: st.total ? st.correct / st.total : 0, total: st.total, points };
+    })
+    // 至少考过两次、且累计做过 2 道以上，才算「有趋势」；
+    // 单次考试的 0% / 100% 画不出线，也没有参考价值
+    .filter((x) => x.total >= 2 && x.points.length >= 2)
+    .sort((a, b) => a.rate - b.rate || b.total - a.total)
+    .slice(0, Math.max(1, topN))
+    .map((w) => ({ tag: w.tag, rate: w.rate, points: w.points }));
 }

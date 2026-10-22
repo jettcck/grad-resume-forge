@@ -3830,14 +3830,16 @@ async function renderExamHome(root) {
   let bankInfo = null;
   let papers = [];
   let plans = [];
+  let trends = [];
   try {
-    [attempts, wrongs, plan, bankInfo, papers, plans] = await Promise.all([
+    [attempts, wrongs, plan, bankInfo, papers, plans, trends] = await Promise.all([
       call(window.api.exam.listAttempts()),
       call(window.api.exam.wrongs()),
       call(window.api.exam.getPlan()),
       call(window.api.exam.bank()),
       call(window.api.exam.listPapers()),
-      call(window.api.exam.listPlans())
+      call(window.api.exam.listPlans()),
+      call(window.api.exam.trends(3))
     ]);
   } catch (err) {
     toast(err.message, 'err');
@@ -3871,6 +3873,12 @@ async function renderExamHome(root) {
   const submitted = (attempts || []).filter((a) => a.status === 'submitted').slice(0, 8);
   const activeWrongs = (wrongs || []).filter((w) => !w.mastered);
   const paperMap = new Map((papers || []).map((p) => [p.id, p]));
+
+  // 投递记录里的笔试时间：首页给一张「即将参加」清单，配合主进程的系统通知
+  if (!state.applications || !state.applications.length) {
+    try { state.applications = await call(window.api.applications.list(state.user.id)); } catch (_) { /* 忽略 */ }
+  }
+  const upcomingCard = buildUpcomingCard(state.applications);
 
   const historyCard = el('div', { class: 'exam-card' }, [
     el('h3', {}, ['最近成绩']),
@@ -3928,7 +3936,92 @@ async function renderExamHome(root) {
 
   root.append(head);
   if (resumeCard) root.append(resumeCard);
+  if (upcomingCard) root.append(upcomingCard);
   root.append(startCard, el('div', { class: 'exam-grid' }, [historyCard, wrongCard]));
+  root.append(buildTrendCard(trends));
+}
+
+// 即将参加的笔试：来自投递记录的 examAt（岗位池「设置笔试时间」写入）
+function fmtExamWhen(t) {
+  const d = new Date(t);
+  const now = new Date();
+  const hm = String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  if (d.toDateString() === now.toDateString()) return '今天 ' + hm;
+  const tomorrow = new Date(now.getTime() + 86400000);
+  if (d.toDateString() === tomorrow.toDateString()) return '明天 ' + hm;
+  return (d.getMonth() + 1) + '-' + String(d.getDate()).padStart(2, '0') + ' ' + hm;
+}
+
+function buildUpcomingCard(applications) {
+  const now = Date.now();
+  const soon = (applications || [])
+    .filter((a) => a.examAt)
+    .map((a) => ({ a, t: Date.parse(String(a.examAt).replace(/-/g, '/')) }))
+    .filter((x) => !isNaN(x.t) && x.t > now && x.t < now + 7 * 86400000)
+    .sort((x, y) => x.t - y.t);
+  if (!soon.length) return null;
+  return el('div', { class: 'exam-card exam-upcoming' }, [
+    el('h3', {}, ['即将参加的笔试（7 天内）']),
+    el('div', { class: 'upcoming-list' }, soon.slice(0, 5).map((x) => el('div', { class: 'upcoming-row' }, [
+      el('span', { class: 'up-when' }, [fmtExamWhen(x.t)]),
+      el('span', { class: 'up-co' }, [(x.a.company || '') + ' · ' + (x.a.position || '未填岗位')]),
+      el('button', {
+        class: 'btn btn-ghost btn-sm', type: 'button',
+        onclick: () => startExam({
+          targetRole: x.a.position || '',
+          count: 20,
+          durationSec: 1800,
+          passScore: 60
+        })
+      }, ['练一套'])
+    ])))
+  ]);
+}
+
+// 知识点趋势：数据由主进程 exam:trends 计算（纯逻辑在 exam-core，可单测），
+// 渲染层只负责画图。
+const TREND_COLORS = ['#d6a84a', '#59b98a', '#6aa8d6'];
+
+function trendSvg(series) {
+  const W = 560;
+  const H = 150;
+  const pad = { l: 36, r: 12, t: 12, b: 20 };
+  const iw = W - pad.l - pad.r;
+  const ih = H - pad.t - pad.b;
+  const len = Math.max(Math.max.apply(null, series.map((s) => s.points.length)), 2);
+  const px = (i) => pad.l + (len <= 1 ? iw / 2 : (i / (len - 1)) * iw);
+  const py = (v) => pad.t + (1 - v) * ih;
+  const parts = [];
+  [0, 0.5, 1].forEach((v) => {
+    parts.push('<line x1="' + pad.l + '" y1="' + py(v) + '" x2="' + (W - pad.r) + '" y2="' + py(v) + '" stroke="#2a3550" stroke-width="1"/>');
+    parts.push('<text x="' + (pad.l - 6) + '" y="' + (py(v) + 3) + '" text-anchor="end" fill="#7b869c" font-size="9">' + Math.round(v * 100) + '%</text>');
+  });
+  series.forEach((s, si) => {
+    if (!s.points.length) return;
+    const color = TREND_COLORS[si % TREND_COLORS.length];
+    parts.push('<polyline fill="none" stroke="' + color + '" stroke-width="2" points="'
+      + s.points.map((v, i) => px(i) + ',' + py(v)).join(' ') + '"/>');
+    s.points.forEach((v, i) => {
+      parts.push('<circle cx="' + px(i) + '" cy="' + py(v) + '" r="2.5" fill="' + color + '"/>');
+    });
+  });
+  return '<svg viewBox="0 0 ' + W + ' ' + H + '" class="trend-svg" preserveAspectRatio="none">' + parts.join('') + '</svg>';
+}
+
+function buildTrendCard(trends) {
+  return el('div', { class: 'exam-card' }, [
+    el('h3', {}, ['知识点趋势']),
+    trends && trends.length
+      ? el('div', { class: 'trend-wrap' }, [
+          el('div', { html: trendSvg(trends) }),
+          el('div', { class: 'trend-legend' }, trends.map((t, i) => el('span', { class: 'trend-item' }, [
+            el('i', { style: 'background:' + TREND_COLORS[i % TREND_COLORS.length] }),
+            t.tag + ' · ' + Math.round(t.rate * 100) + '%'
+          ]))),
+          el('div', { class: 'trend-note' }, ['按最薄弱的知识点排序，只统计出现 2 次以上的知识点'])
+        ])
+      : el('div', { class: 'exam-empty' }, ['再交一两套卷子，这里就会出现知识点正确率的变化曲线。'])
+  ]);
 }
 
 // 继续未完成的草稿：重新取回试卷题目并恢复已存作答。

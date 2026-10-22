@@ -212,6 +212,7 @@ function registerIpc() {
   h('exam:plan:get', (uid, jobId) => store.getStudyPlan(uid, jobId));
   h('exam:plan:list', (uid) => store.listStudyPlans(uid));
   h('exam:plan:save', (uid, input) => store.saveStudyPlan(uid, input));
+  h('exam:trends', (uid, topN) => examCore.buildTagTrends(store.listExamAttempts(uid), topN || 3));
   // 官方授权导入：与主进程保持同一套去重规则（source+externalId 优先，其次公司+岗位）
   h('applications:importAuthorized', (uid, payload) => {
     const source = String((payload && payload.source) || '').trim();
