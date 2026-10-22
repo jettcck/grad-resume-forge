@@ -47,3 +47,6 @@ release-v112*/
 
 # CDP 诊断用的临时 profile（不入库）
 .modal-diag-profile/
+
+# 一次性发布脚本副本（版本化历史，不入库；主脚本 push-via-api.js 已在库内）
+push-via-api-*.js

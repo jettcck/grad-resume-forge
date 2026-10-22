@@ -3850,6 +3850,12 @@ async function renderExamHome(root) {
   }
   examState.wrongs = wrongs || [];
   examState.plan = plan;
+  // 首页优先展示「最近在练的岗位」的计划：岗位维度的进度比通用计划更有参考价值
+  const latestJobPlan = (plans || [])
+    .filter((p) => p && p.jobId)
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))[0] || null;
+  const homePlan = latestJobPlan || plan;
+  examState.homePlan = homePlan;
 
   // 题库规模：让用户知道这套卷子从多大规模的题库里抽的
   if (bankInfo) {
@@ -3921,8 +3927,12 @@ async function renderExamHome(root) {
       el('span', {}, ['累计 ' + (wrongs || []).length + ' 题']),
       // 每个岗位一份学习计划：这里显示一共在练几个岗位
       plans.length > 1 ? el('span', {}, [plans.length + ' 个岗位独立进度']) : null,
-      plan && plan.weakTags && plan.weakTags.length
-        ? el('span', {}, ['薄弱：' + plan.weakTags.slice(0, 4).join(' / ')])
+      homePlan && homePlan.targetRole ? el('span', {}, ['当前岗位：' + homePlan.targetRole]) : null,
+      homePlan && homePlan.weekStartedAt
+        ? el('span', {}, ['本周 ' + (homePlan.weekCompletedCount || 0) + ' / ' + (homePlan.weeklyQuestionGoal || 30) + ' 题'])
+        : null,
+      homePlan && homePlan.weakTags && homePlan.weakTags.length
+        ? el('span', {}, ['薄弱：' + homePlan.weakTags.slice(0, 4).join(' / ')])
         : null
     ]),
     el('div', { class: 'exam-actions' }, [
@@ -4171,6 +4181,8 @@ function renderExamAnswering(root) {
       paper.composition
         ? el('span', { class: 'exam-comp' }, [
             'JD ' + paper.composition.jd + ' · 方向 ' + paper.composition.domain + ' · 通用 ' + paper.composition.general
+            // 题库某一段不足时会从全库兜底补题：明说，别让用户以为「方向题怎么这么少」
+            + (paper.composition.fallback ? ' · 兜底 ' + paper.composition.fallback : '')
           ])
         : null
     ]),
@@ -4441,8 +4453,8 @@ async function renderExamWrongs(root) {
   const planCard = el('div', { class: 'exam-card' }, [
     el('h3', {}, ['学习计划']),
     el('div', { class: 'exam-stat-line' }, [
+      el('span', {}, ['本周完成 ' + ((plan && plan.weekCompletedCount) || 0) + ' / ' + ((plan && plan.weeklyQuestionGoal) || 30) + ' 题']),
       el('span', {}, ['累计完成 ' + ((plan && plan.completedCount) || 0) + ' 题']),
-      el('span', {}, ['每周目标 ' + ((plan && plan.weeklyQuestionGoal) || 30) + ' 题']),
       plan && plan.weakTags && plan.weakTags.length
         ? el('span', {}, ['薄弱知识点：' + plan.weakTags.slice(0, 6).join(' / ')])
         : el('span', {}, ['做完一套卷子后自动分析薄弱项'])
@@ -4532,6 +4544,8 @@ const codeState = {
   subsFor: null,
   solvedIds: {},     // questionId → 是否 AC 过（侧栏打勾）
   customInputs: {},  // questionId → 自定义测试输入（仅本次会话内保留）
+  flushDraft: null,  // 当前编辑器的「立即落盘」函数（切后台/关窗口用）
+  flushHooksBound: false,
   result: null,
   busy: false
 };
@@ -4679,14 +4693,25 @@ async function renderCodeView(root) {
       saveDraft();
     }
   });
-  // 切走时立刻落盘，不等防抖
-  editor.addEventListener('blur', () => {
+  // 立即落盘（不等防抖）：失焦、切后台、关闭窗口都要用
+  const flushDraft = () => {
     if (codeState.saveTimer) { clearTimeout(codeState.saveTimer); codeState.saveTimer = null; }
     const key = draftKey();
     if (!key) return;
     window.api.code.saveDraft(codeState.question.id, codeState.lang, codeState.drafts[codeState.lang] || '')
       .catch(() => {});
-  });
+  };
+  editor.addEventListener('blur', flushDraft);
+  // 页面级兜底：编辑器还没失焦就被切后台/关窗口时，防抖里的内容会丢。
+  // 事件只绑一次；每次重建编辑器时更新 flushDraft 指向最新实例。
+  codeState.flushDraft = flushDraft;
+  if (!codeState.flushHooksBound) {
+    codeState.flushHooksBound = true;
+    const flush = () => { if (codeState.flushDraft) codeState.flushDraft(); };
+    document.addEventListener('visibilitychange', () => { if (document.hidden) flush(); });
+    window.addEventListener('blur', flush);
+    window.addEventListener('beforeunload', flush);
+  }
 
   const resultBox = el('div', { class: 'code-result', id: 'code-result' });
   const subsBox = el('div', { class: 'code-subs', id: 'code-subs' });
