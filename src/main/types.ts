@@ -403,3 +403,93 @@ export interface Job {
   createdAt?: number;
   updatedAt?: number;
 }
+
+// ============================================================
+//  笔试中心（第一阶段只做客观题：单选 / 多选 / 判断 / 填空）
+//  SQL 与编程题留到后续版本：需要独立 Worker + 资源限制 + 沙箱，
+//  绝不能在 Electron 渲染进程里直接执行用户代码。
+// ============================================================
+
+export type ExamQuestionType = 'single' | 'multiple' | 'judge' | 'fill';
+
+export interface ExamQuestion {
+  id: string;
+  type: ExamQuestionType;
+  /** 方向：backend / frontend / algorithm / data / general … */
+  domain: string;
+  /** 知识点标签：java / spring / sql / network … 组卷与薄弱项分析都靠它 */
+  tags: string[];
+  difficulty: 1 | 2 | 3 | 4 | 5;
+  /** 题干 */
+  stem: string;
+  /** 选项（judge 固定为 ['正确','错误']；fill 无选项） */
+  options?: string[];
+  /** 答案：单选/判断为选项文本；多选为文本数组；填空为字符串或可接受答案数组 */
+  answer: string | string[];
+  /** 解析 */
+  explanation: string;
+  /** 题目来源（自编 / 公开题库摘录） */
+  source?: string;
+  /** 题目版本，改题时递增，便于统计口径 */
+  version: number;
+}
+
+export interface ExamPaper {
+  id: string;
+  title: string;
+  /** 关联岗位（从岗位池组卷时写入） */
+  jobId?: string;
+  /** 关联投递记录 */
+  applicationId?: string;
+  /** 题目 id 列表（顺序即试卷顺序） */
+  questionIds: string[];
+  /** 限时（秒） */
+  durationSec: number;
+  /** 及格分（百分制） */
+  passScore: number;
+  createdAt: number;
+  /** 组卷时使用的方向与标签，便于复盘「这份卷子考了什么」 */
+  domain?: string;
+  tags?: string[];
+}
+
+export interface ExamAttempt {
+  id: string;
+  paperId: string;
+  /** 作答：questionId → 选中项文本 / 文本数组 / 填空字符串 */
+  answers: Record<string, string | string[]>;
+  /** 百分制得分 */
+  score: number;
+  correctCount: number;
+  totalCount: number;
+  /** 实际用时（秒） */
+  durationSec: number;
+  /** draft=作答中（草稿，可续答），submitted=已交卷，abandoned=放弃 */
+  status: 'draft' | 'submitted' | 'abandoned';
+  startedAt: number;
+  submittedAt?: number;
+  /** 交卷后按知识点统计的正确率：tag → { correct, total } */
+  tagStats?: Record<string, { correct: number; total: number }>;
+}
+
+export interface WrongQuestion {
+  questionId: string;
+  errorCount: number;
+  lastWrongAt: number;
+  /** 用户标记已掌握（不再进入下一轮练习） */
+  mastered: boolean;
+  /** 下次复习时间（简单间隔重复：错 1 次 1 天，2 次 3 天，3 次以上 7 天） */
+  nextReviewAt?: number;
+}
+
+export interface StudyPlan {
+  id: string;
+  jobId?: string;
+  targetRole: string;
+  weeklyQuestionGoal: number;
+  completedCount: number;
+  /** 薄弱知识点（按错题率排序） */
+  weakTags: string[];
+  createdAt: number;
+  updatedAt: number;
+}

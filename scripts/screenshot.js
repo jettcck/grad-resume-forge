@@ -129,6 +129,88 @@ function registerIpc() {
   h('jobs:save', (uid, input) => store.saveJob(uid, input));
   h('jobs:mark', (uid, id, patch) => store.markJob(uid, id, patch));
   h('jobs:delete', (uid, id) => store.deleteJob(uid, id));
+  // 笔试中心：题库与核心逻辑用真实模块，数据落 mock store
+  const examCore = require(path.join(ROOT, 'dist/main/exam-core'));
+  const examBank = require(path.join(ROOT, 'dist/main/exam-bank'));
+  h('exam:bank', () => ({
+    count: examBank.EXAM_BANK.length,
+    tags: examBank.allTags(),
+    domains: examBank.allDomains(),
+    types: ['single', 'multiple', 'judge', 'fill']
+  }));
+  h('exam:paper:create', (uid, input) => {
+    const built = examCore.buildPaper({
+      count: (input && input.count) || 20,
+      durationSec: (input && input.durationSec) || 1800
+    });
+    const paper = store.saveExamPaper(uid, {
+      title: (input && input.title) || '模拟笔试',
+      questionIds: built.questionIds,
+      durationSec: (input && input.durationSec) || 1800,
+      passScore: (input && input.passScore) || 60,
+      domain: built.domain,
+      tags: built.tags
+    });
+    const questions = paper.questionIds.map((id) => {
+      const q = examBank.getQuestion(id);
+      return { id: q.id, type: q.type, domain: q.domain, tags: q.tags, difficulty: q.difficulty, stem: q.stem, options: q.options, version: q.version };
+    });
+    return { paper, questions, composition: built.composition };
+  });
+  h('exam:paper:list', (uid) => store.listExamPapers(uid));
+  h('exam:paper:get', (uid, paperId) => {
+    const paper = store.getExamPaper(uid, paperId);
+    if (!paper) throw new Error('试卷不存在或已删除');
+    const questions = paper.questionIds.map((id) => {
+      const q = examBank.getQuestion(id);
+      return { id: q.id, type: q.type, domain: q.domain, tags: q.tags, difficulty: q.difficulty, stem: q.stem, options: q.options, version: q.version };
+    });
+    return { paper, questions };
+  });
+  h('exam:attempt:start', (uid, paperId) => {
+    const drafts = store.listExamAttempts(uid, paperId).filter((a) => a.status === 'draft');
+    if (drafts.length) return { attempt: drafts[0], resumed: true };
+    const attempt = store.saveExamAttempt(uid, { paperId, answers: {}, status: 'draft' });
+    return { attempt, resumed: false };
+  });
+  h('exam:attempt:save', (uid, attemptId, answers) => store.saveExamAttempt(uid, { id: attemptId, answers, status: 'draft' }));
+  h('exam:attempt:submit', (uid, attemptId, answers) => {
+    const attempt = store.getExamAttempt(uid, attemptId);
+    const paper = store.getExamPaper(uid, attempt.paperId);
+    const graded = examCore.gradePaper(paper.questionIds, answers || {});
+    const saved = store.saveExamAttempt(uid, {
+      id: attemptId, answers, score: graded.score, correctCount: graded.correctCount,
+      totalCount: graded.totalCount, durationSec: 120, status: 'submitted', tagStats: graded.tagStats
+    });
+    if (graded.wrongIds.length) store.mergeWrongQuestions(uid, graded.wrongIds.map((id) => ({ questionId: id })));
+    return {
+      attempt: saved,
+      result: {
+        score: graded.score, correctCount: graded.correctCount, totalCount: graded.totalCount,
+        passScore: paper.passScore, passed: graded.score >= paper.passScore, durationSec: 120,
+        tagStats: graded.tagStats, details: graded.details
+      }
+    };
+  });
+  h('exam:attempt:list', (uid, paperId) => store.listExamAttempts(uid, paperId));
+  h('exam:wrong:list', (uid) => store.listWrongQuestions(uid).map((w) => {
+    const q = examBank.getQuestion(w.questionId);
+    return Object.assign({}, w, {
+      question: q ? { id: q.id, type: q.type, domain: q.domain, tags: q.tags, stem: q.stem, options: q.options, answer: q.answer, explanation: q.explanation } : null
+    });
+  }).filter((x) => x.question));
+  h('exam:wrong:master', (uid, qid, mastered) => store.setWrongMastered(uid, qid, mastered));
+  h('exam:review:create', (uid, count) => {
+    const ids = examCore.buildReviewPaper(store.listWrongQuestions(uid), count || 10);
+    const paper = store.saveExamPaper(uid, { title: '错题强化练习', questionIds: ids, durationSec: 600, passScore: 60, domain: 'review' });
+    const questions = ids.map((id) => {
+      const q = examBank.getQuestion(id);
+      return { id: q.id, type: q.type, domain: q.domain, tags: q.tags, difficulty: q.difficulty, stem: q.stem, options: q.options, version: q.version };
+    });
+    return { paper, questions };
+  });
+  h('exam:plan:get', (uid) => store.getStudyPlan(uid));
+  h('exam:plan:save', (uid, input) => store.saveStudyPlan(uid, input));
   // 官方授权导入：与主进程保持同一套去重规则（source+externalId 优先，其次公司+岗位）
   h('applications:importAuthorized', (uid, payload) => {
     const source = String((payload && payload.source) || '').trim();

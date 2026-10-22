@@ -31,6 +31,13 @@ app.on('render-process-gone', (_e, _wc, details) => {
 });
 
 import * as store from './store';
+import * as examCore from './exam-core';
+import {
+  EXAM_BANK,
+  allTags as allExamTags,
+  allDomains as allExamDomains,
+  getQuestion as getExamQuestion
+} from './exam-bank';
 import * as auth from './auth';
 import * as engine from './resume-engine';
 import { createLlmClient } from '../../packages/llm-adapters/dist/index';
@@ -508,6 +515,307 @@ ipcMain.handle('jobs:delete', (_e, userId: string, jobId: string) => {
   try {
     userId = sessionUserId(_e);
     return ok(store.deleteJob(userId, jobId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// ---------------- 笔试中心 ----------------
+// 题目下发时剥掉 answer / explanation：答题页不需要答案，交卷后再随结果返回，
+// 避免「打开开发者工具直接看答案」这种零成本的作弊路径。
+function publicExamQuestion(q: import('./types').ExamQuestion) {
+  return {
+    id: q.id,
+    type: q.type,
+    domain: q.domain,
+    tags: q.tags,
+    difficulty: q.difficulty,
+    stem: q.stem,
+    options: q.options,
+    version: q.version
+  };
+}
+
+ipcMain.handle('exam:bank', () => {
+  try {
+    return ok({
+      count: EXAM_BANK.length,
+      tags: allExamTags(),
+      domains: allExamDomains(),
+      types: ['single', 'multiple', 'judge', 'fill']
+    });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:paper:create', (_e, input: Record<string, unknown>) => {
+  try {
+    const userId = sessionUserId(_e);
+    assertPlainObject(input, '组卷参数');
+    const jobId = input.jobId ? String(input.jobId) : '';
+    let jdText = input.jdText ? String(input.jdText) : '';
+    let skills = input.skills ? String(input.skills) : '';
+    let targetRole = input.targetRole ? String(input.targetRole) : '';
+    let applicationId = input.applicationId ? String(input.applicationId) : '';
+    let title = '模拟笔试';
+
+    // 从岗位池组卷：自动带上 JD、技能要求与关联投递
+    if (jobId) {
+      const job = store.getJob(userId, jobId);
+      if (job) {
+        jdText = jdText || job.jdText || '';
+        skills = skills || job.skills || '';
+        targetRole = targetRole || (job.position || '');
+        applicationId = applicationId || (job.applicationId || '');
+        title = job.company + ' · ' + (job.position || '岗位') + ' 模拟笔试';
+      }
+    }
+
+    const count = Number(input.count) || 20;
+    const durationSec = Number(input.durationSec) || 1800;
+    const passScore = Number(input.passScore) || 60;
+    const built = examCore.buildPaper({
+      jdText, skills, targetRole, count, durationSec, passScore,
+      domain: input.domain ? String(input.domain) : undefined
+    });
+
+    const paper = store.saveExamPaper(userId, {
+      title,
+      jobId: jobId || undefined,
+      applicationId: applicationId || undefined,
+      questionIds: built.questionIds,
+      durationSec,
+      passScore,
+      domain: built.domain,
+      tags: built.tags
+    });
+
+    const questions = paper.questionIds
+      .map((id) => getExamQuestion(id))
+      .filter((q): q is NonNullable<typeof q> => !!q)
+      .map(publicExamQuestion);
+
+    return ok({ paper, questions, composition: built.composition, tags: built.tags, domain: built.domain });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:paper:list', (_e) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.listExamPapers(userId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:paper:get', (_e, paperId: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    const paper = store.getExamPaper(userId, String(paperId));
+    if (!paper) return fail('试卷不存在或已删除');
+    const questions = paper.questionIds
+      .map((id) => getExamQuestion(id))
+      .filter((q): q is NonNullable<typeof q> => !!q)
+      .map(publicExamQuestion);
+    return ok({ paper, questions });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 开始作答：同一份卷子已有草稿时直接续答，不重复创建
+ipcMain.handle('exam:attempt:start', (_e, paperId: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    const paper = store.getExamPaper(userId, String(paperId));
+    if (!paper) return fail('试卷不存在或已删除');
+    const drafts = store.listExamAttempts(userId, paper.id).filter((a) => a.status === 'draft');
+    if (drafts.length) return ok({ attempt: drafts[0], resumed: true });
+    const attempt = store.saveExamAttempt(userId, {
+      paperId: paper.id,
+      answers: {},
+      totalCount: paper.questionIds.length,
+      status: 'draft'
+    });
+    return ok({ attempt, resumed: false });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:attempt:save', (_e, attemptId: string, answers: Record<string, string | string[]>) => {
+  try {
+    const userId = sessionUserId(_e);
+    assertPlainObject(answers, '作答内容');
+    assertSize(answers, LIMITS.notes, '作答内容');
+    const attempt = store.saveExamAttempt(userId, {
+      id: String(attemptId),
+      answers,
+      status: 'draft'
+    });
+    return ok(attempt);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 交卷：评分 → 归档错题 → 更新学习计划 → 回写投递记录
+ipcMain.handle('exam:attempt:submit', (_e, attemptId: string, answers: Record<string, string | string[]>) => {
+  try {
+    const userId = sessionUserId(_e);
+    assertPlainObject(answers, '作答内容');
+    assertSize(answers, LIMITS.notes, '作答内容');
+
+    const attempt = store.getExamAttempt(userId, String(attemptId));
+    if (!attempt) return fail('作答记录不存在');
+    const paper = store.getExamPaper(userId, attempt.paperId);
+    if (!paper) return fail('试卷不存在或已删除');
+
+    const graded = examCore.gradePaper(paper.questionIds, answers || {});
+    const durationSec = Math.max(0, Math.round((Date.now() - attempt.startedAt) / 1000));
+
+    const saved = store.saveExamAttempt(userId, {
+      id: attempt.id,
+      answers,
+      score: graded.score,
+      correctCount: graded.correctCount,
+      totalCount: graded.totalCount,
+      durationSec,
+      status: 'submitted',
+      tagStats: graded.tagStats
+    });
+
+    // 错题归档（只归档真正作答但答错的题）
+    if (graded.wrongIds.length) {
+      store.mergeWrongQuestions(userId, graded.wrongIds.map((id) => ({ questionId: id })));
+    }
+
+    // 学习计划：累计完成题量 + 重新计算薄弱知识点
+    const allStats = store.listExamAttempts(userId)
+      .filter((a) => a.status === 'submitted' && a.tagStats)
+      .map((a) => a.tagStats!);
+    const weak = examCore.weakTagsFromStats(allStats).filter((w) => w.rate < 0.8).slice(0, 8);
+    const plan = store.getStudyPlan(userId);
+    store.saveStudyPlan(userId, {
+      targetRole: plan ? plan.targetRole : '',
+      completedCount: (plan ? plan.completedCount : 0) + graded.totalCount,
+      weakTags: weak.map((w) => w.tag),
+      jobId: paper.jobId
+    });
+
+    // 回写投递记录：笔试完成 → 下一步行动
+    if (paper.applicationId) {
+      try {
+        const app0 = store.listApplications(userId).find((a) => a.id === paper.applicationId);
+        if (app0) {
+          store.saveApplication(userId, {
+            id: app0.id,
+            company: app0.company,
+            nextAction: graded.score >= paper.passScore ? '笔试已通过，等待面试通知' : '笔试未通过，复盘错题后重新准备',
+            nextDueAt: ''
+          } as never);
+        }
+      } catch (_) { /* 投递记录可能已删除，不影响交卷 */ }
+    }
+
+    return ok({
+      attempt: saved,
+      result: {
+        score: graded.score,
+        correctCount: graded.correctCount,
+        totalCount: graded.totalCount,
+        passScore: paper.passScore,
+        passed: graded.score >= paper.passScore,
+        durationSec,
+        tagStats: graded.tagStats,
+        details: graded.details
+      }
+    });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:attempt:list', (_e, paperId?: string) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.listExamAttempts(userId, paperId ? String(paperId) : undefined));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 错题本：带题目正文与解析，前端直接渲染，不用再查一次
+ipcMain.handle('exam:wrong:list', (_e) => {
+  try {
+    const userId = sessionUserId(_e);
+    const wrongs = store.listWrongQuestions(userId);
+    const items = wrongs.map((w) => {
+      const q = getExamQuestion(w.questionId);
+      return {
+        ...w,
+        question: q ? {
+          id: q.id, type: q.type, domain: q.domain, tags: q.tags, stem: q.stem,
+          options: q.options, answer: q.answer, explanation: q.explanation
+        } : null
+      };
+    }).filter((x) => x.question);
+    return ok(items);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:wrong:master', (_e, questionId: string, mastered: boolean) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.setWrongMastered(userId, String(questionId), !!mastered));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+// 下一轮练习：从错题本 + 同知识点出新卷
+ipcMain.handle('exam:review:create', (_e, count?: number) => {
+  try {
+    const userId = sessionUserId(_e);
+    const wrongs = store.listWrongQuestions(userId);
+    if (!wrongs.length) return fail('错题本是空的，先做一套卷子吧');
+    const ids = examCore.buildReviewPaper(wrongs, Number(count) || 10);
+    const paper = store.saveExamPaper(userId, {
+      title: '错题强化练习',
+      questionIds: ids,
+      durationSec: Math.max(300, ids.length * 90),
+      passScore: 60,
+      domain: 'review'
+    });
+    const questions = ids
+      .map((id) => getExamQuestion(id))
+      .filter((q): q is NonNullable<typeof q> => !!q)
+      .map(publicExamQuestion);
+    return ok({ paper, questions });
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:plan:get', (_e) => {
+  try {
+    const userId = sessionUserId(_e);
+    return ok(store.getStudyPlan(userId));
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
+ipcMain.handle('exam:plan:save', (_e, input: Record<string, unknown>) => {
+  try {
+    const userId = sessionUserId(_e);
+    assertPlainObject(input, '学习计划');
+    return ok(store.saveStudyPlan(userId, input as never));
   } catch (err) {
     return fail((err as Error).message);
   }

@@ -9,7 +9,8 @@ import path from 'path';
 import crypto from 'crypto';
 import type {
   StoredUser, PublicUser, Profile, Application, AgentSnapshot, AgentSnapshotMeta,
-  ResumeVersion, ResumeVersionMeta, Job
+  ResumeVersion, ResumeVersionMeta, Job,
+  ExamPaper, ExamAttempt, WrongQuestion, StudyPlan
 } from './types';
 
 interface DbShape {
@@ -22,6 +23,11 @@ interface DbShape {
   resumeVersions: Record<string, ResumeVersion[]>;
   /** 岗位池：userId → 目标岗位列表（含完整 JD、优先级、收藏、淘汰标记） */
   jobs: Record<string, Job[]>;
+  /** 笔试中心：试卷 / 作答 / 错题 / 学习计划（全部按用户隔离） */
+  examPapers: Record<string, ExamPaper[]>;
+  examAttempts: Record<string, ExamAttempt[]>;
+  examWrongs: Record<string, WrongQuestion[]>;
+  examPlans: Record<string, StudyPlan[]>;
   /** 数据格式版本：将来改结构时据此迁移，缺省视为 1（老库） */
   schemaVersion?: number;
 }
@@ -40,7 +46,11 @@ const db: DbShape = {
   settings: {},
   agentSnapshots: {}, // userId → 快照数组（最多 5 份，最新在前）
   resumeVersions: {}, // userId → 简历版本数组（最多 30 份，最新在前）
-  jobs: {}            // userId → 岗位池数组（目标岗位统一管理）
+  jobs: {},           // userId → 岗位池数组（目标岗位统一管理）
+  examPapers: {},     // userId → 笔试试卷（组卷结果）
+  examAttempts: {},   // userId → 作答记录（草稿 + 已交卷）
+  examWrongs: {},     // userId → 错题本
+  examPlans: {}       // userId → 学习计划
 };
 
 // 快照上限：防止无限膨胀（每份档案通常 < 10KB）
@@ -272,6 +282,11 @@ function load(): void {
       db.resumeVersions = asRecord(parsed.resumeVersions);
       // 老库没有 jobs 字段：缺省为空，向前兼容
       db.jobs = asRecord(parsed.jobs);
+      // 笔试中心：老库缺省为空
+      db.examPapers = asRecord(parsed.examPapers);
+      db.examAttempts = asRecord(parsed.examAttempts);
+      db.examWrongs = asRecord(parsed.examWrongs);
+      db.examPlans = asRecord(parsed.examPlans);
     }
   } catch (err) {
     // 数据损坏时不崩溃，退回空库并备份原文件
@@ -722,6 +737,212 @@ export function deleteJob(userId: string, jobId: string): { removed: string } {
   db.jobs[userId] = list.filter((x) => x.id !== jobId);
   persist();
   return { removed: jobId };
+}
+
+// ============================================================
+//  笔试中心：试卷 / 作答 / 错题 / 学习计划
+// ============================================================
+
+const MAX_EXAM_PAPERS = 100;
+const MAX_EXAM_ATTEMPTS = 200;
+const MAX_EXAM_WRONGS = 500;
+
+export function listExamPapers(userId: string): ExamPaper[] {
+  return db.examPapers[userId] || [];
+}
+
+export function getExamPaper(userId: string, paperId: string): ExamPaper | null {
+  const p = (db.examPapers[userId] || []).find((x) => x.id === paperId);
+  return p ? (JSON.parse(JSON.stringify(p)) as ExamPaper) : null;
+}
+
+export function saveExamPaper(userId: string, input: Partial<ExamPaper>): ExamPaper {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  const qids = Array.isArray(input.questionIds)
+    ? input.questionIds.map((x) => String(x || '').trim()).filter(Boolean).slice(0, 100)
+    : [];
+  if (!qids.length) throw new Error('试卷至少需要一道题');
+  if (!db.examPapers[userId]) db.examPapers[userId] = [];
+  const list = db.examPapers[userId]!;
+  const now = Date.now();
+  const paper: ExamPaper = {
+    id: input.id ? String(input.id) : 'paper_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    title: String(input.title || '模拟笔试').trim().slice(0, 120),
+    jobId: input.jobId ? String(input.jobId).slice(0, 80) : undefined,
+    applicationId: input.applicationId ? String(input.applicationId).slice(0, 80) : undefined,
+    questionIds: qids,
+    durationSec: Math.min(7200, Math.max(60, Math.round(Number(input.durationSec) || 1800))),
+    passScore: Math.min(100, Math.max(0, Math.round(Number(input.passScore) || 60))),
+    createdAt: now,
+    domain: input.domain ? String(input.domain).slice(0, 40) : undefined,
+    tags: Array.isArray(input.tags) ? input.tags.map((t) => String(t).slice(0, 40)).slice(0, 30) : undefined
+  };
+  const idx = list.findIndex((x) => x.id === paper.id);
+  if (idx >= 0) list[idx] = paper; else list.unshift(paper);
+  if (list.length > MAX_EXAM_PAPERS) list.length = MAX_EXAM_PAPERS;
+  persist();
+  return paper;
+}
+
+export function listExamAttempts(userId: string, paperId?: string): ExamAttempt[] {
+  const list = db.examAttempts[userId] || [];
+  return paperId ? list.filter((a) => a.paperId === paperId) : list;
+}
+
+export function getExamAttempt(userId: string, attemptId: string): ExamAttempt | null {
+  const a = (db.examAttempts[userId] || []).find((x) => x.id === attemptId);
+  return a ? (JSON.parse(JSON.stringify(a)) as ExamAttempt) : null;
+}
+
+/** 保存作答：草稿保存与交卷共用；只覆盖传入的字段。 */
+export function saveExamAttempt(userId: string, input: Partial<ExamAttempt>): ExamAttempt {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  if (!db.examAttempts[userId]) db.examAttempts[userId] = [];
+  const list = db.examAttempts[userId]!;
+  const now = Date.now();
+
+  let att = input.id ? list.find((x) => x.id === input.id) : undefined;
+  if (!att) {
+    att = {
+      id: 'att_' + now + '_' + Math.random().toString(36).slice(2, 8),
+      paperId: String(input.paperId || ''),
+      answers: {},
+      score: 0,
+      correctCount: 0,
+      totalCount: 0,
+      durationSec: 0,
+      status: 'draft',
+      startedAt: now
+    };
+    list.unshift(att);
+  }
+
+  if (input.answers && typeof input.answers === 'object') {
+    att.answers = JSON.parse(JSON.stringify(input.answers));
+  }
+  if (typeof input.score === 'number') att.score = input.score;
+  if (typeof input.correctCount === 'number') att.correctCount = input.correctCount;
+  if (typeof input.totalCount === 'number') att.totalCount = input.totalCount;
+  if (typeof input.durationSec === 'number') att.durationSec = Math.max(0, Math.round(input.durationSec));
+  if (input.status === 'draft' || input.status === 'submitted' || input.status === 'abandoned') {
+    att.status = input.status;
+    if (input.status === 'submitted' || input.status === 'abandoned') {
+      att.submittedAt = input.submittedAt || now;
+    }
+  }
+  if (input.tagStats && typeof input.tagStats === 'object') {
+    att.tagStats = JSON.parse(JSON.stringify(input.tagStats));
+  }
+  if (list.length > MAX_EXAM_ATTEMPTS) list.length = MAX_EXAM_ATTEMPTS;
+  persist();
+  return att;
+}
+
+export function deleteExamAttempt(userId: string, attemptId: string): { removed: string } {
+  const list = db.examAttempts[userId] || [];
+  db.examAttempts[userId] = list.filter((x) => x.id !== attemptId);
+  persist();
+  return { removed: attemptId };
+}
+
+export function listWrongQuestions(userId: string): WrongQuestion[] {
+  return (db.examWrongs[userId] || []).slice();
+}
+
+/** 简单间隔重复：错 1 次 1 天、2 次 3 天、3 次以上 7 天后复习 */
+function reviewIntervalDays(errorCount: number): number {
+  if (errorCount <= 1) return 1;
+  if (errorCount === 2) return 3;
+  return 7;
+}
+
+/** 交卷时合并错题：累加错误次数、重置掌握标记、安排下次复习 */
+export function mergeWrongQuestions(
+  userId: string,
+  items: Array<{ questionId: string; errorCount?: number }>
+): WrongQuestion[] {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  if (!db.examWrongs[userId]) db.examWrongs[userId] = [];
+  const list = db.examWrongs[userId]!;
+  const now = Date.now();
+  for (const it of items || []) {
+    const qid = String((it && it.questionId) || '').trim();
+    if (!qid) continue;
+    const inc = Math.max(1, Math.round(Number(it.errorCount) || 1));
+    const hit = list.find((x) => x.questionId === qid);
+    if (hit) {
+      hit.errorCount += inc;
+      hit.lastWrongAt = now;
+      hit.mastered = false;
+      hit.nextReviewAt = now + reviewIntervalDays(hit.errorCount) * 86400000;
+    } else {
+      list.unshift({
+        questionId: qid,
+        errorCount: inc,
+        lastWrongAt: now,
+        mastered: false,
+        nextReviewAt: now + reviewIntervalDays(inc) * 86400000
+      });
+    }
+  }
+  // 真正的错题不应该无限增长：超出上限时优先丢弃已掌握的旧记录
+  if (list.length > MAX_EXAM_WRONGS) {
+    list.sort((a, b) => Number(a.mastered) - Number(b.mastered) || b.lastWrongAt - a.lastWrongAt);
+    list.length = MAX_EXAM_WRONGS;
+  }
+  persist();
+  return list;
+}
+
+export function setWrongMastered(userId: string, questionId: string, mastered: boolean): WrongQuestion {
+  const list = db.examWrongs[userId] || [];
+  const hit = list.find((x) => x.questionId === questionId);
+  if (!hit) throw new Error('错题不存在');
+  hit.mastered = !!mastered;
+  if (hit.mastered) hit.nextReviewAt = undefined;
+  else hit.nextReviewAt = Date.now() + reviewIntervalDays(hit.errorCount) * 86400000;
+  persist();
+  return hit;
+}
+
+export function getStudyPlan(userId: string): StudyPlan | null {
+  const list = db.examPlans[userId] || [];
+  return list.length ? (JSON.parse(JSON.stringify(list[0])) as StudyPlan) : null;
+}
+
+/** 学习计划每个用户一份（单例），重复保存即更新 */
+export function saveStudyPlan(userId: string, input: Partial<StudyPlan>): StudyPlan {
+  if (!findUserById(userId)) throw new Error('用户不存在');
+  if (!db.examPlans[userId]) db.examPlans[userId] = [];
+  const list = db.examPlans[userId]!;
+  const now = Date.now();
+  const base: StudyPlan = list[0] || {
+    id: 'plan_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    targetRole: '',
+    weeklyQuestionGoal: 30,
+    completedCount: 0,
+    weakTags: [],
+    createdAt: now,
+    updatedAt: now
+  };
+  const next: StudyPlan = {
+    ...base,
+    jobId: input.jobId !== undefined ? (input.jobId ? String(input.jobId) : undefined) : base.jobId,
+    targetRole: input.targetRole !== undefined ? String(input.targetRole).slice(0, 80) : base.targetRole,
+    weeklyQuestionGoal: typeof input.weeklyQuestionGoal === 'number'
+      ? Math.min(500, Math.max(1, Math.round(input.weeklyQuestionGoal)))
+      : base.weeklyQuestionGoal,
+    completedCount: typeof input.completedCount === 'number'
+      ? Math.max(0, Math.round(input.completedCount))
+      : base.completedCount,
+    weakTags: Array.isArray(input.weakTags)
+      ? input.weakTags.map((t) => String(t).slice(0, 40)).slice(0, 30)
+      : base.weakTags,
+    updatedAt: now
+  };
+  list[0] = next;
+  persist();
+  return next;
 }
 
 // 测试专用：直接访问内部 db（仅测试断言用）

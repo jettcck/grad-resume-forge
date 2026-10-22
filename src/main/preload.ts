@@ -43,6 +43,22 @@ contextBridge.exposeInMainWorld('api', {
     mark: (userId: string, jobId: string, patch: unknown) => ipcRenderer.invoke('jobs:mark', userId, jobId, patch),
     remove: (userId: string, jobId: string) => ipcRenderer.invoke('jobs:delete', userId, jobId)
   },
+  // 笔试中心：题库、组卷、作答、错题本、学习计划（全部本地，题目随应用分发）
+  exam: {
+    bank: () => ipcRenderer.invoke('exam:bank'),
+    createPaper: (input: unknown) => ipcRenderer.invoke('exam:paper:create', input),
+    listPapers: () => ipcRenderer.invoke('exam:paper:list'),
+    getPaper: (paperId: string) => ipcRenderer.invoke('exam:paper:get', paperId),
+    startAttempt: (paperId: string) => ipcRenderer.invoke('exam:attempt:start', paperId),
+    saveDraft: (attemptId: string, answers: unknown) => ipcRenderer.invoke('exam:attempt:save', attemptId, answers),
+    submit: (attemptId: string, answers: unknown) => ipcRenderer.invoke('exam:attempt:submit', attemptId, answers),
+    listAttempts: (paperId?: string) => ipcRenderer.invoke('exam:attempt:list', paperId),
+    wrongs: () => ipcRenderer.invoke('exam:wrong:list'),
+    masterWrong: (questionId: string, mastered: boolean) => ipcRenderer.invoke('exam:wrong:master', questionId, mastered),
+    createReview: (count?: number) => ipcRenderer.invoke('exam:review:create', count),
+    getPlan: () => ipcRenderer.invoke('exam:plan:get'),
+    savePlan: (input: unknown) => ipcRenderer.invoke('exam:plan:save', input)
+  },
   // 招聘平台投递记录同步：只读旁路，不向平台写入任何数据
   // collect 第三个参数 auto=true：点「抓取」即自动开窗口、自动走到记录页抓取
   jobSync: {

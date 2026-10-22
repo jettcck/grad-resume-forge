@@ -666,7 +666,7 @@ function navigate(route) {
   document.querySelectorAll('.nav-item').forEach((n) => {
     n.classList.toggle('active', n.dataset.route === route);
   });
-  ['profile', 'resume', 'jobs', 'apps', 'interview'].forEach((r) => {
+  ['profile', 'resume', 'jobs', 'apps', 'exam', 'interview'].forEach((r) => {
     document.getElementById('route-' + r).style.display = r === route ? 'block' : 'none';
   });
   if (window.Sound) window.Sound.play('click'); // 导航轻点音
@@ -679,6 +679,7 @@ function navigate(route) {
   if (route === 'resume') renderResumePage();
   if (route === 'jobs') renderJobs();
   if (route === 'apps') renderApps();
+  if (route === 'exam') renderExamCenter();
   if (route === 'interview') renderInterviewPage();
 }
 
@@ -2820,6 +2821,16 @@ function appCard(a) {
     }
   } }, ['删除']));
 
+  // 笔试提醒：有 examAt 就在卡片上直出，逾期标灰
+  let examHint = null;
+  if (a.examAt) {
+    const t = Date.parse(String(a.examAt).replace(/-/g, '/'));
+    const overdue = !isNaN(t) && t < Date.now();
+    examHint = el('div', { class: 'app-exam-hint' + (overdue ? ' overdue' : '') }, [
+      overdue ? '📝 笔试时间已过 · ' + a.examAt : '📝 笔试待完成 · ' + a.examAt
+    ]);
+  }
+
   return el('div', { class: 'app-card' }, [
     el('div', { class: 'co' }, [a.company]),
     el('div', { class: 'po' }, [a.position || '—']),
@@ -2829,6 +2840,7 @@ function appCard(a) {
       meta.salary ? el('span', { class: 'salary' }, ['💰 ' + meta.salary]) : null,
       a.source ? el('span', {}, [a.source]) : null
     ]) : null,
+    examHint,
     el('div', { class: 'time' }, [timeAgo(a.updatedAt || a.createdAt)]),
     el('div', { class: 'row' }, actions)
   ]);
@@ -2859,6 +2871,60 @@ async function openEditApplication(a) {
     experience: String(data.experience || '').trim(),
     url: String(data.url || '').trim()
   });
+}
+
+// 从岗位直接组卷：切到笔试中心并按该岗位的 JD/技能抽题
+async function examFromJob(job) {
+  navigate('exam');
+  await startExam({ jobId: job.id, count: 20, durationSec: 1800, passScore: 60 });
+}
+
+// 设置笔试时间：写入投递记录的 examAt / nextAction（投递看板会显示「笔试待完成」）
+async function setJobExamTime(job) {
+  const app = (state.applications || []).find((a) => a.id === job.applicationId);
+  if (!app) {
+    toast('先点「转投递」，笔试时间会记在对应的投递记录上', 'err');
+    return;
+  }
+  const data = await modalForm('设置笔试时间', [
+    { name: 'examAt', label: '笔试时间（YYYY-MM-DD HH:mm）', value: app.examAt || '', placeholder: '如：2026-11-02 14:00' },
+    { name: 'nextAction', label: '下一步行动', value: app.nextAction || '参加在线笔试', placeholder: '如：参加在线笔试' }
+  ], '保存');
+  if (!data) return;
+  try {
+    const updated = await call(window.api.applications.save(state.user.id, {
+      id: app.id,
+      company: app.company,
+      examAt: String(data.examAt || '').trim(),
+      nextAction: String(data.nextAction || '').trim()
+    }));
+    const i = state.applications.findIndex((x) => x.id === app.id);
+    if (i >= 0) state.applications[i] = updated;
+    toast(data.examAt ? '已记录笔试时间：' + data.examAt : '已清除笔试时间', 'ok');
+    renderJobs();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+// 查看该岗位的组卷与成绩：直接切到笔试中心，历史成绩在那里统一看
+async function showJobExamHistory(job) {
+  try {
+    const papers = await call(window.api.exam.listPapers());
+    const mine = (papers || []).filter((p) => p.jobId === job.id);
+    if (!mine.length) {
+      toast('该岗位还没有组过卷，先点「按此岗位组卷」', 'err');
+      return;
+    }
+    const attempts = await call(window.api.exam.listAttempts());
+    const done = (attempts || []).filter((a) => a.status === 'submitted' && mine.some((p) => p.id === a.paperId));
+    const best = done.length ? Math.max.apply(null, done.map((a) => a.score)) : null;
+    toast('该岗位已组卷 ' + mine.length + ' 份 · 已考 ' + done.length + ' 次'
+      + (best != null ? ' · 最高 ' + best + ' 分' : '') + '（历史见笔试中心）', 'ok', 4200);
+    navigate('exam');
+  } catch (err) {
+    toast(err.message, 'err');
+  }
 }
 
 // 从投递记录里提取岗位结构化信息。
@@ -3018,6 +3084,21 @@ function toggleJobDetail(job, card) {
   } else if (!job.benefits) {
     detail.appendChild(el('div', { class: 'jd-empty' }, ['（未保存 JD 文本）']));
   }
+  // 笔试相关操作：组卷 / 设置笔试时间 / 看记录
+  detail.appendChild(el('div', { class: 'job-detail-actions' }, [
+    el('button', {
+      class: 'btn btn-ghost btn-sm', type: 'button',
+      onclick: (e) => { e.stopPropagation(); examFromJob(job); }
+    }, ['按此岗位组卷']),
+    el('button', {
+      class: 'btn btn-ghost btn-sm', type: 'button',
+      onclick: (e) => { e.stopPropagation(); setJobExamTime(job); }
+    }, ['设置笔试时间']),
+    el('button', {
+      class: 'btn btn-ghost btn-sm', type: 'button',
+      onclick: (e) => { e.stopPropagation(); showJobExamHistory(job); }
+    }, ['笔试记录'])
+  ]));
   card.appendChild(detail);
 }
 
@@ -3578,6 +3659,625 @@ function renderJobsFromState() {
       ]));
     });
   }
+}
+
+// ============================================================
+//  页面 5：笔试中心
+//  四个视图：开始笔试 / 答题 / 成绩 / 错题本与学习计划。
+//  题目随应用分发，作答与成绩只落本机 db.json，不联网。
+// ============================================================
+const EXAM_TYPE_LABEL = { single: '单选', multiple: '多选', judge: '判断', fill: '填空' };
+
+const examState = {
+  view: 'home',       // home | answering | result | wrongs
+  paper: null,
+  questions: [],
+  attempt: null,
+  answers: {},
+  index: 0,
+  result: null,
+  wrongs: [],
+  plan: null,
+  timer: null,
+  remaining: 0,
+  saveTimer: null
+};
+
+function stopExamTimer() {
+  if (examState.timer) { clearInterval(examState.timer); examState.timer = null; }
+  if (examState.saveTimer) { clearTimeout(examState.saveTimer); examState.saveTimer = null; }
+}
+
+function examAnsweredCount() {
+  return examState.questions.filter((q) => {
+    const a = examState.answers[q.id];
+    if (a == null) return false;
+    if (Array.isArray(a)) return a.length > 0;
+    return String(a).trim() !== '';
+  }).length;
+}
+
+function fmtClock(sec) {
+  const s = Math.max(0, Math.round(sec));
+  return String(Math.floor(s / 60)).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+}
+
+async function renderExamCenter() {
+  const root = document.getElementById('route-exam');
+  if (!root) return;
+  root.innerHTML = '';
+
+  if (examState.view === 'answering' && examState.paper && examState.attempt) {
+    renderExamAnswering(root);
+    return;
+  }
+  if (examState.view === 'result' && examState.result) {
+    renderExamResult(root);
+    return;
+  }
+  if (examState.view === 'wrongs') {
+    await renderExamWrongs(root);
+    return;
+  }
+  await renderExamHome(root);
+}
+
+// ---------------- 视图 1：开始笔试 ----------------
+async function renderExamHome(root) {
+  stopExamTimer();
+
+  const head = el('div', { class: 'page-head' }, [
+    el('div', { class: 'page-kicker' }, ['STEP 05 / 笔试中心']),
+    el('h1', { class: 'page-title' }, ['按岗位组一套卷子，限时练一遍']),
+    el('p', { class: 'page-desc' }, ['题目来自本机题库，按岗位 JD 的知识点抽题。交卷后自动评分、归档错题，并给出下一轮练习建议。'])
+  ]);
+
+  if (!state.jobs || !state.jobs.length) {
+    try { await loadJobsIntoState(); } catch (_) { /* 岗位池为空也能组通用卷 */ }
+  }
+  const jobs = (state.jobs || []).filter((j) => !j.rejected);
+
+  const jobSelect = el('select', { class: 'exam-select', id: 'exam-job-select' },
+    [el('option', { value: '' }, ['不限岗位（通用卷）'])].concat(
+      jobs.map((j) => el('option', { value: j.id }, [
+        j.company + ' · ' + (j.position || '未填岗位') + (j.jdScore != null ? '（匹配 ' + j.jdScore + '）' : '')
+      ]))
+    )
+  );
+  const countSelect = el('select', { class: 'exam-select', id: 'exam-count-select' },
+    [10, 20, 30].map((n) => el('option', { value: String(n), selected: n === 20 ? 'selected' : null }, [n + ' 题']))
+  );
+  const durationSelect = el('select', { class: 'exam-select', id: 'exam-duration-select' },
+    [15, 30, 45, 60].map((m, i) => el('option', { value: String(m), selected: i === 1 ? 'selected' : null }, [m + ' 分钟']))
+  );
+
+  const startCard = el('div', { class: 'exam-card' }, [
+    el('h3', {}, ['开始一套新卷']),
+    el('div', { class: 'exam-form-row' }, [
+      el('label', {}, ['目标岗位', jobSelect]),
+      el('label', {}, ['题量', countSelect]),
+      el('label', {}, ['限时', durationSelect])
+    ]),
+    el('div', { class: 'exam-form-tip' }, [
+      '组卷比例：60% 岗位 JD 知识点 · 30% 岗位方向基础 · 10% 通用职业能力'
+    ]),
+    el('button', {
+      class: 'btn btn-primary', type: 'button',
+      onclick: () => startExam({
+        jobId: jobSelect.value || undefined,
+        count: Number(countSelect.value),
+        durationSec: Number(durationSelect.value) * 60,
+        passScore: 60
+      })
+    }, ['开始答题 →'])
+  ]);
+
+  let attempts = [];
+  let wrongs = [];
+  let plan = null;
+  let bankInfo = null;
+  try {
+    [attempts, wrongs, plan, bankInfo] = await Promise.all([
+      call(window.api.exam.listAttempts()),
+      call(window.api.exam.wrongs()),
+      call(window.api.exam.getPlan()),
+      call(window.api.exam.bank())
+    ]);
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+  examState.wrongs = wrongs || [];
+  examState.plan = plan;
+
+  // 题库规模：让用户知道这套卷子从多大规模的题库里抽的
+  if (bankInfo) {
+    head.appendChild(el('div', { class: 'exam-bank-line' }, [
+      '本地题库 ' + bankInfo.count + ' 题 · ' + bankInfo.tags.length + ' 个知识点 · '
+      + (bankInfo.domains || []).length + ' 个方向 · 离线可用'
+    ]));
+  }
+
+  // 有未完成的草稿时，给出「继续答题」入口（关闭应用后也不会丢）
+  const drafts = (attempts || []).filter((a) => a.status === 'draft');
+  const resumeCard = drafts.length
+    ? el('div', { class: 'exam-card exam-resume-card' }, [
+        el('h3', {}, ['上次的卷子还没交']),
+        el('div', { class: 'exam-stat-line' }, [
+          el('span', {}, ['已答 ' + Object.keys(drafts[0].answers || {}).length + ' / ' + (drafts[0].totalCount || '?') + ' 题']),
+          el('span', {}, [timeAgo(drafts[0].startedAt)])
+        ]),
+        el('div', { class: 'exam-actions' }, [
+          el('button', { class: 'btn btn-primary btn-sm', type: 'button', onclick: () => resumeDraft(drafts[0]) }, ['继续答题 →'])
+        ])
+      ])
+    : null;
+
+  const submitted = (attempts || []).filter((a) => a.status === 'submitted').slice(0, 8);
+  const activeWrongs = (wrongs || []).filter((w) => !w.mastered);
+
+  const historyCard = el('div', { class: 'exam-card' }, [
+    el('h3', {}, ['最近成绩']),
+    submitted.length
+      ? el('div', { class: 'exam-history' }, submitted.map((a) => el('div', { class: 'exam-history-row' }, [
+          el('span', { class: 'eh-score' + (a.score >= 60 ? ' ok' : ' bad') }, [String(a.score)]),
+          el('span', { class: 'eh-meta' }, [a.correctCount + '/' + a.totalCount + ' 题正确 · 用时 ' + fmtClock(a.durationSec)]),
+          el('span', { class: 'eh-time' }, [timeAgo(a.submittedAt || a.startedAt)])
+        ])))
+      : el('div', { class: 'exam-empty' }, ['还没有考试记录，先做一套试试。'])
+  ]);
+
+  const wrongCard = el('div', { class: 'exam-card' }, [
+    el('h3', {}, ['错题本']),
+    el('div', { class: 'exam-stat-line' }, [
+      el('span', {}, ['未掌握 ' + activeWrongs.length + ' 题']),
+      el('span', {}, ['累计 ' + (wrongs || []).length + ' 题']),
+      plan && plan.weakTags && plan.weakTags.length
+        ? el('span', {}, ['薄弱：' + plan.weakTags.slice(0, 4).join(' / ')])
+        : null
+    ]),
+    el('div', { class: 'exam-actions' }, [
+      el('button', {
+        class: 'btn btn-ghost btn-sm', type: 'button',
+        onclick: () => { examState.view = 'wrongs'; renderExamCenter(); }
+      }, ['查看错题本']),
+      el('button', {
+        class: 'btn btn-ghost btn-sm', type: 'button',
+        disabled: activeWrongs.length ? null : 'disabled',
+        onclick: () => startReviewExam()
+      }, ['错题强化练习'])
+    ])
+  ]);
+
+  root.append(head);
+  if (resumeCard) root.append(resumeCard);
+  root.append(startCard, el('div', { class: 'exam-grid' }, [historyCard, wrongCard]));
+}
+
+// 继续未完成的草稿：重新取回试卷题目并恢复已存作答
+async function resumeDraft(attempt) {
+  try {
+    const data = await call(window.api.exam.getPaper(attempt.paperId));
+    const started = await call(window.api.exam.startAttempt(attempt.paperId));
+    examState.paper = data.paper;
+    examState.questions = data.questions || [];
+    examState.attempt = started.attempt;
+    examState.answers = Object.assign({}, started.attempt.answers || {});
+    examState.index = 0;
+    examState.result = null;
+    examState.view = 'answering';
+    await renderExamCenter();
+    startExamTimer(data.paper.durationSec);
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function startExam(opts) {
+  try {
+    const created = await call(window.api.exam.createPaper(opts));
+    const started = await call(window.api.exam.startAttempt(created.paper.id));
+    examState.paper = created.paper;
+    examState.questions = created.questions || [];
+    examState.attempt = started.attempt;
+    examState.answers = Object.assign({}, started.attempt.answers || {});
+    examState.index = 0;
+    examState.result = null;
+    examState.view = 'answering';
+    await renderExamCenter();
+    startExamTimer(created.paper.durationSec);
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+async function startReviewExam() {
+  try {
+    const created = await call(window.api.exam.createReview(10));
+    const started = await call(window.api.exam.startAttempt(created.paper.id));
+    examState.paper = created.paper;
+    examState.questions = created.questions || [];
+    examState.attempt = started.attempt;
+    examState.answers = Object.assign({}, started.attempt.answers || {});
+    examState.index = 0;
+    examState.result = null;
+    examState.view = 'answering';
+    await renderExamCenter();
+    startExamTimer(created.paper.durationSec);
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+// ---------------- 视图 2：答题 ----------------
+function startExamTimer(totalSec) {
+  stopExamTimer();
+  examState.remaining = Number(totalSec) || 1800;
+  // 先把倒计时渲染出来，避免第一秒空白
+  const clock0 = document.getElementById('exam-clock');
+  if (clock0) clock0.textContent = fmtClock(examState.remaining);
+  examState.timer = setInterval(() => {
+    examState.remaining--;
+    const clock = document.getElementById('exam-clock');
+    if (clock) {
+      clock.textContent = fmtClock(examState.remaining);
+      clock.classList.toggle('urgent', examState.remaining <= 60);
+    }
+    if (examState.remaining <= 0) {
+      stopExamTimer();
+      toast('时间到，已自动交卷', 'err');
+      submitExam(true);
+    }
+  }, 1000);
+}
+
+function scheduleDraftSave() {
+  if (examState.saveTimer) clearTimeout(examState.saveTimer);
+  examState.saveTimer = setTimeout(async () => {
+    if (!examState.attempt) return;
+    try {
+      await call(window.api.exam.saveDraft(examState.attempt.id, examState.answers));
+      const hint = document.getElementById('exam-save-hint');
+      if (hint) hint.textContent = '草稿已保存 · ' + new Date().toLocaleTimeString('zh-CN', { hour12: false });
+    } catch (_) { /* 草稿保存失败不打断答题 */ }
+  }, 700);
+}
+
+function renderExamAnswering(root) {
+  const paper = examState.paper;
+  const questions = examState.questions;
+
+  const head = el('div', { class: 'exam-bar' }, [
+    el('div', { class: 'exam-bar-title' }, [paper.title || '模拟笔试']),
+    el('div', { class: 'exam-bar-stat' }, [
+      el('span', { id: 'exam-progress' }, ['已答 ' + examAnsweredCount() + ' / ' + questions.length]),
+      el('span', { id: 'exam-clock', class: 'exam-clock' }, [fmtClock(examState.remaining)])
+    ]),
+    el('div', { class: 'exam-bar-actions' }, [
+      el('button', {
+        class: 'btn btn-ghost btn-sm', type: 'button',
+        onclick: async () => {
+          if (examState.attempt) {
+            try { await call(window.api.exam.saveDraft(examState.attempt.id, examState.answers)); } catch (_) {}
+          }
+          stopExamTimer();
+          examState.view = 'home';
+          renderExamCenter();
+        }
+      }, ['暂存退出']),
+      el('button', { class: 'btn btn-primary btn-sm', type: 'button', onclick: () => submitExam(false) }, ['交卷'])
+    ])
+  ]);
+
+  const navBox = el('div', { class: 'exam-nav', id: 'exam-nav' });
+  const qBox = el('div', { class: 'exam-q-box', id: 'exam-q-box' });
+  const saveHint = el('div', { class: 'exam-save-hint', id: 'exam-save-hint' }, ['草稿自动保存']);
+
+  const footer = el('div', { class: 'exam-footer' }, [
+    el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: () => gotoQuestion(examState.index - 1) }, ['← 上一题']),
+    saveHint,
+    el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: () => gotoQuestion(examState.index + 1) }, ['下一题 →'])
+  ]);
+
+  root.append(head, navBox, qBox, footer);
+  renderExamNav();
+  renderExamQuestionBox();
+}
+
+function gotoQuestion(i) {
+  if (i < 0 || i >= examState.questions.length) return;
+  examState.index = i;
+  renderExamNav();
+  renderExamQuestionBox();
+}
+
+function renderExamNav() {
+  const nav = document.getElementById('exam-nav');
+  if (!nav) return;
+  nav.innerHTML = '';
+  examState.questions.forEach((q, i) => {
+    const a = examState.answers[q.id];
+    const answered = a != null && (Array.isArray(a) ? a.length > 0 : String(a).trim() !== '');
+    nav.appendChild(el('button', {
+      class: 'exam-nav-btn' + (i === examState.index ? ' current' : '') + (answered ? ' answered' : ''),
+      type: 'button',
+      onclick: () => gotoQuestion(i)
+    }, [String(i + 1)]));
+  });
+  const prog = document.getElementById('exam-progress');
+  if (prog) prog.textContent = '已答 ' + examAnsweredCount() + ' / ' + examState.questions.length;
+}
+
+function renderExamQuestionBox() {
+  const box = document.getElementById('exam-q-box');
+  if (!box) return;
+  const q = examState.questions[examState.index];
+  if (!q) return;
+  box.innerHTML = '';
+
+  box.appendChild(el('div', { class: 'exam-q-head' }, [
+    el('span', { class: 'exam-q-no' }, ['第 ' + (examState.index + 1) + ' 题']),
+    el('span', { class: 'exam-q-type' }, [EXAM_TYPE_LABEL[q.type] || q.type]),
+    el('span', { class: 'exam-q-diff' }, ['★'.repeat(q.difficulty || 1)]),
+    el('span', { class: 'exam-q-tags' }, [(q.tags || []).slice(0, 3).join(' · ')])
+  ]));
+  box.appendChild(el('div', { class: 'exam-q-stem' }, [q.stem]));
+
+  const cur = examState.answers[q.id];
+
+  if (q.type === 'fill') {
+    const input = el('input', { class: 'exam-fill', type: 'text', placeholder: '填写答案（忽略大小写与空格）' });
+    input.value = cur || '';
+    input.addEventListener('input', () => {
+      examState.answers[q.id] = input.value;
+      renderExamNav();
+      scheduleDraftSave();
+    });
+    box.appendChild(input);
+    return;
+  }
+
+  const options = q.options || [];
+  const multi = q.type === 'multiple';
+  const chosen = new Set(multi ? (Array.isArray(cur) ? cur : []) : (cur ? [cur] : []));
+
+  options.forEach((opt, i) => {
+    const input = el('input', { type: multi ? 'checkbox' : 'radio', name: 'exam-opt-' + q.id });
+    input.checked = chosen.has(opt);
+    input.addEventListener('change', () => {
+      if (multi) {
+        if (input.checked) chosen.add(opt); else chosen.delete(opt);
+        examState.answers[q.id] = [...chosen];
+      } else {
+        examState.answers[q.id] = opt;
+        box.querySelectorAll('.exam-opt').forEach((lab) => lab.classList.remove('checked'));
+        const lab = input.closest('.exam-opt');
+        if (lab) lab.classList.add('checked');
+      }
+      renderExamNav();
+      scheduleDraftSave();
+    });
+    const label = el('label', { class: 'exam-opt' + (input.checked ? ' checked' : '') }, [
+      input,
+      el('span', { class: 'exam-opt-key' }, [String.fromCharCode(65 + i)]),
+      el('span', { class: 'exam-opt-text' }, [opt])
+    ]);
+    box.appendChild(label);
+  });
+}
+
+async function submitExam(auto) {
+  if (!examState.attempt) return;
+  if (!auto) {
+    const unanswered = examState.questions.length - examAnsweredCount();
+    const sure = await modalConfirm(
+      '确认交卷',
+      unanswered > 0 ? '还有 ' + unanswered + ' 题未作答，未作答按错处理。确认交卷？' : '确认交卷？',
+      '交卷'
+    );
+    if (!sure) return;
+  }
+  try {
+    const res = await call(window.api.exam.submit(examState.attempt.id, examState.answers));
+    stopExamTimer();
+    examState.result = res.result;
+    examState.view = 'result';
+    renderExamCenter();
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+}
+
+// ---------------- 视图 3：成绩 ----------------
+function renderExamResult(root) {
+  stopExamTimer();
+  const r = examState.result;
+  const pass = !!r.passed;
+
+  const head = el('div', { class: 'exam-result-head' + (pass ? ' pass' : ' fail') }, [
+    el('div', { class: 'exam-score' }, [String(r.score)]),
+    el('div', { class: 'exam-score-meta' }, [
+      el('div', { class: 'exam-verdict' }, [pass ? '通过' : '未通过']),
+      el('div', { class: 'exam-sub' }, [
+        '正确 ' + r.correctCount + ' / ' + r.totalCount + ' 题 · 用时 ' + fmtClock(r.durationSec) + ' · 及格线 ' + r.passScore
+      ])
+    ])
+  ]);
+
+  const tagRows = Object.entries(r.tagStats || {})
+    .map(([tag, st]) => ({ tag, ...st, rate: st.total ? st.correct / st.total : 0 }))
+    .sort((a, b) => a.rate - b.rate)
+    .slice(0, 12);
+
+  const tagCard = el('div', { class: 'exam-card' }, [
+    el('h3', {}, ['知识点掌握度']),
+    tagRows.length
+      ? el('div', { class: 'exam-tags' }, tagRows.map((t) => el('div', { class: 'exam-tag-row' }, [
+          el('span', { class: 'et-name' }, [t.tag]),
+          el('span', { class: 'et-bar' }, [
+            el('i', { style: 'width:' + Math.round(t.rate * 100) + '%;background:' + (t.rate >= 0.8 ? '#59b98a' : t.rate >= 0.5 ? '#d6a84a' : '#d4695f') })
+          ]),
+          el('span', { class: 'et-num' }, [t.correct + '/' + t.total])
+        ])))
+      : el('div', { class: 'exam-empty' }, ['本卷没有可统计的知识点。'])
+  ]);
+
+  const wrongDetails = (r.details || []).filter((d) => !d.correct);
+  const detailCard = el('div', { class: 'exam-card' }, [
+    el('h3', {}, ['错题解析（' + wrongDetails.length + ' 题）']),
+    wrongDetails.length
+      ? el('div', { class: 'exam-details' }, wrongDetails.map((d) => {
+          const q = examState.questions.find((x) => x.id === d.questionId);
+          return el('div', { class: 'exam-detail-item' }, [
+            el('div', { class: 'ed-stem' }, [q ? q.stem : d.questionId]),
+            el('div', { class: 'ed-row' }, [
+              el('span', { class: 'ed-label bad' }, ['你的答案']),
+              el('span', {}, [fmtAnswer(d.userAnswer)])
+            ]),
+            el('div', { class: 'ed-row' }, [
+              el('span', { class: 'ed-label ok' }, ['正确答案']),
+              el('span', {}, [fmtAnswer(d.correctAnswer)])
+            ]),
+            el('div', { class: 'ed-exp' }, [d.explanation])
+          ]);
+        }))
+      : el('div', { class: 'exam-empty' }, ['全部答对，没有错题。'])
+  ]);
+
+  const actions = el('div', { class: 'exam-actions' }, [
+    el('button', {
+      class: 'btn btn-primary btn-sm', type: 'button',
+      onclick: () => { examState.view = 'home'; examState.result = null; renderExamCenter(); }
+    }, ['返回笔试中心']),
+    el('button', {
+      class: 'btn btn-ghost btn-sm', type: 'button',
+      onclick: () => { examState.view = 'wrongs'; renderExamCenter(); }
+    }, ['查看错题本']),
+    el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: () => startReviewExam() }, ['立刻强化练习'])
+  ]);
+
+  root.append(head, tagCard, detailCard, actions);
+}
+
+function fmtAnswer(a) {
+  if (a == null) return '（未作答）';
+  if (Array.isArray(a)) return a.length ? a.join(' / ') : '（未作答）';
+  return String(a) || '（未作答）';
+}
+
+// ---------------- 视图 4：错题本与学习计划 ----------------
+let examWrongFilter = 'active'; // active | all | mastered
+
+async function renderExamWrongs(root) {
+  stopExamTimer();
+  let items = [];
+  let plan = null;
+  try {
+    [items, plan] = await Promise.all([
+      call(window.api.exam.wrongs()),
+      call(window.api.exam.getPlan())
+    ]);
+  } catch (err) {
+    toast(err.message, 'err');
+  }
+  examState.wrongs = items || [];
+
+  const shown = (items || []).filter((w) =>
+    examWrongFilter === 'all' ? true : examWrongFilter === 'mastered' ? w.mastered : !w.mastered);
+
+  const head = el('div', { class: 'page-head' }, [
+    el('div', { class: 'page-kicker' }, ['STEP 05 / 错题本']),
+    el('h1', { class: 'page-title' }, ['把错过的题吃透']),
+    el('p', { class: 'page-desc' }, ['按知识点复习错题，标记已掌握后不再进入下一轮练习。'])
+  ]);
+
+  const filterbar = el('div', { class: 'jobs-filterbar' },
+    [['active', '未掌握'], ['mastered', '已掌握'], ['all', '全部']].map(([key, label]) =>
+      el('button', {
+        class: 'filter-chip' + (examWrongFilter === key ? ' active' : ''),
+        type: 'button',
+        onclick: () => { examWrongFilter = key; renderExamCenter(); }
+      }, [label + ' ' + (key === 'all' ? items.length
+        : key === 'mastered' ? items.filter((w) => w.mastered).length
+          : items.filter((w) => !w.mastered).length)])
+    ).concat([
+      el('div', { class: 'spacer' }),
+      el('button', {
+        class: 'btn btn-ghost btn-sm', type: 'button',
+        onclick: () => { examState.view = 'home'; renderExamCenter(); }
+      }, ['← 返回笔试中心'])
+    ])
+  );
+
+  const planCard = el('div', { class: 'exam-card' }, [
+    el('h3', {}, ['学习计划']),
+    el('div', { class: 'exam-stat-line' }, [
+      el('span', {}, ['累计完成 ' + ((plan && plan.completedCount) || 0) + ' 题']),
+      el('span', {}, ['每周目标 ' + ((plan && plan.weeklyQuestionGoal) || 30) + ' 题']),
+      plan && plan.weakTags && plan.weakTags.length
+        ? el('span', {}, ['薄弱知识点：' + plan.weakTags.slice(0, 6).join(' / ')])
+        : el('span', {}, ['做完一套卷子后自动分析薄弱项'])
+    ]),
+    el('div', { class: 'exam-actions' }, [
+      el('button', {
+        class: 'btn btn-primary btn-sm', type: 'button',
+        disabled: items.filter((w) => !w.mastered).length ? null : 'disabled',
+        onclick: () => startReviewExam()
+      }, ['按薄弱项生成下一轮']),
+      el('button', {
+        class: 'btn btn-ghost btn-sm', type: 'button',
+        onclick: async () => {
+          const data = await modalForm('学习计划', [
+            { name: 'weeklyQuestionGoal', label: '每周目标题量', value: String((plan && plan.weeklyQuestionGoal) || 30), placeholder: '如：30' }
+          ], '保存');
+          if (!data) return;
+          try {
+            await call(window.api.exam.savePlan({
+              weeklyQuestionGoal: Number(data.weeklyQuestionGoal) || 30,
+              completedCount: (plan && plan.completedCount) || 0,
+              targetRole: (plan && plan.targetRole) || ((state.profile && state.profile.targetRole) || ''),
+              weakTags: (plan && plan.weakTags) || []
+            }));
+            toast('周目标已更新', 'ok');
+            renderExamCenter();
+          } catch (err) { toast(err.message, 'err'); }
+        }
+      }, ['设置周目标'])
+    ])
+  ]);
+
+  const list = el('div', { class: 'exam-card' }, [
+    el('h3', {}, ['错题（' + shown.length + '）']),
+    shown.length
+      ? el('div', { class: 'wrong-list' }, shown.map((w) => {
+          const q = w.question || {};
+          return el('div', { class: 'wrong-item' + (w.mastered ? ' mastered' : '') }, [
+            el('div', { class: 'wrong-head' }, [
+              el('span', { class: 'wrong-tags' }, [(q.tags || []).slice(0, 3).join(' · ')]),
+              el('span', { class: 'wrong-count' }, ['错 ' + w.errorCount + ' 次'])
+            ]),
+            el('div', { class: 'wrong-stem' }, [q.stem || w.questionId]),
+            el('div', { class: 'ed-row' }, [
+              el('span', { class: 'ed-label ok' }, ['正确答案']),
+              el('span', {}, [fmtAnswer(q.answer)])
+            ]),
+            el('div', { class: 'ed-exp' }, [q.explanation || '']),
+            el('div', { class: 'wrong-actions' }, [
+              el('button', {
+                class: 'btn btn-ghost btn-sm', type: 'button',
+                onclick: async () => {
+                  try {
+                    await call(window.api.exam.masterWrong(w.questionId, !w.mastered));
+                    renderExamCenter();
+                  } catch (err) { toast(err.message, 'err'); }
+                }
+              }, [w.mastered ? '标记为未掌握' : '标记已掌握'])
+            ])
+          ]);
+        }))
+      : el('div', { class: 'exam-empty' }, ['这个分类下没有错题。'])
+  ]);
+
+  root.append(head, filterbar, planCard, list);
 }
 
 (async () => {
