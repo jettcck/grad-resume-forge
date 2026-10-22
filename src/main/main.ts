@@ -949,7 +949,7 @@ async function handleCodeJudge(
   const q = getCodeQuestion(String((input && input.questionId) || ''));
   if (!q) return fail('题目不存在');
   const lang = String((input && input.lang) || '');
-  if (lang !== 'javascript' && lang !== 'python') return fail('暂不支持该语言');
+  if (lang !== 'javascript' && lang !== 'python' && lang !== 'cpp') return fail('暂不支持该语言');
   const code = String((input && input.code) || '');
   if (!code.trim()) return fail('代码为空');
   if (code.length > 100000) return fail('代码长度超过 10 万字符');

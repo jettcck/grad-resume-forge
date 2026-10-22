@@ -230,12 +230,12 @@ function registerIpc() {
   h('code:run', (input) => {
     const q = codeBank.getCodeQuestion(String((input && input.questionId) || ''));
     if (!q) throw new Error('题目不存在');
-    return codeRunner.judgeCode(q, input && input.lang === 'python' ? 'python' : 'javascript', String((input && input.code) || ''), 'samples');
+    return codeRunner.judgeCode(q, (input && (input.lang === 'python' || input.lang === 'cpp')) ? input.lang : 'javascript', String((input && input.code) || ''), 'samples');
   });
   h('code:submit', (input) => {
     const q = codeBank.getCodeQuestion(String((input && input.questionId) || ''));
     if (!q) throw new Error('题目不存在');
-    return codeRunner.judgeCode(q, input && input.lang === 'python' ? 'python' : 'javascript', String((input && input.code) || ''), 'all');
+    return codeRunner.judgeCode(q, (input && (input.lang === 'python' || input.lang === 'cpp')) ? input.lang : 'javascript', String((input && input.code) || ''), 'all');
   });
   // 官方授权导入：与主进程保持同一套去重规则（source+externalId 优先，其次公司+岗位）
   h('applications:importAuthorized', (uid, payload) => {

@@ -180,6 +180,14 @@ const PY_SOLUTIONS = {
   'code-lc-edit-distance': "raw=open(0).read()\nparts=raw.split('\\n')\na=parts[0].rstrip('\\r')\nb=parts[1].rstrip('\\r') if len(parts)>1 else ''\nm,n=len(a),len(b)\ndp=[[0]*(n+1) for _ in range(m+1)]\nfor i in range(m+1): dp[i][0]=i\nfor j in range(n+1): dp[0][j]=j\nfor i in range(1,m+1):\n    for j in range(1,n+1):\n        dp[i][j]=dp[i-1][j-1] if a[i-1]==b[j-1] else 1+min(dp[i-1][j-1],dp[i-1][j],dp[i][j-1])\nprint(dp[m][n])"
 };
 
+// C++ 参考解法：验证「编译 → 运行 → 判定」整条链路
+const CPP_SOLUTIONS = {
+  'code-a-plus-b': '#include <iostream>\nusing namespace std;\nint main(){long long a,b;if(!(cin>>a>>b))return 0;cout<<a+b<<endl;return 0;}',
+  'code-reverse-string': '#include <iostream>\n#include <string>\n#include <algorithm>\nusing namespace std;\nint main(){string s;getline(cin,s);reverse(s.begin(),s.end());cout<<s<<endl;return 0;}',
+  'code-lc-climb-stairs': '#include <iostream>\nusing namespace std;\nint main(){int n;if(!(cin>>n))return 0;if(n==1){cout<<1<<endl;return 0;}long long a=1,b=2;for(int i=3;i<=n;i++){long long t=a+b;a=b;b=t;}cout<<b<<endl;return 0;}',
+  'code-lc-binary-search': '#include <iostream>\n#include <vector>\nusing namespace std;\nint main(){int n;long long target;if(!(cin>>n>>target))return 0;vector<long long> a(n);for(auto &x:a)cin>>x;int lo=0,hi=n-1,ans=-1;while(lo<=hi){int mid=(lo+hi)/2;if(a[mid]==target){ans=mid;break;}else if(a[mid]<target)lo=mid+1;else hi=mid-1;}cout<<ans<<endl;return 0;}'
+};
+
 (async () => {
   // ---- JavaScript 参考解法 ----
   for (const q of CODE_BANK) {
@@ -202,6 +210,29 @@ const PY_SOLUTIONS = {
     }
   } else {
     console.log('   [skip] 本机没有 Python，跳过 Python 参考解法');
+  }
+
+  // ---- C++ 参考解法（本机有 g++/clang++ 才跑）----
+  if (env.cpp) {
+    console.log('   [env] cpp=' + env.cppCmd);
+    const abQ = getCodeQuestion('code-a-plus-b');
+    for (const q of CODE_BANK) {
+      const code = CPP_SOLUTIONS[q.id];
+      if (!code) continue;
+      const r = await runner.judgeCode(q, 'cpp', code, 'all');
+      assert(r.verdict === 'AC' && r.passed === r.total,
+        'C++ 参考解法全过：' + q.title + '（' + r.passed + '/' + r.total + (r.verdict !== 'AC' ? ' · ' + r.verdict + ' ' + (r.message || '') : '') + '）');
+    }
+    // 编译错误要判 CE 并把编译器报错带回来
+    const ce = await runner.judgeCode(abQ, 'cpp', 'int main(){ this is not c++; }', 'all');
+    assert(ce.verdict === 'CE', 'C++ 语法错误判为 CE（实际 ' + ce.verdict + '）');
+    assert(!!(ce.cases[0] && ce.cases[0].stderr), 'CE 时回传编译器报错');
+    // 运行错误
+    const cppRe = await runner.judgeCode(abQ, 'cpp',
+      '#include <cstdlib>\nint main(){ int* p=nullptr; *p=1; return 0; }', 'all');
+    assert(cppRe.verdict === 'RE' || cppRe.verdict === 'CE', 'C++ 空指针崩溃判为 RE/CE（实际 ' + cppRe.verdict + '）');
+  } else {
+    console.log('   [skip] 本机没有 C++ 编译器，跳过 C++ 参考解法');
   }
 
   // ---------------- 5) 四种判定真实性 ----------------

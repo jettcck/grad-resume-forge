@@ -34,7 +34,8 @@ export const CODE_BANK: CodeQuestion[] = [
     memoryLimitMb: 256,
     starterCode: {
       javascript: "const data = require('fs').readFileSync(0, 'utf8').trim().split(/\\s+/);\nconst a = Number(data[0]);\nconst b = Number(data[1]);\nconsole.log(a + b);\n",
-      python: 'a, b = map(int, input().split())\nprint(a + b)\n'
+      python: 'a, b = map(int, input().split())\nprint(a + b)\n',
+      cpp: '#include <iostream>\nusing namespace std;\n\nint main() {\n    long long a, b;\n    if (!(cin >> a >> b)) return 0;\n    cout << a + b << endl;\n    return 0;\n}\n'
     },
     hint: '注意：不要输出「请输入」之类的提示语，判题只看标准输出。',
     version: 1

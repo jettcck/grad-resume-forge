@@ -4524,7 +4524,7 @@ const codeState = {
   env: null,
   question: null,
   lang: 'javascript',
-  drafts: { javascript: '', python: '' },
+  drafts: { javascript: '', python: '', cpp: '' },
   draftFor: null,
   result: null,
   busy: false
@@ -4582,16 +4582,24 @@ async function renderCodeView(root) {
   }
 
   const pyReady = !!(codeState.env && codeState.env.python);
+  const cppReady = !!(codeState.env && codeState.env.cpp);
   const langSelect = el('select', { class: 'exam-select', id: 'code-lang' }, [
     el('option', { value: 'javascript', selected: codeState.lang === 'javascript' ? 'selected' : null }, ['JavaScript']),
     el('option', { value: 'python', selected: codeState.lang === 'python' ? 'selected' : null }, [
       pyReady ? 'Python 3' : 'Python 3（未检测到）'
+    ]),
+    el('option', { value: 'cpp', selected: codeState.lang === 'cpp' ? 'selected' : null }, [
+      cppReady ? 'C++ 17' : 'C++ 17（未检测到编译器）'
     ])
   ]);
   langSelect.addEventListener('change', () => {
-    codeState.lang = langSelect.value === 'python' ? 'python' : 'javascript';
+    const v = langSelect.value;
+    codeState.lang = (v === 'python' || v === 'cpp') ? v : 'javascript';
     if (codeState.lang === 'python' && !pyReady) {
       toast('本机未检测到 Python 3，请安装后重试，或改用 JavaScript', 'err', 4200);
+    }
+    if (codeState.lang === 'cpp' && !cppReady) {
+      toast('本机未检测到 C++ 编译器（g++/clang++）。请安装 MinGW-w64 并把 bin 目录加入 PATH', 'err', 6000);
     }
     renderExamCenter();
   });
@@ -4666,6 +4674,7 @@ async function selectCodeQuestion(id) {
     if (codeState.draftFor !== id) {
       codeState.drafts.javascript = (q.starterCode && q.starterCode.javascript) || '';
       codeState.drafts.python = (q.starterCode && q.starterCode.python) || '';
+      codeState.drafts.cpp = (q.starterCode && q.starterCode.cpp) || '';
       codeState.draftFor = id;
     }
     codeState.result = null;

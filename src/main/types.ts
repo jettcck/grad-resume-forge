@@ -513,7 +513,7 @@ export interface StudyPlan {
 //  真要防恶意代码必须上 WASM 或容器，见 docs 讨论。
 // ============================================================
 
-export type ProgramLang = 'javascript' | 'python';
+export type ProgramLang = 'javascript' | 'python' | 'cpp';
 
 export interface CodeSample {
   input: string;
@@ -542,7 +542,7 @@ export interface CodeQuestion {
   testCases: CodeTestCase[];
   timeLimitMs: number;
   memoryLimitMb: number;
-  starterCode?: { javascript?: string; python?: string };
+  starterCode?: { javascript?: string; python?: string; cpp?: string };
   hint?: string;
   version: number;
 }
