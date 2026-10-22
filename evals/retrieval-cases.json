@@ -1,0 +1,27 @@
+{
+  "corpus": "exam-bank",
+  "note": "人工标注：expect 是我逐题核对题干后确认「语义上真正相关」的题，不是用检索器反向找出来的（那等于自证）。type=keyword 表示关键词直白命中，type=semantic 表示需要同义/改写理解。",
+  "cases": [
+    { "id": "A1", "type": "keyword", "query": "HashMap 的底层结构是什么，扩容是怎么做的", "expect": ["be-java-03"] },
+    { "id": "A2", "type": "keyword", "query": "MySQL 索引在什么情况下会失效", "expect": ["db-mysql-02"] },
+    { "id": "A3", "type": "keyword", "query": "TCP 三次握手的第二次握手服务端回什么标志位", "expect": ["be-net-01"] },
+    { "id": "A4", "type": "keyword", "query": "CSS 选择器 .a .b 和 .a > .b 有什么区别", "expect": ["fe-css-03"] },
+    { "id": "A5", "type": "keyword", "query": "快速排序的平均时间复杂度是多少", "expect": ["algo-ds-04"] },
+    { "id": "A6", "type": "keyword", "query": "资产负债率的计算公式", "expect": ["fin-03"] },
+    { "id": "A7", "type": "keyword", "query": "次日留存率怎么计算", "expect": ["pm-05"] },
+    { "id": "A8", "type": "keyword", "query": "RFM 模型用哪三个维度划分用户价值", "expect": ["op-03"] },
+
+    { "id": "B1", "type": "semantic", "query": "热点数据突然失效，瞬时大量请求全都打到数据库上，有什么办法挡住", "expect": ["be-prac-04"] },
+    { "id": "B2", "type": "semantic", "query": "多个线程同时改一个共享变量，怎么保证一个线程改完另一个立刻能看到", "expect": ["be-java-04"] },
+    { "id": "B3", "type": "semantic", "query": "两个人同时修改同一条记录，后提交的把先提交的覆盖了，数据库层面怎么避免", "expect": ["db-mysql-03"] },
+    { "id": "B4", "type": "semantic", "query": "用户重复点提交按钮，怎么保证同一笔请求只处理一次", "expect": ["be-prac-02"] },
+    { "id": "B5", "type": "semantic", "query": "公司账面上有利润，但账户里没钱，这是为什么", "expect": ["fin-05", "fin-01"] },
+    { "id": "B6", "type": "semantic", "query": "怎么科学判断一个新功能上线后到底有没有效果", "expect": ["pm-04"] },
+    { "id": "B7", "type": "semantic", "query": "先做一个能跑起来的最小版本验证想法，再逐步完善", "expect": ["pm-02"] },
+    { "id": "B8", "type": "semantic", "query": "面试时怎么讲清楚自己在项目里具体做了什么", "expect": ["gen-02"] },
+    { "id": "B9", "type": "semantic", "query": "需求太多做不完，怎么决定先做哪个后做哪个", "expect": ["pm-01"] },
+    { "id": "B10", "type": "semantic", "query": "日志里能不能直接把用户的密码和身份证号打出来", "expect": ["be-prac-03"] },
+    { "id": "B11", "type": "semantic", "query": "网页第一次打开很慢，怎么让首屏更快出来", "expect": ["fe-eng-03"] },
+    { "id": "B12", "type": "semantic", "query": "Redis 的数据是怎么保存到磁盘上的", "expect": ["be-redis-02"] }
+  ]
+}
