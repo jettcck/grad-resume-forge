@@ -1257,6 +1257,45 @@ em { font-style: normal; color: var(--gold); }
   border-radius: 2px; padding: 9px 10px;
 }
 .job-detail .jd-empty { font-size: 12px; color: var(--ink-2); }
+.job-detail .jd-benefits { font-size: 12px; color: var(--ink-1); line-height: 1.7; margin-bottom: 10px; }
+/* 筛选条 + 排序 */
+.jobs-filterbar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  margin: 2px 0 14px;
+}
+.filter-chip {
+  font-size: 12px; color: var(--ink-2);
+  background: transparent; border: 1px solid var(--line);
+  border-radius: 999px; padding: 4px 12px; cursor: pointer;
+  transition: .18s; font-family: var(--font-mono); letter-spacing: .3px;
+}
+.filter-chip:hover { color: var(--ink-0); border-color: var(--line-2); }
+.filter-chip.active {
+  color: var(--bg-0); background: var(--gold-soft); border-color: var(--gold-soft);
+  font-weight: 700;
+}
+.jobs-filterbar .sort-label { font-size: 11px; color: var(--ink-2); font-family: var(--font-mono); }
+.jobs-filterbar .sort-select {
+  background: var(--bg-0); border: 1px solid var(--line); color: var(--ink-1);
+  border-radius: 2px; padding: 4px 8px; font-size: 12px;
+}
+/* 截止日期标签 */
+.job-meta .chip.deadline { color: var(--ink-2); }
+.job-meta .chip.deadline.urgent { color: #e8a54b; border-color: rgba(232, 165, 75, .35); }
+.job-meta .chip.deadline.expired { color: var(--ink-2); opacity: .55; text-decoration: line-through; }
+/* 多岗位粘贴：候选勾选列表 */
+.job-pick-list { display: flex; flex-direction: column; gap: 8px; max-height: 52vh; overflow: auto; }
+.job-pick-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: var(--radius-sm); padding: 9px 11px; cursor: pointer;
+  transition: border-color .18s;
+}
+.job-pick-row:hover { border-color: var(--line-2); }
+.job-pick-row input { margin-top: 3px; accent-color: var(--gold); }
+.job-pick-body { min-width: 0; }
+.job-pick-main { font-size: 13px; color: var(--ink-0); font-weight: 600; word-break: break-all; }
+.job-pick-meta { font-size: 11px; color: var(--ink-2); margin-top: 3px; font-family: var(--font-mono); }
 @media (max-width: 720px) {
   .job-list { grid-template-columns: 1fr; }
 }

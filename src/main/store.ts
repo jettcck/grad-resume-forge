@@ -586,45 +586,106 @@ export function getJob(userId: string, jobId: string): Job | null {
   return j ? (JSON.parse(JSON.stringify(j)) as Job) : null;
 }
 
+// 字段长度上限：字符串字段统一在这里声明，cleanJobInput 与去重逻辑共用。
+const JOB_STR_FIELDS: Array<[keyof Job, number]> = [
+  ['company', 120], ['position', 120], ['jdText', 8000], ['salary', 60],
+  ['city', 120], ['education', 60], ['experience', 60], ['skills', 500],
+  ['source', 40], ['url', 1000], ['rejectReason', 200], ['applicationId', 80],
+  ['deadline', 40], ['jobType', 40], ['benefits', 500], ['companySize', 40]
+];
+const JOB_STATUSES = ['candidate', 'applied', 'closed'] as const;
+
+/**
+ * 清洗岗位输入。
+ * 关键语义：**只返回调用方显式传入的字段**。
+ * 以前这里对每个字段都给默认值（''/false/3），更新时 `{...old, ...clean}` 会把
+ * 没传的字段全部覆盖成空 —— 比如「转投递」只传 id+company+applicationId，
+ * 就会把用户的 JD、薪资、学历全部清掉。未传 = 不动。
+ */
 function cleanJobInput(input: Partial<Job>): Partial<Job> {
-  return {
-    company: String(input.company || '').trim().slice(0, 120),
-    position: String(input.position || '').trim().slice(0, 120),
-    jdText: String(input.jdText || '').slice(0, 8000),
-    salary: String(input.salary || '').trim().slice(0, 60),
-    city: String(input.city || '').trim().slice(0, 120),
-    education: String(input.education || '').trim().slice(0, 60),
-    experience: String(input.experience || '').trim().slice(0, 60),
-    skills: String(input.skills || '').trim().slice(0, 500),
-    source: String(input.source || '').trim().slice(0, 40),
-    url: String(input.url || '').trim().slice(0, 1000),
-    starred: !!input.starred,
-    rejected: !!input.rejected,
-    rejectReason: String(input.rejectReason || '').trim().slice(0, 200),
-    priority: Math.min(5, Math.max(1, Math.round(Number(input.priority) || 3))),
-    jdScore: typeof input.jdScore === 'number' ? input.jdScore : null,
-    applicationId: String(input.applicationId || '').trim().slice(0, 80) || undefined
-  };
+  const src = input as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+
+  for (const [key, max] of JOB_STR_FIELDS) {
+    if (src[key] === undefined) continue;
+    const k = key as string;
+    // JD 原文保留换行与首尾空白外的内容；其余字段 trim
+    const raw = String(src[key] == null ? '' : src[key]);
+    const val = k === 'jdText' ? raw.slice(0, max) : raw.trim().slice(0, max);
+    if (k === 'applicationId' && !val) { out[k] = undefined; continue; }
+    out[k] = val;
+  }
+  if (src.starred !== undefined) out.starred = !!src.starred;
+  if (src.rejected !== undefined) out.rejected = !!src.rejected;
+  if (src.priority !== undefined) {
+    out.priority = Math.min(5, Math.max(1, Math.round(Number(src.priority) || 3)));
+  }
+  if (src.jdScore !== undefined) {
+    out.jdScore = typeof src.jdScore === 'number' && isFinite(src.jdScore) ? src.jdScore : null;
+  }
+  if (src.status !== undefined) {
+    const s = String(src.status);
+    out.status = (JOB_STATUSES as readonly string[]).includes(s) ? s : 'candidate';
+  }
+  return out as Partial<Job>;
 }
 
 export function saveJob(userId: string, input: Partial<Job>): Job {
   if (!findUserById(userId)) throw new Error('用户不存在');
   const clean = cleanJobInput(input);
-  if (!clean.company) throw new Error('公司名称不能为空');
   if (!db.jobs[userId]) db.jobs[userId] = [];
   const list = db.jobs[userId]!;
   const now = Date.now();
+
+  // ---- 更新：只覆盖显式传入的字段（未传的保持原值）----
   if (input.id) {
     const idx = list.findIndex((x) => x.id === input.id);
     if (idx >= 0) {
+      if (clean.company !== undefined && !String(clean.company).trim()) {
+        throw new Error('公司名称不能为空');
+      }
       list[idx] = { ...list[idx]!, ...clean, id: input.id, updatedAt: now };
       persist();
       return list[idx]!;
     }
+    // id 指向的条目已不存在：退化为新增，避免静默丢弃用户输入
   }
+
+  const company = String(clean.company || '').trim();
+  if (!company) throw new Error('公司名称不能为空');
+  const position = String(clean.position || '').trim();
+  const url = String(clean.url || '').trim();
+
+  // ---- 统一去重：同公司+同岗位，或同一链接，视为同一条岗位 ----
+  // 放在后端做，渲染层就不用各自实现一套；命中时合并更新并返回原 id。
+  const dup = list.find((j) => {
+    if (url && j.url && j.url === url) return true;
+    if (!position) return false; // 没写岗位名时不做公司级判重，避免误合并
+    return (j.company || '') === company && (j.position || '') === position;
+  });
+  if (dup) {
+    const merged: Job = {
+      ...dup,
+      ...clean,
+      company,
+      position,
+      id: dup.id!,
+      createdAt: dup.createdAt,
+      updatedAt: now
+    };
+    const i = list.findIndex((x) => x.id === dup.id);
+    list[i] = merged;
+    persist();
+    return merged;
+  }
+
   const created: Job = {
     ...clean,
+    company,
+    position,
     id: 'job_' + now + '_' + Math.random().toString(36).slice(2, 8),
+    status: (clean.status as Job['status']) || 'candidate',
+    priority: typeof clean.priority === 'number' ? clean.priority : 3,
     createdAt: now,
     updatedAt: now
   } as Job;
@@ -644,7 +705,11 @@ export function markJob(
   const j = list.find((x) => x.id === jobId);
   if (!j) throw new Error('岗位不存在或已删除');
   if (typeof patch.starred === 'boolean') j.starred = patch.starred;
-  if (typeof patch.rejected === 'boolean') j.rejected = patch.rejected;
+  if (typeof patch.rejected === 'boolean') {
+    j.rejected = patch.rejected;
+    // 淘汰即关闭；取消淘汰时按是否已转投递回到对应状态
+    j.status = patch.rejected ? 'closed' : (j.applicationId ? 'applied' : 'candidate');
+  }
   if (typeof patch.rejectReason === 'string') j.rejectReason = patch.rejectReason.trim().slice(0, 200);
   if (typeof patch.priority === 'number') j.priority = Math.min(5, Math.max(1, Math.round(patch.priority)));
   j.updatedAt = Date.now();

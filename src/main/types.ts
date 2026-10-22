@@ -384,6 +384,16 @@ export interface Job {
   rejected?: boolean;
   /** 淘汰原因（rejected = true 时填写） */
   rejectReason?: string;
+  /** 池内状态：candidate=候选，applied=已转投递，closed=已关闭（过期/放弃） */
+  status?: 'candidate' | 'applied' | 'closed';
+  /** 投递截止日期（YYYY-MM-DD 或带时间字符串） */
+  deadline?: string;
+  /** 工作性质：全职 / 实习 / 兼职 / 校招 */
+  jobType?: string;
+  /** 福利待遇（原文） */
+  benefits?: string;
+  /** 公司规模（如「500-999人」） */
+  companySize?: string;
   /** 优先级 1-5（5 最高） */
   priority?: number;
   /** 保存时算好的简历-JD 匹配分（0-100，未算为 null） */

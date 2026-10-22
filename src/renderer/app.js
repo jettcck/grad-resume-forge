@@ -2801,9 +2801,23 @@ function appCard(a) {
     onclick: (e) => { e.stopPropagation(); openEditApplication(a); }
   }, ['编辑']));
   actions.push(el('button', { class: 'del', type: 'button', onclick: async () => {
-    await call(window.api.applications.remove(state.user.id, a.id));
-    state.applications = state.applications.filter((x) => x.id !== a.id);
-    renderApps();
+    try {
+      await call(window.api.applications.remove(state.user.id, a.id));
+      // 这条投递来自岗位池时，清掉岗位侧关联，否则岗位会一直显示「已转投递」
+      if (a.jobId) {
+        try {
+          const updated = await call(window.api.jobs.save(state.user.id, {
+            id: a.jobId, company: a.company, applicationId: '', status: 'candidate'
+          }));
+          const jIdx = state.jobs.findIndex((j) => j.id === a.jobId);
+          if (jIdx >= 0) state.jobs[jIdx] = updated;
+        } catch (_) { /* 岗位可能已被删除，忽略 */ }
+      }
+      state.applications = state.applications.filter((x) => x.id !== a.id);
+      renderApps();
+    } catch (err) {
+      toast(err.message, 'err');
+    }
   } }, ['删除']));
 
   return el('div', { class: 'app-card' }, [
@@ -2895,7 +2909,19 @@ async function saveApplicationToJobPool(a) {
       experience: meta.experience,
       skills: meta.skills
     }));
-    state.jobs.unshift(saved);
+    if (!state.jobs) state.jobs = [];
+    const jIdx = state.jobs.findIndex((j) => j.id === saved.id);
+    if (jIdx >= 0) state.jobs[jIdx] = saved; else state.jobs.unshift(saved);
+    // 双向关联：投递记录回写 jobId（后端部分更新，不会清空其它字段）
+    if (a.id) {
+      try {
+        const linked = await call(window.api.applications.save(state.user.id, {
+          id: a.id, company: a.company, jobId: saved.id
+        }));
+        const aIdx = state.applications.findIndex((x) => x.id === a.id);
+        if (aIdx >= 0) state.applications[aIdx] = linked;
+      } catch (_) { /* 关联失败不影响入池本身 */ }
+    }
     toast('已存入岗位池：' + saved.company, 'ok');
   } catch (err) {
     toast(err.message, 'err');
@@ -2913,27 +2939,64 @@ async function loadJobsIntoState() {
 }
 
 // 把 Job 转成投递记录并落库；成功后岗位打上 applicationId（用 save 更新，不动其它字段）
+// 岗位池 → 投递看板。三重防重：
+// 1) 岗位已带 applicationId 且该投递记录仍存在 → 直接拒绝（避免重复转）；
+// 2) 投递看板里已存在同公司+同岗位 → 拒绝并提示；
+// 3) 后端 saveJob 统一去重兜底。
+// 成功后双向写入：Application.jobId ←→ Job.applicationId。
 async function applyFromJob(job) {
+  if (!state.applications) state.applications = [];
+
+  if (job.applicationId) {
+    const linked = state.applications.find((a) => a.id === job.applicationId);
+    if (linked) {
+      toast('「' + job.company + '」已转投递（' + stageLabel(linked.stage) + '），无需重复转入', 'err');
+      return;
+    }
+    // 关联的投递记录被删了：允许重新转入，旧 applicationId 会被覆盖
+  }
+
+  const position = job.position || (state.profile && state.profile.targetRole) || '';
+  const dup = state.applications.find((a) =>
+    String(a.company || '').trim() === String(job.company || '').trim()
+    && String(a.position || '').trim() === String(position || '').trim());
+  if (dup) {
+    toast('投递看板里已有「' + job.company + ' · ' + (position || '未填岗位') + '」，未重复创建', 'err');
+    return;
+  }
+
   try {
     const created = await call(window.api.applications.save(state.user.id, {
       company: job.company,
-      position: job.position || (state.profile && state.profile.targetRole) || '',
+      position: position,
       url: job.url || '',
       place: job.city || '',
+      salary: job.salary || '',
+      education: job.education || '',
+      experience: job.experience || '',
+      jobId: job.id, // 双向关联：投递记录指回岗位
       stage: 'wish'
     }));
-    await call(window.api.jobs.save(state.user.id, {
+    // 岗位侧写回 applicationId + 状态；saveJob 现在是部分更新，不会清空 JD/薪资
+    const updated = await call(window.api.jobs.save(state.user.id, {
       id: job.id,
       company: job.company,
-      applicationId: created.id
+      applicationId: created.id,
+      status: 'applied'
     }));
     const idx = state.jobs.findIndex((j) => j.id === job.id);
-    if (idx >= 0) state.jobs[idx] = { ...job, applicationId: created.id };
+    if (idx >= 0) state.jobs[idx] = updated;
     state.applications.unshift(created);
     toast('「' + job.company + '」已转入投递看板「想投」栏', 'ok');
   } catch (err) {
     toast(err.message, 'err');
   }
+}
+
+// 阶段中文名：卡片提示与转投递校验都要用
+function stageLabel(key) {
+  const hit = STAGES.find((s) => s.key === (key || 'wish'));
+  return hit ? hit.label : '想投';
 }
 
 // 点击岗位卡展开/收起 JD 全文，并浮出操作按钮
@@ -2945,10 +3008,14 @@ function toggleJobDetail(job, card) {
   }
   card.dataset.expanded = '1';
   const detail = el('div', { class: 'job-detail' });
+  if (job.benefits) {
+    detail.appendChild(el('div', { class: 'jd-head' }, ['福利待遇']));
+    detail.appendChild(el('div', { class: 'jd-benefits' }, [job.benefits]));
+  }
   if (job.jdText) {
     detail.appendChild(el('div', { class: 'jd-head' }, ['JD 全文']));
     detail.appendChild(el('pre', { class: 'job-detail-jd' }, [job.jdText]));
-  } else {
+  } else if (!job.benefits) {
     detail.appendChild(el('div', { class: 'jd-empty' }, ['（未保存 JD 文本）']));
   }
   card.appendChild(detail);
@@ -2974,7 +3041,11 @@ async function openJobEditor(job) {
     { name: 'city', label: '城市（选填）', value: job.city, placeholder: '如：北京' },
     { name: 'education', label: '学历要求（选填）', value: job.education, placeholder: '如：本科' },
     { name: 'experience', label: '经验要求（选填）', value: job.experience, placeholder: '如：应届' },
-    { name: 'skills', label: '技能要求（选填）', value: job.skills, placeholder: '如：Java / Spring / Redis' }
+    { name: 'skills', label: '技能要求（选填）', value: job.skills, placeholder: '如：Java / Spring / Redis' },
+    { name: 'jobType', label: '工作性质（选填）', value: job.jobType, placeholder: '如：校招 / 全职 / 实习' },
+    { name: 'companySize', label: '公司规模（选填）', value: job.companySize, placeholder: '如：500-999人' },
+    { name: 'deadline', label: '投递截止日期（选填）', value: job.deadline, placeholder: '如：2026-11-30' },
+    { name: 'benefits', label: '福利待遇（选填）', value: job.benefits, placeholder: '如：六险一金 / 免费三餐 / 租房补贴' }
   ], '下一步');
   if (!data) return;
   const company = String(data.company || '').trim();
@@ -2995,6 +3066,10 @@ async function openJobEditor(job) {
     education: String(data.education || '').trim(),
     experience: String(data.experience || '').trim(),
     skills: String(data.skills || '').trim(),
+    jobType: String(data.jobType || '').trim(),
+    companySize: String(data.companySize || '').trim(),
+    deadline: String(data.deadline || '').trim(),
+    benefits: String(data.benefits || '').trim(),
     source: job.source || '',
     url: String(job.url || '').trim(),
     starred: !!job.starred,
@@ -3018,6 +3093,20 @@ async function openJobEditor(job) {
   }
 }
 
+// 截止日期提示：7 天内标红，已过期标灰
+function deadlineInfo(deadline) {
+  if (!deadline) return null;
+  const raw = String(deadline).trim();
+  if (!raw) return null;
+  const t = Date.parse(raw.replace(/-/g, '/'));
+  if (isNaN(t)) return { text: '截止 ' + raw, urgent: false, expired: false };
+  const days = Math.ceil((t - Date.now()) / 86400000);
+  if (days < 0) return { text: '已截止', urgent: true, expired: true };
+  if (days === 0) return { text: '今天截止', urgent: true, expired: false };
+  if (days <= 7) return { text: days + ' 天后截止', urgent: true, expired: false };
+  return { text: '截止 ' + raw.slice(0, 10), urgent: false, expired: false };
+}
+
 function jobCard(job) {
   const card = el('div', { class: 'job-card' + (job.starred ? ' starred' : '') });
   // 头部：公司与岗位名
@@ -3026,11 +3115,15 @@ function jobCard(job) {
     el('span', { class: 'job-po' }, [job.position || '—'])
   ]));
   // 信息标签行
+  const dl = deadlineInfo(job.deadline);
   card.appendChild(el('div', { class: 'job-meta' }, [
     job.salary ? el('span', { class: 'chip' }, [job.salary]) : null,
     job.city ? el('span', { class: 'chip' }, [job.city]) : null,
     job.education ? el('span', { class: 'chip' }, [job.education]) : null,
     job.experience ? el('span', { class: 'chip' }, [job.experience]) : null,
+    job.jobType ? el('span', { class: 'chip' }, [job.jobType]) : null,
+    job.companySize ? el('span', { class: 'chip' }, [job.companySize]) : null,
+    dl ? el('span', { class: 'chip deadline' + (dl.urgent ? ' urgent' : '') + (dl.expired ? ' expired' : '') }, [dl.text]) : null,
     job.jdScore != null ? el('span', { class: 'chip jd-score' }, ['JD匹配 ' + job.jdScore]) : null,
     job.applicationId ? el('span', { class: 'chip linked' }, ['已转投递']) : null
   ]));
@@ -3099,8 +3192,66 @@ function jobCard(job) {
   return card;
 }
 
+// 多岗位候选选择框：粘贴一整页搜索结果时，让用户勾选要入池的岗位
+function openJobCandidatePicker(candidates) {
+  return new Promise((resolve) => {
+    const picked = new Set(candidates.map((_, i) => i));
+    const overlay = el('div', { class: 'modal-overlay' });
+    function close(res) {
+      overlay.remove();
+      document.removeEventListener('keydown', onKey);
+      resolve(res);
+    }
+    function onKey(e) { if (e.key === 'Escape') close(null); }
+
+    const countEl = el('span', { class: 'hint', style: 'font-size:11.5px;margin-right:auto;' },
+      ['已选 ' + picked.size + ' / ' + candidates.length]);
+
+    const rows = candidates.map((c, i) => {
+      const cb = el('input', { type: 'checkbox' });
+      cb.checked = true;
+      cb.addEventListener('change', () => {
+        if (cb.checked) picked.add(i); else picked.delete(i);
+        countEl.textContent = '已选 ' + picked.size + ' / ' + candidates.length;
+      });
+      const metaBits = [c.salary, c.place || c.city, c.education, c.experience].filter(Boolean);
+      return el('label', { class: 'job-pick-row' }, [
+        cb,
+        el('div', { class: 'job-pick-body' }, [
+          el('div', { class: 'job-pick-main' }, [
+            (c.company || '未识别公司') + ' · ' + (c.position || '未识别岗位')
+          ]),
+          el('div', { class: 'job-pick-meta' }, [metaBits.length ? metaBits.join(' · ') : '无更多信息'])
+        ])
+      ]);
+    });
+
+    const box = el('div', { class: 'modal-box modal-box-wide' }, [
+      el('h3', { class: 'modal-title' }, ['识别到 ' + candidates.length + ' 个岗位']),
+      el('div', { class: 'modal-body job-pick-list' }, rows),
+      el('div', { class: 'modal-actions' }, [
+        countEl,
+        el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: () => close(null) }, ['取消']),
+        el('button', {
+          class: 'btn btn-primary btn-sm', type: 'button',
+          onclick: () => {
+            const out = candidates.filter((_, i) => picked.has(i));
+            if (!out.length) return;
+            close(out);
+          }
+        }, ['存入所选'])
+      ])
+    ]);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close(null); });
+    document.addEventListener('keydown', onKey);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
+  });
+}
+
 // 从招聘官网/APP 复制整段岗位文本 → 解析出公司/岗位/薪资/学历/经验 → 存进岗位池。
-// 复用粘贴导入的解析器（纯本地正则，不联网），解析结果先让用户确认再落库。
+// 复用粘贴导入的解析器（纯本地正则，不联网）：单个候选走确认表单，
+// 多个候选（整页搜索结果）走勾选列表，一次批量入池。
 async function openPasteJobImport() {
   if (!window.JobImport) { toast('导入模块没加载成功，请重启应用', 'err'); return; }
   const text = await modalTextarea('粘贴岗位信息', {
@@ -3118,38 +3269,78 @@ async function openPasteJobImport() {
     toast('解析失败：' + err.message, 'err');
     return;
   }
-  const c = (parsed.candidates && parsed.candidates[0]) || {};
-  const data = await modalForm('确认岗位信息', [
-    { name: 'company', label: '公司名称（必填）', value: c.company, placeholder: '如：字节跳动' },
-    { name: 'position', label: '岗位名称', value: c.position, placeholder: '如：大模型算法工程师' },
-    { name: 'salary', label: '薪资', value: c.salary, placeholder: '如:12k-18k·14薪' },
-    { name: 'city', label: '城市', value: c.place || c.city, placeholder: '如：北京' },
-    { name: 'education', label: '学历要求', value: c.education, placeholder: '如：本科' },
-    { name: 'experience', label: '经验要求', value: c.experience, placeholder: '如：应届' }
-  ], '存入岗位池');
-  if (!data) return;
-  const company = String(data.company || '').trim();
-  if (!company) { toast('公司名称必填', 'err'); return; }
-
-  try {
-    const saved = await call(window.api.jobs.save(state.user.id, {
-      company: company,
-      position: String(data.position || '').trim(),
-      salary: String(data.salary || '').trim(),
-      city: String(data.city || '').trim(),
-      education: String(data.education || '').trim(),
-      experience: String(data.experience || '').trim(),
-      jdText: text,
-      url: c.url || '',
-      source: c.platform || '粘贴导入'
-    }));
-    if (!state.jobs) state.jobs = [];
-    state.jobs.unshift(saved);
-    toast('已存入岗位池：' + saved.company, 'ok');
-    renderJobs();
-  } catch (err) {
-    toast(err.message, 'err');
+  const candidates = (parsed.candidates || []).filter((c) => c && (c.company || c.position));
+  if (!candidates.length) {
+    toast(parsed.warning || '没识别出岗位，请把公司名、岗位名、薪资一起复制', 'err');
+    return;
   }
+
+  // ---- 单个岗位：确认表单（字段可编辑）----
+  if (candidates.length === 1) {
+    const c = candidates[0];
+    const data = await modalForm('确认岗位信息', [
+      { name: 'company', label: '公司名称（必填）', value: c.company, placeholder: '如：字节跳动' },
+      { name: 'position', label: '岗位名称', value: c.position, placeholder: '如：大模型算法工程师' },
+      { name: 'salary', label: '薪资', value: c.salary, placeholder: '如:12k-18k·14薪' },
+      { name: 'city', label: '城市', value: c.place || c.city, placeholder: '如：北京' },
+      { name: 'education', label: '学历要求', value: c.education, placeholder: '如：本科' },
+      { name: 'experience', label: '经验要求', value: c.experience, placeholder: '如：应届' }
+    ], '存入岗位池');
+    if (!data) return;
+    const company = String(data.company || '').trim();
+    if (!company) { toast('公司名称必填', 'err'); return; }
+
+    try {
+      const saved = await call(window.api.jobs.save(state.user.id, {
+        company: company,
+        position: String(data.position || '').trim(),
+        salary: String(data.salary || '').trim(),
+        city: String(data.city || '').trim(),
+        education: String(data.education || '').trim(),
+        experience: String(data.experience || '').trim(),
+        jdText: text,
+        url: c.url || '',
+        source: c.platform || '粘贴导入'
+      }));
+      if (!state.jobs) state.jobs = [];
+      const idx = state.jobs.findIndex((j) => j.id === saved.id);
+      if (idx >= 0) state.jobs[idx] = saved; else state.jobs.unshift(saved);
+      toast('已存入岗位池：' + saved.company, 'ok');
+      renderJobs();
+    } catch (err) {
+      toast(err.message, 'err');
+    }
+    return;
+  }
+
+  // ---- 多个岗位：勾选后批量入池 ----
+  const picked = await openJobCandidatePicker(candidates);
+  if (!picked || !picked.length) return;
+  if (!state.jobs) state.jobs = [];
+  const beforeIds = new Set(state.jobs.map((j) => j.id));
+  let added = 0, merged = 0, failed = 0;
+  for (const c of picked) {
+    try {
+      const saved = await call(window.api.jobs.save(state.user.id, {
+        company: c.company || '未命名公司',
+        position: c.position || '',
+        salary: c.salary || '',
+        city: c.place || c.city || '',
+        education: c.education || '',
+        experience: c.experience || '',
+        // 每个岗位只保存自己那段原文，避免把别人的 JD 混进来
+        jdText: c.raw || '',
+        url: c.url || '',
+        source: c.platform || '粘贴导入'
+      }));
+      if (beforeIds.has(saved.id)) merged++;
+      else { state.jobs.unshift(saved); beforeIds.add(saved.id); added++; }
+    } catch (_) {
+      failed++;
+    }
+  }
+  toast('已存入 ' + added + ' 条' + (merged ? ' · 合并 ' + merged + ' 条已有' : '') + (failed ? ' · 失败 ' + failed + ' 条' : ''), 'ok');
+  renderJobs();
 }
 
 // 投递看板 → 岗位池：一次性把还没进池的投递记录批量搬过来。
@@ -3186,6 +3377,55 @@ async function importApplicationsToJobs() {
   }
   toast('已从投递记录导入 ' + ok + ' 条' + (fail ? '（' + fail + ' 条失败）' : ''), 'ok');
   renderJobs();
+}
+
+// 岗位池的筛选与排序（模块级状态：切页回来还保持上次选择）
+let jobFilter = 'all';    // all | starred | candidate | applied | closed
+let jobSort = 'priority'; // priority | updated | score | deadline
+
+const JOB_FILTERS = [
+  { key: 'all', label: '全部' },
+  { key: 'starred', label: '星标' },
+  { key: 'candidate', label: '未转投递' },
+  { key: 'applied', label: '已转投递' },
+  { key: 'closed', label: '已关闭' }
+];
+const JOB_SORTS = [
+  { key: 'priority', label: '按优先级' },
+  { key: 'updated', label: '按更新时间' },
+  { key: 'score', label: '按匹配分' },
+  { key: 'deadline', label: '按截止日期' }
+];
+
+// 老数据没有 status 字段时，按 rejected / applicationId 推导
+function jobStatusOf(j) {
+  if (j.status) return j.status;
+  if (j.rejected) return 'closed';
+  return j.applicationId ? 'applied' : 'candidate';
+}
+
+function viewJobs(jobs) {
+  let out = (jobs || []).slice();
+  if (jobFilter === 'starred') out = out.filter((j) => j.starred);
+  else if (jobFilter !== 'all') out = out.filter((j) => jobStatusOf(j) === jobFilter);
+
+  const num = (v) => (typeof v === 'number' && isFinite(v) ? v : -1);
+  const ts = (v) => Number(v) || 0;
+  if (jobSort === 'updated') {
+    out.sort((a, b) => ts(b.updatedAt) - ts(a.updatedAt));
+  } else if (jobSort === 'score') {
+    out.sort((a, b) => num(b.jdScore) - num(a.jdScore));
+  } else if (jobSort === 'deadline') {
+    const at = (v) => {
+      if (!v) return Infinity;
+      const t = Date.parse(String(v).replace(/-/g, '/'));
+      return isNaN(t) ? Infinity : t;
+    };
+    out.sort((a, b) => at(a.deadline) - at(b.deadline));
+  } else {
+    out.sort((a, b) => (num(b.priority) - num(a.priority)) || (ts(b.updatedAt) - ts(a.updatedAt)));
+  }
+  return out;
 }
 
 async function renderJobs() {
@@ -3230,16 +3470,114 @@ async function renderJobs() {
     ])
   ]);
 
+  // 筛选 + 排序：岗位一多就需要，否则只能靠滚动找
+  const filterbar = el('div', { class: 'jobs-filterbar' },
+    JOB_FILTERS.map((f) => {
+      const n = f.key === 'all' ? jobs.length
+        : f.key === 'starred' ? jobs.filter((j) => j.starred).length
+          : jobs.filter((j) => jobStatusOf(j) === f.key).length;
+      return el('button', {
+        class: 'filter-chip' + (jobFilter === f.key ? ' active' : ''),
+        type: 'button',
+        onclick: () => { jobFilter = f.key; renderJobs(); }
+      }, [f.label + ' ' + n]);
+    }).concat([
+      el('div', { class: 'spacer' }),
+      el('span', { class: 'sort-label' }, ['排序']),
+      el('select', {
+        class: 'sort-select',
+        onchange: (e) => { jobSort = e.target.value; renderJobs(); }
+      }, JOB_SORTS.map((s) => el('option', {
+        value: s.key, selected: jobSort === s.key ? 'selected' : null
+      }, [s.label])))
+    ])
+  );
+
+  const shown = viewJobs(jobs);
   const list = el('div', { class: 'job-list' });
-  if (jobs.length) {
-    jobs.forEach((job) => list.appendChild(jobCard(job)));
+  if (shown.length) {
+    shown.forEach((job) => list.appendChild(jobCard(job)));
   } else {
+    const tip = jobs.length
+      ? '当前筛选下没有岗位，换个筛选条件看看。'
+      : '池子里还没有岗位。看到心动的机会，点「添加岗位」先记下来。';
     list.appendChild(el('div', {
       class: 'empty', style: 'padding:48px 24px;text-align:center;color:var(--fg2,#666);font-size:14px;'
-    }, ['池子里还没有岗位。看到心动的机会，点「添加岗位」先记下来。']));
+    }, [tip]));
   }
 
-  root.append(head, toolbar, list);
+  root.append(head, toolbar, filterbar, list);
+  // 渲染后异步补算 JD 匹配分（本地正则引擎，不联网、不调用大模型）
+  scheduleJobScores();
+}
+
+// JD 匹配分：只算「有 JD 但还没算过」的岗位，算完写回 jdScore 并刷新一次。
+// 重入保护：算分过程中会再触发 renderJobs → scheduleJobScores，靠 _scoring 挡掉。
+let _scoring = false;
+async function scheduleJobScores() {
+  if (_scoring) return;
+  const resume = state.lastResume && state.lastResume.resume;
+  if (!resume) return; // 还没生成简历时不算分，卡片显示「JD匹配 —」
+  const jobs = state.jobs || [];
+  const pending = jobs.filter((j) => j.jdText && (j.jdScore === null || j.jdScore === undefined));
+  if (!pending.length) return;
+
+  _scoring = true;
+  let changed = 0;
+  try {
+    for (const job of pending) {
+      try {
+        const r = await call(window.api.resume.matchJd(resume, job.jdText));
+        const score = Math.round(Number(r && r.score) || 0);
+        const saved = await call(window.api.jobs.save(state.user.id, {
+          id: job.id, company: job.company, jdScore: score
+        }));
+        const idx = state.jobs.findIndex((x) => x.id === job.id);
+        if (idx >= 0) state.jobs[idx] = saved;
+        changed++;
+      } catch (_) { /* 单条失败不影响其它岗位 */ }
+    }
+  } finally {
+    _scoring = false;
+  }
+  if (changed) {
+    // 用状态里的最新数据重绘，避免再读一次磁盘
+    renderJobsFromState();
+  }
+}
+
+// 只重绘列表（不重新拉库、不再触发算分），算分完成后调用
+function renderJobsFromState() {
+  const root = document.getElementById('route-jobs');
+  if (!root) return;
+  const list = root.querySelector('.job-list');
+  if (!list) { renderJobs(); return; }
+  list.innerHTML = '';
+  const jobs = state.jobs || [];
+  const shown = viewJobs(jobs);
+  if (shown.length) shown.forEach((job) => list.appendChild(jobCard(job)));
+  else {
+    list.appendChild(el('div', {
+      class: 'empty', style: 'padding:48px 24px;text-align:center;color:var(--fg2,#666);font-size:14px;'
+    }, [jobs.length ? '当前筛选下没有岗位，换个筛选条件看看。' : '池子里还没有岗位。看到心动的机会，点「添加岗位」先记下来。']));
+  }
+  // 统计条里的「已转投递」等数字也可能变了，简单起见整块刷新统计
+  const pipeline = root.querySelector('.pipeline');
+  if (pipeline) {
+    pipeline.innerHTML = '';
+    const nodes = [
+      { cls: '', n: jobs.length, label: '岗位总数' },
+      { cls: 'starred', n: jobs.filter((j) => j.starred).length, label: '星标' },
+      { cls: 'linked', n: jobs.filter((j) => j.applicationId).length, label: '已转投递' }
+    ];
+    nodes.forEach((x, i) => {
+      if (i) pipeline.appendChild(el('span', { class: 'pl-arrow' }, ['▸']));
+      pipeline.appendChild(el('div', { class: 'pl-node ' + x.cls }, [
+        el('b', {}, [String(x.n)]),
+        el('span', {}, [x.label])
+      ]));
+    });
+  }
 }
 
 (async () => {

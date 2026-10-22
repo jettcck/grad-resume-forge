@@ -227,12 +227,13 @@
     const candidates = [];
     blocks.forEach((b) => {
       const c = parseBlock(b, '');
-      if (c) candidates.push(c);
+      // 带上本块的原文：多岗位批量入池时，每个岗位只保存自己那段 JD
+      if (c) candidates.push(Object.assign({ raw: b }, c));
     });
     // 整段粘成一块（详情页那种）且没解析出东西时的兜底
     if (!candidates.length) {
       const c = parseBlock(rawText, '');
-      if (c) candidates.push(c);
+      if (c) candidates.push(Object.assign({ raw: rawText }, c));
     }
     const warning = candidates.length === 0
       ? '没认出任何岗位。建议把招聘页上的「岗位名 / 薪资 / 城市·区 / 公司名」一起复制进来。'
