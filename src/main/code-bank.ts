@@ -8,6 +8,7 @@
 //  - 每题都带参考解法在 test-code.js 里跑通全部用例，防止题面与用例不一致。
 // ============================================================
 import type { CodeQuestion } from './types';
+import { EXTRA_CODE_BANK } from './code-bank-extra';
 
 export const CODE_BANK: CodeQuestion[] = [
   {
@@ -1037,6 +1038,10 @@ int main() {
 }
 `
 };
+
+// 第二批题库：单调栈 / 并查集 / Trie / 前缀和 / 位运算 / 双指针进阶
+// 单独放文件，避免本文件无限膨胀；合并后再走同一套 C++ 骨架补齐逻辑
+CODE_BANK.push(...EXTRA_CODE_BANK);
 
 // 合并 C++ 起始代码（不覆盖已有显式定义的）
 CODE_BANK.forEach((item) => {

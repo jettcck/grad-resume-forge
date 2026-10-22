@@ -506,6 +506,12 @@ int main(){
 }`
 };
 
+// 第二批 20 题的参考解法单独放文件，这里合并进来一起验证
+const extra = require('./test-code-extra');
+Object.assign(JS_SOLUTIONS, extra.JS_EXTRA);
+Object.assign(PY_SOLUTIONS, extra.PY_EXTRA);
+Object.assign(CPP_SOLUTIONS, extra.CPP_EXTRA);
+
 (async () => {
   // ---- JavaScript 参考解法 ----
   for (const q of CODE_BANK) {
@@ -583,6 +589,44 @@ int main(){
   // 空代码
   const empty = await runner.judgeCode(ab, 'javascript', '   ', 'all');
   assert(empty.verdict === 'CE' && empty.passed === 0, '空代码判为 CE');
+
+  // ---------------- 自定义测试输入 ----------------
+  // 不比对期望输出，只回传真实 stdout/stderr/耗时；边界数据靠它自测
+  const customSum = `const d=require('fs').readFileSync(0,'utf8').trim().split(/\\s+/).map(Number);console.log(d[0]+d[1]);`;
+  const c1 = await runner.runCustomInput(ab, 'javascript', customSum, '7 35');
+  assert(c1.verdict === 'OK', '自定义输入：正常结束判 OK（实际 ' + c1.verdict + '）');
+  assert(c1.stdout.trim() === '42', '自定义输入：回传真实 stdout（' + JSON.stringify(c1.stdout.trim()) + '）');
+  assert(c1.timeMs >= 0, '自定义输入：回传耗时');
+
+  const c2 = await runner.runCustomInput(ab, 'javascript', customSum, '');
+  assert(c2.verdict === 'OK' || c2.verdict === 'RE', '自定义输入：空输入不崩判题器（实际 ' + c2.verdict + '）');
+
+  const c3 = await runner.runCustomInput(ab, 'javascript', `process.exit(3);`, '1 2');
+  assert(c3.verdict === 'RE', '自定义输入：非 0 退出判 RE（实际 ' + c3.verdict + '）');
+  assert(!!c3.message, '自定义输入：RE 时给出退出码说明');
+
+  const c4 = await runner.runCustomInput(ab, 'javascript', `while(true){}`, '1 2');
+  assert(c4.verdict === 'TLE', '自定义输入：死循环判 TLE（实际 ' + c4.verdict + '）');
+
+  const c5 = await runner.runCustomInput(ab, 'javascript', `const s='x'.repeat(1000);for(let i=0;i<1000;i++)console.log(s);`, '');
+  assert(c5.verdict === 'OLE', '自定义输入：输出爆炸判 OLE（实际 ' + c5.verdict + '）');
+
+  const c6 = await runner.runCustomInput(ab, 'javascript', '   ', '1');
+  assert(c6.verdict === 'CE' && c6.message === '代码为空', '自定义输入：空代码判 CE');
+
+  // 大输入不泄漏到 stdout（截断保护）
+  const c7 = await runner.runCustomInput(ab, 'javascript',
+    `const d=require('fs').readFileSync(0,'utf8');console.log(d.length);`, 'a'.repeat(50000));
+  assert(c7.verdict === 'OK' && c7.stdout.trim() === '50000', '自定义输入：5 万字符输入可正常读入');
+
+  if (env.cpp) {
+    const cppCustom = await runner.runCustomInput(ab, 'cpp',
+      '#include <iostream>\nusing namespace std;\nint main(){long long a,b;if(!(cin>>a>>b))return 0;cout<<a*b<<endl;return 0;}', '6 7');
+    assert(cppCustom.verdict === 'OK' && cppCustom.stdout.trim() === '42',
+      '自定义输入：C++ 链路可用（' + cppCustom.verdict + ' ' + JSON.stringify(cppCustom.stdout.trim()) + '）');
+    const cppCe = await runner.runCustomInput(ab, 'cpp', 'int main(){ oops }', '1');
+    assert(cppCe.verdict === 'CE' && !!cppCe.stderr, '自定义输入：C++ 语法错误判 CE 且回传编译器报错');
+  }
 
   console.log('\n编程题自测完成: ' + pass + ' passed, ' + failCnt + ' failed | exitCode = ' + (process.exitCode || 0));
 })();

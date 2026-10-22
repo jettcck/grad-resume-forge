@@ -311,6 +311,86 @@ function trimForDisplay(text: string, max = 800): string {
  * 判题。
  * @param mode 'samples' 只跑公开样例（「运行」按钮）；'all' 跑全部隐藏用例（「提交」）
  */
+// ---------------- 自定义测试输入 ----------------
+//  和「判题」的区别：不比对期望输出，只把程序真实输出/报错/耗时给用户看。
+//  用途：造边界数据自测（空输入、极值、特殊形状），官方用例覆盖不到的情况。
+export interface CustomRunResult {
+  verdict: 'OK' | 'RE' | 'TLE' | 'OLE' | 'CE';
+  timeMs: number;
+  stdout: string;
+  stderr: string;
+  message?: string;
+}
+
+/** 把 prepareProgram 的错误码翻成人能看懂的说明（判题与自定义输入共用） */
+function explainPrepareError(err: string): { message: string; detail?: string } {
+  if (err === 'NO_PYTHON') {
+    return { message: '未检测到本机 Python，请安装 Python 3 后重试，或改用 JavaScript' };
+  }
+  if (err === 'NO_CPP_COMPILER') {
+    return { message: '未检测到 C++ 编译器（g++ / clang++）。请安装 MinGW-w64 并把 bin 目录加入 PATH' };
+  }
+  if (err.startsWith('COMPILE_FAILED:')) {
+    return { message: '编译失败', detail: trimForDisplay(err.slice('COMPILE_FAILED:'.length), 3000) };
+  }
+  return { message: '准备运行环境失败：' + err };
+}
+
+export async function runCustomInput(
+  question: CodeQuestion,
+  lang: ProgramLang,
+  code: string,
+  input: string
+): Promise<CustomRunResult> {
+  if (!String(code || '').trim()) {
+    return { verdict: 'CE', timeMs: 0, stdout: '', stderr: '', message: '代码为空' };
+  }
+
+  let prepared: Prepared;
+  try {
+    prepared = prepareProgram(lang, code, question.memoryLimitMb);
+  } catch (err) {
+    return { verdict: 'CE', timeMs: 0, stdout: '', stderr: '', message: '准备运行环境失败：' + (err as Error).message };
+  }
+
+  if (prepared.error) {
+    const info = explainPrepareError(prepared.error);
+    prepared.cleanup();
+    return { verdict: 'CE', timeMs: 0, stdout: '', stderr: info.detail || '', message: info.message };
+  }
+
+  try {
+    let out = await runOnce(prepared, input, question.timeLimitMs + RUNTIME_GRACE_MS);
+    // 与判题一致：Defender 杀刚编译的 exe 会被误判成 RE，重试一次
+    if (!out.spawnError && !out.timedOut && !out.outputExceeded && out.exitCode !== 0) {
+      const retry = await runOnce(prepared, input, question.timeLimitMs + RUNTIME_GRACE_MS);
+      if (!retry.spawnError && !retry.timedOut && !retry.outputExceeded && retry.exitCode === 0) {
+        out = retry;
+      }
+    }
+
+    if (out.spawnError) {
+      return { verdict: 'CE', timeMs: 0, stdout: '', stderr: '', message: '启动运行时失败：' + out.spawnError };
+    }
+    const verdict = out.outputExceeded ? 'OLE'
+      : out.timedOut ? 'TLE'
+      : out.exitCode !== 0 ? 'RE'
+      : 'OK';
+    return {
+      verdict,
+      timeMs: out.timeMs,
+      stdout: out.stdout,
+      stderr: trimForDisplay(out.stderr, 4000),
+      message: verdict === 'RE' ? '程序退出码非 0（' + out.exitCode + '）'
+        : verdict === 'TLE' ? '运行超时（限时 ' + question.timeLimitMs + 'ms，宽限 ' + RUNTIME_GRACE_MS + 'ms）'
+        : verdict === 'OLE' ? '输出超过 ' + Math.round(MAX_OUTPUT_BYTES / 1024) + 'KB 上限'
+        : undefined
+    };
+  } finally {
+    prepared.cleanup();
+  }
+}
+
 export async function judgeCode(
   question: CodeQuestion,
   lang: ProgramLang,
@@ -337,34 +417,19 @@ export async function judgeCode(
   }
 
   if (prepared.error) {
-    const err = prepared.error;
+    const info = explainPrepareError(prepared.error);
     prepared.cleanup();
-    if (err === 'NO_PYTHON') {
-      return {
-        verdict: 'CE', passed: 0, total: cases.length, timeMs: 0, cases: [],
-        message: '未检测到本机 Python，请安装 Python 3 后重试，或改用 JavaScript'
-      };
-    }
-    if (err === 'NO_CPP_COMPILER') {
-      return {
-        verdict: 'CE', passed: 0, total: cases.length, timeMs: 0, cases: [],
-        message: '未检测到 C++ 编译器（g++ / clang++）。请安装 MinGW-w64 并把 bin 目录加入 PATH'
-      };
-    }
-    if (err.startsWith('COMPILE_FAILED:')) {
+    if (info.message === '编译失败') {
       return {
         verdict: 'CE', passed: 0, total: cases.length, timeMs: 0,
         message: '编译失败',
         cases: [{
           index: 0, verdict: 'CE', timeMs: 0, isSample: true,
-          stderr: trimForDisplay(err.slice('COMPILE_FAILED:'.length), 3000)
+          stderr: info.detail || ''
         }]
       };
     }
-    return {
-      verdict: 'CE', passed: 0, total: cases.length, timeMs: 0, cases: [],
-      message: '准备运行环境失败：' + err
-    };
+    return { verdict: 'CE', passed: 0, total: cases.length, timeMs: 0, cases: [], message: info.message };
   }
 
   const results: CodeCaseResult[] = [];

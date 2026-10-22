@@ -254,6 +254,16 @@ function registerIpc() {
     const all = [...mockCodeSubs].reverse();
     return questionId ? all.filter((s) => s.questionId === String(questionId)) : all;
   });
+  h('code:runCustom', (input) => {
+    const q = codeBank.getCodeQuestion(String((input && input.questionId) || ''));
+    if (!q) throw new Error('题目不存在');
+    return codeRunner.runCustomInput(
+      q,
+      (input && (input.lang === 'python' || input.lang === 'cpp')) ? input.lang : 'javascript',
+      String((input && input.code) || ''),
+      String((input && input.stdin) || '')
+    );
+  });
   // 官方授权导入：与主进程保持同一套去重规则（source+externalId 优先，其次公司+岗位）
   h('applications:importAuthorized', (uid, payload) => {
     const source = String((payload && payload.source) || '').trim();

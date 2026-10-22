@@ -2117,3 +2117,30 @@ em { font-style: normal; color: var(--gold); }
 .cs-row-item .cs-detail { color: var(--ink-2); }
 .cs-row-item .cs-time { margin-left: auto; color: var(--ink-2); opacity: .75; }
 .code-subs .code-hint { padding: 8px 2px; }
+
+/* 自定义测试输入 */
+.code-custom { border: 1px solid var(--line); border-radius: 2px; background: var(--bg-1); }
+.code-custom-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; cursor: pointer; user-select: none;
+  font-family: var(--font-display); font-size: 13px; color: var(--ink-1);
+}
+.code-custom-head .hint { font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); }
+.code-custom-head .spacer { flex: 1; }
+.code-custom-head.open { border-bottom: 1px solid var(--line); }
+.code-custom-body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 9px; }
+.code-custom-input {
+  width: 100%; min-height: 76px; resize: vertical;
+  background: var(--bg-0); border: 1px solid var(--line); border-radius: 2px;
+  color: var(--ink-0); font-family: var(--font-mono); font-size: 12.5px; line-height: 1.6;
+  padding: 9px 11px; tab-size: 2;
+}
+.code-custom-input:focus { outline: none; border-color: var(--gold-soft); }
+.code-custom-out { display: flex; flex-direction: column; gap: 8px; }
+.code-custom-out .cc-line > span { color: var(--ink-2); font-size: 11px; }
+.code-custom-out .cc-line pre {
+  margin: 4px 0 0; padding: 9px 11px; background: var(--bg-0);
+  border: 1px solid var(--line); border-radius: 2px;
+  font-family: var(--font-mono); font-size: 12.5px; line-height: 1.65;
+  white-space: pre-wrap; word-break: break-all; max-height: 260px; overflow: auto;
+}

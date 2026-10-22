@@ -4531,6 +4531,7 @@ const codeState = {
   subs: null,        // 当前题的提交记录
   subsFor: null,
   solvedIds: {},     // questionId → 是否 AC 过（侧栏打勾）
+  customInputs: {},  // questionId → 自定义测试输入（仅本次会话内保留）
   result: null,
   busy: false
 };
@@ -4689,12 +4690,101 @@ async function renderCodeView(root) {
 
   const resultBox = el('div', { class: 'code-result', id: 'code-result' });
   const subsBox = el('div', { class: 'code-subs', id: 'code-subs' });
+  const customBox = buildCustomInputBox();
 
-  const main = el('div', { class: 'code-main' }, [problem, toolbar, editor, resultBox, subsBox]);
+  const main = el('div', { class: 'code-main' }, [problem, toolbar, editor, customBox, resultBox, subsBox]);
   const layout = el('div', { class: 'code-layout' }, [sidebar, main]);
   root.append(head, layout);
   renderCodeResult();
   renderCodeSubs();
+}
+
+/** 自定义测试输入：不比对答案，只看程序拿到这份输入后的真实输出 */
+function buildCustomInputBox() {
+  const q = codeState.question;
+  const qid = q ? q.id : '';
+  if (!codeState.customInputs) codeState.customInputs = {};
+  const saved = codeState.customInputs[qid] || '';
+
+  const ta = el('textarea', {
+    class: 'code-custom-input',
+    spellcheck: 'false',
+    placeholder: '在这里写测试数据，会作为标准输入喂给程序（例如边界值、空输入、特殊形状）'
+  });
+  ta.value = saved;
+  ta.addEventListener('input', () => { codeState.customInputs[qid] = ta.value; });
+
+  const outBox = el('div', { class: 'code-custom-out', id: 'code-custom-out' });
+  const btn = el('button', {
+    class: 'btn btn-ghost btn-sm', type: 'button', id: 'code-btn-custom'
+  }, ['用这份输入运行']);
+
+  btn.addEventListener('click', async () => {
+    if (!codeState.question || codeState.busy) return;
+    const code = codeState.drafts[codeState.lang] || '';
+    if (!code.trim()) { toast('先写点代码再运行', 'err'); return; }
+    const stdin = ta.value;
+    if (stdin.length > 65536) { toast('自定义输入不能超过 64KB', 'err'); return; }
+
+    codeState.busy = true;
+    btn.disabled = true;
+    btn.textContent = '运行中…';
+    outBox.innerHTML = '';
+    try {
+      const r = await call(window.api.code.runCustom({
+        questionId: codeState.question.id,
+        lang: codeState.lang,
+        code: code,
+        stdin: stdin
+      }));
+      renderCustomOutput(outBox, r);
+    } catch (err) {
+      outBox.appendChild(el('div', { class: 'code-msg' }, [err.message]));
+    } finally {
+      codeState.busy = false;
+      btn.disabled = false;
+      btn.textContent = '用这份输入运行';
+    }
+  });
+
+  const body = el('div', { class: 'code-custom-body', style: 'display:none;' }, [ta, outBox]);
+
+  const head = el('div', { class: 'code-custom-head' }, [
+    el('b', {}, ['自定义测试输入']),
+    el('span', { class: 'hint' }, ['不比对答案，只看程序输出']),
+    el('div', { class: 'spacer' }),
+    btn
+  ]);
+  head.addEventListener('click', (e) => {
+    // 点标题行空白处展开/收起；点按钮不触发
+    if (e.target.closest('button')) return;
+    const open = body.style.display !== 'none';
+    body.style.display = open ? 'none' : 'block';
+    head.classList.toggle('open', !open);
+  });
+
+  return el('div', { class: 'code-custom' }, [head, body]);
+}
+
+/** 渲染自定义输入的执行结果 */
+function renderCustomOutput(host, r) {
+  host.innerHTML = '';
+  const LABEL = { OK: '运行完成', RE: '运行错误', TLE: '超时', OLE: '输出超限', CE: '编译失败' };
+  host.appendChild(el('div', { class: 'code-verdict ' + String(r.verdict).toLowerCase() }, [
+    el('b', {}, [LABEL[r.verdict] || r.verdict]),
+    el('span', {}, ['耗时 ' + r.timeMs + 'ms'])
+  ]));
+  if (r.message) host.appendChild(el('div', { class: 'code-msg' }, [r.message]));
+  host.appendChild(el('div', { class: 'cc-line' }, [
+    el('span', {}, ['标准输出']),
+    el('pre', {}, [r.stdout && r.stdout.length ? r.stdout : '（无输出）'])
+  ]));
+  if (r.stderr) {
+    host.appendChild(el('div', { class: 'cc-line' }, [
+      el('span', {}, ['标准错误']),
+      el('pre', { class: 'cc-err' }, [r.stderr])
+    ]));
+  }
 }
 
 /** 渲染当前题的提交记录（只展示最近 10 条） */

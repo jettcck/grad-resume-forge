@@ -1017,6 +1017,28 @@ ipcMain.handle('code:submissions', (_e, questionId?: string) => {
   }
 });
 
+// 自定义测试输入：不比对期望输出，只回传真实输出/报错/耗时
+ipcMain.handle('code:runCustom', async (_e, input: {
+  questionId?: string; lang?: string; code?: string; stdin?: string;
+}) => {
+  try {
+    sessionUserId(_e); // 必须登录（防止未登录时被当成万能执行器）
+    const q = getCodeQuestion(String((input && input.questionId) || ''));
+    if (!q) return fail('题目不存在');
+    const lang = String((input && input.lang) || '');
+    if (lang !== 'javascript' && lang !== 'python' && lang !== 'cpp') return fail('暂不支持该语言');
+    const code = String((input && input.code) || '');
+    if (!code.trim()) return fail('代码为空');
+    if (code.length > 100000) return fail('代码长度超过 10 万字符');
+    const stdin = String((input && input.stdin) || '');
+    if (stdin.length > 65536) return fail('自定义输入不能超过 64KB');
+    const result = await codeRunner.runCustomInput(q, lang, code, stdin);
+    return ok(result);
+  } catch (err) {
+    return fail((err as Error).message);
+  }
+});
+
 ipcMain.handle('exam:plan:save', (_e, input: Record<string, unknown>) => {
   try {
     const userId = sessionUserId(_e);
