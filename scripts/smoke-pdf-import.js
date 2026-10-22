@@ -30,7 +30,10 @@ app.whenReady().then(async () => {
     : [
         path.join(__dirname, '..', 'test-fixtures', 'resume-sample-ats-classic.pdf'),
         // 双栏样本：验证「中缝检测 + 先左栏后右栏」，这是 hasEOL 与按 y 聚行都做不对的场景
-        path.join(__dirname, '..', 'test-fixtures', 'resume-two-column.pdf')
+        path.join(__dirname, '..', 'test-fixtures', 'resume-two-column.pdf'),
+        // 侧边栏样本：顶部姓名/联系方式通栏 + 下方左窄右宽。
+        // 整页级的中缝检测会因为“中部 x 区间被顶部占住”而失效，是最难的形态
+        path.join(__dirname, '..', 'test-fixtures', 'resume-sidebar.pdf')
       ];
 
   for (const file of files) {
@@ -68,6 +71,19 @@ app.whenReady().then(async () => {
       t(/阿里巴巴/.test(text) && /浙江大学/.test(text), '双栏：左右两栏的内容都抽到了');
     }
 
+    // 侧边栏专项：顶部通栏不能让中缝检测失效，也不能把通栏文字切断
+    if (/sidebar/.test(name)) {
+      const iSkill = res.lines.findIndex((l) => l.trim() === '专业技能');
+      const iCert = res.lines.findIndex((l) => l.trim() === '证书');
+      const iEdu = res.lines.findIndex((l) => l.trim() === '教育背景');
+      t(res.lines[0] === '王五', '侧边栏：姓名仍是第一行（顶部通栏没被分栏打乱）');
+      t(res.lines[1] && /13700000000/.test(res.lines[1]) && /后端开发工程师/.test(res.lines[1]),
+        '侧边栏：联系方式完整没被切断（' + res.lines[1] + '）');
+      t(iSkill >= 0 && iCert > iSkill, '侧边栏：左栏内容连续（专业技能 → 证书）');
+      t(iEdu > iCert, '侧边栏：右栏内容排在左栏之后（先左后右）');
+      t(!res.lines.some((l) => /专业技能\s+教育背景/.test(l)), '侧边栏：左右栏标题没有被拼到同一行');
+    }
+
     // 完整链路：PDF → 分节 → 学校/城市词表反查 → 档案片段（也验证打包后 data/ 能读到）
     const dataRoot = path.join(__dirname, '..', 'data');
     let full = null, fullErr = null;
@@ -79,7 +95,11 @@ app.whenReady().then(async () => {
     t(!fullErr, '完整导入链路可跑通' + (fullErr ? ' → ' + fullErr.message : ''));
     if (full) {
       const p = full.parsed;
-      t(p.name === '张三' && p.phone === '13800000000', '基本信息：' + p.name + ' / ' + p.phone);
+      // 三份样本的姓名/手机号不同，按样本给期望值（写死一个会误报）
+      const expectName = /sidebar/.test(name) ? '王五' : '张三';
+      const expectPhone = /sidebar/.test(name) ? '13700000000' : '13800000000';
+      t(p.name === expectName && p.phone === expectPhone,
+        '基本信息：' + p.name + ' / ' + p.phone + '（期望 ' + expectName + ' / ' + expectPhone + '）');
       if (/ats-classic/.test(name)) {
         // 这几条是 ats-classic 这份样本的固定构成，换个样本数字就不成立
         t(p.education.length === 3, '教育经历 ' + p.education.length + ' 段（学校词表反查生效）');

@@ -157,22 +157,52 @@ export function extractGlyphs(items: Array<{
  */
 export function detectColumnGutter(glyphs: PdfGlyph[], pageWidth: number): number | null {
   if (!glyphs.length || !(pageWidth > 0)) return null;
+
+  // 关键：按「垂直空白覆盖率」判，而不是「中部 x 区间有没有字形」。
+  //
+  // 原因：顶部姓名/联系方式常常是通栏的，它们横跨中部，
+  // 用「是否有字形」判会把整页误判成单栏（实测侧边栏简历就栽在这）。
+  // 改成统计「每个 x 区间被多少行占用」——中缝只在顶部几行被占用，
+  // 覆盖率很低；单栏正文的中部几乎每行都有字，覆盖率接近 1。
+  const rows = groupGlyphsByRow(glyphs);
+  const rowCount = rows.length || 1;
+
   const BIN = 2;
   const binCount = Math.ceil(pageWidth / BIN);
-  const covered = new Array<boolean>(binCount).fill(false);
-  for (const g of glyphs) {
-    const from = Math.max(0, Math.floor(g.x / BIN));
-    const to = Math.min(binCount - 1, Math.ceil((g.x + g.w) / BIN));
-    for (let i = from; i <= to; i++) covered[i] = true;
+  const coverage = new Array<number>(binCount).fill(0);
+  for (const row of rows) {
+    // 同一行的多个字形可能覆盖同一 bin，用 Set 去重，否则一行会被重复计数
+    const touched = new Set<number>();
+    for (const g of row.parts) {
+      const from = Math.max(0, Math.floor(g.x / BIN));
+      const to = Math.min(binCount - 1, Math.ceil((g.x + g.w) / BIN));
+      for (let i = from; i <= to; i++) touched.add(i);
+    }
+    for (const i of touched) coverage[i]++;
   }
 
-  const lo = Math.floor(binCount * 0.3);
-  const hi = Math.ceil(binCount * 0.7);
+  // 覆盖率 ≤ 25% 的 x 区间算「基本空白」。设成 25% 是为了容忍顶部通栏
+  // （侧边栏样本 16 行、顶部 2 行通栏 → 中缝覆盖率 12.5%，仍能检出）。
+  const isBlank = (i: number): boolean => coverage[i] / rowCount <= 0.25;
+
+  // 搜索区间不能用「页宽的 30%–70%」：
+  // 简历正文往往只占页宽的一半（文字短、右边留白），右侧大块空白也是「覆盖率 0」，
+  // 会被当成中缝——实测侧边栏样本就检出了 x=367 的假中缝（真栏缝在 180 附近）。
+  // 所以用「内容实际 x 跨度」算区间：在中点 ±25% 范围内找。
+  let minX = Infinity, maxX = -Infinity;
+  for (const g of glyphs) {
+    if (g.x < minX) minX = g.x;
+    if (g.x + g.w > maxX) maxX = g.x + g.w;
+  }
+  const contentSpan = maxX > minX ? maxX - minX : 0;
+  if (contentSpan <= 0) return null;
+  const lo = Math.floor((minX + contentSpan * 0.25) / BIN);
+  const hi = Math.ceil((minX + contentSpan * 0.75) / BIN);
   let bestStart = -1;
   let bestLen = 0;
   let curStart = -1;
   for (let i = lo; i < hi; i++) {
-    if (!covered[i]) {
+    if (isBlank(i)) {
       if (curStart < 0) curStart = i;
       const len = i - curStart + 1;
       if (len > bestLen) { bestLen = len; bestStart = curStart; }
@@ -182,46 +212,163 @@ export function detectColumnGutter(glyphs: PdfGlyph[], pageWidth: number): numbe
   }
   if (bestStart < 0) return null;
   const gutterPx = bestLen * BIN;
-  if (gutterPx < Math.max(24, pageWidth * 0.03)) return null;
-  return bestStart * BIN + gutterPx / 2;
+  // 阈值按内容跨度算：太松会把段落间的大边距当栏缝，太紧会漏掉栏间距窄的模板
+  if (gutterPx < Math.max(24, contentSpan * 0.04)) return null;
+  const candidate = bestStart * BIN + gutterPx / 2;
+
+  // 还要确认两侧都有「实质性内容」，否则那是「正文 + 右侧日期列」不是分栏。
+  // 实测：ATS 简历的右侧日期列只占 9% 文字量，按它分栏会把日期和正文拆散；
+  // 真双栏是 40%，侧边栏模板是 60%。用 25% 作分界。
+  let totalChars = 0;
+  let rightChars = 0;
+  for (const g of glyphs) {
+    totalChars += g.str.length;
+    if (g.x >= candidate) rightChars += g.str.length;
+  }
+  if (!totalChars) return null;
+  const rightRatio = rightChars / totalChars;
+  if (Math.min(rightRatio, 1 - rightRatio) < 0.25) return null;
+
+  return candidate;
 }
 
 /** 把字形项按视觉行聚成文本行（调用方先决定给哪些 glyphs） */
-export function glyphsToLines(glyphs: PdfGlyph[]): string[] {
+export interface PdfRow { y: number; parts: PdfGlyph[]; tol: number }
+
+/** 行容差：取常见字号的 60%，夹在 2–6pt（太小会把上下行粘一起，太大会把同一行拆开） */
+function rowTolerance(glyphs: PdfGlyph[]): number {
+  const widths = glyphs.map((g) => g.w > 0 && g.str.length > 0 ? g.w / g.str.length : 0).filter((v) => v > 0);
+  const avgGlyphW = widths.length ? widths.reduce((a, b) => a + b, 0) / widths.length : 8;
+  return Math.min(6, Math.max(2, avgGlyphW * 0.6));
+}
+
+/** 按视觉行分组（y 降序 = 从上到下，行内按 x 升序） */
+export function groupGlyphsByRow(glyphs: PdfGlyph[]): PdfRow[] {
   if (!glyphs.length) return [];
-
-  // 行容差：取常见字号的 60%，并夹在 2–6pt 之间（太小会把上下行粘一起，太大会把同一行拆开）
-  const heights = glyphs.map((g) => g.w > 0 && g.str.length > 0 ? g.w / g.str.length : 0).filter((v) => v > 0);
-  const avgGlyphW = heights.length ? heights.reduce((a, b) => a + b, 0) / heights.length : 8;
-  const tol = Math.min(6, Math.max(2, avgGlyphW * 0.6));
-
-  // y 降序（PDF 坐标向上，视觉上从上到下），同 y 按 x 升序
+  const tol = rowTolerance(glyphs);
   const sorted = glyphs.slice().sort((a, b) => (Math.abs(a.y - b.y) <= tol ? a.x - b.x : b.y - a.y));
-
-  const rows: Array<{ y: number; parts: typeof glyphs }> = [];
+  const rows: PdfRow[] = [];
   for (const g of sorted) {
     const row = rows[rows.length - 1];
-    if (row && Math.abs(row.y - g.y) <= tol) {
-      row.parts.push(g);
-    } else {
-      rows.push({ y: g.y, parts: [g] });
+    if (row && Math.abs(row.y - g.y) <= tol) row.parts.push(g);
+    else rows.push({ y: g.y, parts: [g], tol });
+  }
+  return rows;
+}
+
+/** 一行字形拼成文本：片段间有明显水平间隙才补空格，避免「张三13800000000」粘成一片 */
+export function rowToText(row: PdfRow): string {
+  const parts = row.parts.slice().sort((a, b) => a.x - b.x);
+  const tol = row.tol || 3;
+  let out = '';
+  let prevEnd = -1;
+  for (const p of parts) {
+    if (prevEnd >= 0 && p.x - prevEnd > tol) out += ' ';
+    out += p.str;
+    prevEnd = p.x + p.w;
+  }
+  return normalizeExtractedText(out).trim();
+}
+
+export function glyphsToLines(glyphs: PdfGlyph[]): string[] {
+  return groupGlyphsByRow(glyphs).map(rowToText).filter(Boolean);
+}
+
+/** 一行在横向上的跨度（用于判断是不是「通栏」） */
+function rowSpan(row: PdfRow): number {
+  let min = Infinity, max = -Infinity;
+  for (const g of row.parts) {
+    if (g.x < min) min = g.x;
+    const right = g.x + g.w;
+    if (right > max) max = right;
+  }
+  return max > min ? max - min : 0;
+}
+
+/**
+ * 把跨越中缝的字形按字符切开（pdfjs 的一个 item 可能是一整行文字）。
+ * 切点优先落在空格处：中文技术栈那种「Java 北京大学」混排，按空格切才不会把词劈开。
+ */
+function splitGlyphAt(g: PdfGlyph, gutter: number): { left?: PdfGlyph; right?: PdfGlyph } {
+  if (g.x >= gutter) return { right: g };
+  if (g.x + g.w <= gutter) return { left: g };
+  const charW = g.w / Math.max(1, g.str.length);
+  let idx = Math.round((gutter - g.x) / charW);
+  idx = Math.max(1, Math.min(g.str.length - 1, idx));
+
+  // 只在「切点附近 ±1 字符」恰好在空格时才拆。
+  // 放宽到 ±4 会把联系方式这类横跨整行的句子从词中间劈开
+  // （实测：「13700000000 · wangw」/「u@example.com · 北京 · …」被切成两行，还被侧边栏内容隔开）。
+  // 找不到合适切点就整行归左，宁可少拆也不要破坏一句话的完整性。
+  let cut = -1;
+  for (const d of [0, 1, -1]) {
+    const i = idx + d;
+    if (i > 0 && i < g.str.length) {
+      if (g.str[i] === ' ') { cut = i + 1; break; }
+      if (g.str[i - 1] === ' ') { cut = i; break; }
     }
   }
+  if (cut <= 0 || cut >= g.str.length) return { left: g };
+  return {
+    left: { x: g.x, y: g.y, w: charW * cut, str: g.str.slice(0, cut) },
+    right: { x: g.x + charW * cut, y: g.y, w: g.w - charW * cut, str: g.str.slice(cut) }
+  };
+}
 
-  return rows
-    .map((row) => {
-      const parts = row.parts.slice().sort((a, b) => a.x - b.x);
-      let out = '';
-      let prevEnd = -1;
-      for (const p of parts) {
-        // 两个片段之间有明显水平间隙时补一个空格，避免「张三13800000000」粘成一片
-        if (prevEnd >= 0 && p.x - prevEnd > tol) out += ' ';
-        out += p.str;
-        prevEnd = p.x + p.w;
-      }
-      return normalizeExtractedText(out).trim();
-    })
-    .filter(Boolean);
+/**
+ * 整页排版解析：先判中缝，再按「通栏 / 左栏 / 右栏」逐行归位。
+ *
+ * 为什么不能整页直接检中缝：**顶部姓名与联系方式常常是通栏的**，
+ * 它们横跨中缝所在的中部 x 区间，会让「中部没有空白」成立，于是检不出分栏，
+ * 退化成左右栏按 y 串行（「专业技能 教育背景」「Java 北京大学 软件工程 本科」）。
+ *
+ * 所以先按行分组，用「不是通栏的行」去做中缝检测，再逐行归类：
+ *   - 通栏行（跨中缝且跨度够大）→ 先冲掉左右缓冲，再单独输出（保持原顺序）
+ *   - 只在左/右 → 进对应缓冲
+ * 收尾时把左右缓冲按「先左后右」吐出，符合人读侧边栏简历的顺序。
+ */
+export function layoutPageLines(glyphs: PdfGlyph[], pageWidth: number): string[] {
+  const rows = groupGlyphsByRow(glyphs);
+  if (!rows.length) return [];
+
+  const wideThreshold = pageWidth > 0 ? pageWidth * 0.6 : Infinity;
+  const gutter = detectColumnGutter(glyphs, pageWidth);
+  if (gutter == null) return rows.map(rowToText).filter(Boolean);
+
+  const out: string[] = [];
+  let leftBuf: string[] = [];
+  let rightBuf: string[] = [];
+  const flush = () => {
+    out.push(...leftBuf, ...rightBuf);
+    leftBuf = [];
+    rightBuf = [];
+  };
+
+  for (const row of rows) {
+    // 先把这一行按中缝拆成左右两部分。
+    // 必须拆，不能「整行归到多数那一侧」——两栏各有一个短标题在同一基线上时
+    // （「专业技能 | 教育背景」），左右数量相等，归哪边都会把另一栏的文字带过去。
+    const leftParts: PdfGlyph[] = [];
+    const rightParts: PdfGlyph[] = [];
+    for (const p of row.parts) {
+      const sp = splitGlyphAt(p, gutter);
+      if (sp.left && sp.left.str.trim()) leftParts.push(sp.left);
+      if (sp.right && sp.right.str.trim()) rightParts.push(sp.right);
+    }
+    if (!leftParts.length && !rightParts.length) continue;
+
+    const isWide = rowSpan(row) >= wideThreshold && leftParts.length > 0 && rightParts.length > 0;
+    if (isWide) {
+      // 真正的通栏行（姓名、联系方式、横跨的分隔标题）：先把已积累的两栏吐完，再输出它
+      flush();
+      out.push(rowToText(row));
+      continue;
+    }
+    if (leftParts.length) leftBuf.push(rowToText({ y: row.y, parts: leftParts, tol: row.tol }));
+    if (rightParts.length) rightBuf.push(rowToText({ y: row.y, parts: rightParts, tol: row.tol }));
+  }
+  flush();
+  return out.filter(Boolean);
 }
 
 /** 兼容入口：直接从 textContent.items 聚行（不处理分栏） */
@@ -263,15 +410,9 @@ async function extractPdfText(filePath: string): Promise<{ text: string; lines: 
         str?: unknown; width?: number; height?: number; transform?: number[]; hasEOL?: boolean;
       }>);
       const pageWidth = page.getViewport({ scale: 1 }).width;
-      const gutter = detectColumnGutter(glyphs, pageWidth);
-      if (gutter != null) {
-        // 双栏：先读完左栏再读右栏——这才是人读简历的顺序。
-        // 按 y 直接聚行会把左右栏同一高度的两行拼成一行（「教育背景 实习经历」）。
-        lines.push(...glyphsToLines(glyphs.filter((g) => g.x < gutter)));
-        lines.push(...glyphsToLines(glyphs.filter((g) => g.x >= gutter)));
-      } else {
-        lines.push(...glyphsToLines(glyphs));
-      }
+      // layoutPageLines 内部处理「通栏 + 分栏」混排：先检中缝，再逐行归位，
+      // 收尾按「先左后右」吐出。纯单栏时等价于 glyphsToLines。
+      lines.push(...layoutPageLines(glyphs, pageWidth));
     }
   } finally {
     try { await doc.destroy(); } catch (_) { /* 忽略 */ }

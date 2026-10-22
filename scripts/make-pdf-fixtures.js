@@ -8,7 +8,7 @@
 //  手写的最小 PDF 只能验证「能读」，验证不了「双栏会不会串行」。
 //
 //  运行：node scripts/run-electron.js scripts/make-pdf-fixtures.js
-//  产物：test-fixtures/resume-two-column.pdf / resume-single-column.pdf
+//  产物：test-fixtures/resume-two-column.pdf / resume-single-column.pdf / resume-sidebar.pdf
 // ============================================================
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
@@ -92,6 +92,45 @@ function createWindow() {
   });
 }
 
+// 侧边栏布局：顶部姓名/联系方式「通栏」，下方左窄右宽两栏。
+// 这是最考验分栏算法的形态——顶部文字横跨中缝，整页级的中缝检测会因为
+// 「中部 x 区间被顶部占住了」而检测失败，进而退化成左右栏按 y 串行。
+const SIDEBAR_HTML = `<!doctype html><html><head><meta charset="utf-8"><style>${CSS}
+  .head { margin-bottom: 18px; }
+  .layout { display: flex; }
+  .side { width: 170px; background: #f3f3f3; padding: 12px 14px; }
+  .main { flex: 1; padding-left: 26px; }
+  .side h2 { border-bottom: none; margin-top: 0; }
+</style></head><body><div class="page">
+  <div class="head">
+    <h1>王五</h1>
+    <div class="contact">13700000000 · wangwu@example.com · 北京 · 求职意向：后端开发工程师</div>
+  </div>
+  <div class="layout">
+    <div class="side">
+      <h2>专业技能</h2>
+      <p>Java</p>
+      <p>MySQL</p>
+      <p>Redis</p>
+      <h2>证书</h2>
+      <p>CET-6</p>
+      <p>软考中级</p>
+    </div>
+    <div class="main">
+      <h2>教育背景</h2>
+      <p>北京大学 软件工程 本科</p>
+      <p class="muted">2018.09 - 2022.06 · GPA 3.7</p>
+      <h2>实习经历</h2>
+      <p>腾讯 后台开发实习生</p>
+      <p class="muted">2021.07 - 2021.10</p>
+      <p>参与支付网关的对账模块开发</p>
+      <h2>项目经历</h2>
+      <p>分布式配置中心（课程项目）</p>
+      <p>基于 Raft 的一致性存储，支持灰度发布</p>
+    </div>
+  </div>
+</div></body></html>`;
+
 async function render(win, html, outFile) {
   await win.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   const data = await win.webContents.printToPDF({
@@ -110,6 +149,7 @@ app.whenReady().then(async () => {
   try {
     await render(win, TWO_COLUMN_HTML, path.join(OUT_DIR, 'resume-two-column.pdf'));
     await render(win, SINGLE_COLUMN_HTML, path.join(OUT_DIR, 'resume-single-column.pdf'));
+    await render(win, SIDEBAR_HTML, path.join(OUT_DIR, 'resume-sidebar.pdf'));
   } finally {
     if (!win.isDestroyed()) win.destroy();
   }

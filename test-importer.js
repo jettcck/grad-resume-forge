@@ -358,7 +358,7 @@ const rightCol = [
   { x: 420, y: 680, w: 90, str: '阿里巴巴 后端' }
 ];
 const gutter = importer.detectColumnGutter([...leftCol, ...rightCol], 794);
-assert(gutter != null && gutter > 300 && gutter < 450,
+assert(gutter != null && gutter > 150 && gutter < 400,
   '双栏：中缝落在两栏之间（实得 ' + gutter + '）');
 
 // 按中缝切开后，两栏各自成行，互不串
@@ -398,6 +398,48 @@ const mixedGutter = importer.detectColumnGutter(mixedGlyphs, 794);
 assert(mixedGutter != null, '透传 textContent.items 也能检出中缝');
 assert(importer.glyphsToLines(mixedGlyphs.filter((g) => g.x < mixedGutter)).join('|') === '左一|左二',
   'extractGlyphs + 中缝过滤 + 聚行的组合可用');
+
+// ---------------- 通栏 + 分栏混排（侧边栏简历） ----------------
+// 顶部姓名/联系方式横跨整页，下方才是左窄右宽。
+// 这里是整页级「是否有字形」判据的坟墓：顶部通栏会把中缝盖住，导致检不出分栏。
+// 数据规模按真实侧边栏模板给：左栏技能列表、右栏正文，两侧文字量接近
+// （若一边只有几个字，「两侧都要有实质内容」的判据会正确拒绝分栏，测不到分栏逻辑）
+const sidebarGlyphs = [
+  { x: 65, y: 760, w: 30, str: '王五' },
+  { x: 65, y: 740, w: 400, str: '13700000000 · wangwu@example.com · 北京 · 求职意向：后端开发' },
+  { x: 65, y: 700, w: 60, str: '专业技能' },
+  { x: 300, y: 700, w: 60, str: '教育背景' },
+  { x: 65, y: 680, w: 40, str: 'Java' },
+  { x: 300, y: 680, w: 100, str: '北京大学 软件工程 本科' },
+  { x: 65, y: 660, w: 45, str: 'MySQL' },
+  { x: 300, y: 660, w: 120, str: '2018.09 - 2022.06 · GPA 3.7' },
+  { x: 65, y: 640, w: 40, str: 'Redis' },
+  { x: 300, y: 640, w: 60, str: '实习经历' },
+  { x: 65, y: 620, w: 50, str: 'CET-6' },
+  { x: 300, y: 620, w: 90, str: '腾讯 后台开发实习生' }
+];
+const sidebarGutter = importer.detectColumnGutter(sidebarGlyphs, 794);
+assert(sidebarGutter != null && sidebarGutter > 150 && sidebarGutter < 300,
+  '侧边栏：顶部通栏存在时仍能检出中缝（实得 ' + sidebarGutter + '）');
+
+const sidebarLines = importer.layoutPageLines(sidebarGlyphs, 794);
+assert(sidebarLines[0] === '王五', '侧边栏：通栏姓名排在最前（实得 ' + sidebarLines[0] + '）');
+assert(sidebarLines[1] && /13700000000/.test(sidebarLines[1]) && /北京/.test(sidebarLines[1]),
+  '侧边栏：通栏联系方式完整一行，没被切开（实得 ' + sidebarLines[1] + '）');
+assert(sidebarLines.indexOf('专业技能') < sidebarLines.indexOf('教育背景'),
+  '侧边栏：左栏（专业技能）排在右栏（教育背景）之前');
+assert(sidebarLines.indexOf('Java') < sidebarLines.findIndex((l) => l.startsWith('北京大学')),
+  '侧边栏：左栏内容全部读完再读右栏（Java 在右栏正文之前）');
+assert(!sidebarLines.some((l) => /专业技能\s+教育背景/.test(l)),
+  '侧边栏：左右栏标题没有被拼成一行（本 bug 的直接回归）');
+
+// 纯单栏时 layoutPageLines 与 glyphsToLines 等价
+const flatGlyphs = [
+  { x: 65, y: 700, w: 500, str: '这是一段横跨整页的正文内容' },
+  { x: 65, y: 680, w: 500, str: '第二行同样横跨整页' }
+];
+assert(importer.layoutPageLines(flatGlyphs, 794).join('|') === importer.glyphsToLines(flatGlyphs).join('|'),
+  '纯单栏：layoutPageLines 与 glyphsToLines 结果一致');
 
 function done() {
   console.log('\n导入器自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
