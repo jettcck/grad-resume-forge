@@ -130,7 +130,8 @@ assert(/jobSync\.collect\(String\(platformId \|\| ''\), k, auto === true\)/.test
 
 // ---------- 4) 截图 mock 必须覆盖渲染层会用到的 channel ----------
 // 否则 UI 测试会对「未注册的接口」视而不见（快照卡与 applications 两次都栽在这里）
-const mockChannels = new Set([...mockSrc.matchAll(/\bh\('([^']+)'/g)].map((m) => m[1]));
+// hU 是 h 的变体（自动注入 demo uid），两者都要算作「已注册」
+const mockChannels = new Set([...mockSrc.matchAll(/\bhU?\('([^']+)'/g)].map((m) => m[1]));
 const chanByApi = {};
 [...preloadSrc.matchAll(/(\w+):\s*\([^)]*\)\s*=>\s*ipcRenderer\.invoke\('([^']+)'/g)].forEach((m) => {
   chanByApi[m[1]] = m[2];
@@ -219,7 +220,8 @@ assert(dirBad.length === 0,
 // ---------- 10) 截图 mock 的注册方向也要一致 ----------
 // mock 用 handle 去接渲染层的 send，不会报错、只会静默失效，UI 测试会假装通过。
 // 只对「渲染层真的会调用」的接口要求 mock —— 没人调的接口不需要在 mock 里存在。
-const mockH = new Set([...mockSrc.matchAll(/(?:\bh\(|ipcMain\.handle\()'([^']+)'/g)].map((m) => m[1]));
+// hU 是 h 的变体（注入 demo uid），同样算 handle
+const mockH = new Set([...mockSrc.matchAll(/(?:\bhU?\(|ipcMain\.handle\()'([^']+)'/g)].map((m) => m[1]));
 const mockOn = new Set([...mockSrc.matchAll(/ipcMain\.on\('([^']+)'/g)].map((m) => m[1]));
 const mockDirBad = [];
 [...invokeChans].forEach(([ch, api]) => { if (calls.has(api) && !mockH.has(ch)) mockDirBad.push(api + '（mock 缺 handle ' + ch + '）'); });

@@ -114,8 +114,13 @@ function registerIpc() {
   const h = (ch, fn) => ipcMain.handle(ch, async (_e, ...args) => {
     try { return ok(await fn(...args)); } catch (err) { return fail(err); }
   });
-  h('auth:register', (p) => auth.register(p));
-  h('auth:login', (p) => auth.login(p));
+  // 真实主进程从 session 取 userId，mock 层没有 session —— 用当前登录的演示用户补上。
+  // 不补的话 exam 那批 handler 会把「第一个入参」当成 uid（undefined），
+  // saveExamPaper 一校验用户就抛「用户不存在」。
+  let demoUid = '';
+  const hU = (ch, fn) => h(ch, (...args) => fn(demoUid, ...args));
+  h('auth:register', (p) => { const u = auth.register(p); demoUid = u.id; return u; });
+  h('auth:login', (p) => { const u = auth.login(p); demoUid = u.id; return u; });
   h('auth:session', () => null);
   h('auth:logout', () => ({ ok: true }));
   h('profile:get', (uid) => store.getProfile(uid));
@@ -136,13 +141,13 @@ function registerIpc() {
   // 笔试中心：题库与核心逻辑用真实模块，数据落 mock store
   const examCore = require(path.join(ROOT, 'dist/main/exam-core'));
   const examBank = require(path.join(ROOT, 'dist/main/exam-bank'));
-  h('exam:bank', () => ({
+  hU('exam:bank', () => ({
     count: examBank.EXAM_BANK.length,
     tags: examBank.allTags(),
     domains: examBank.allDomains(),
     types: ['single', 'multiple', 'judge', 'fill']
   }));
-  h('exam:paper:create', (uid, input) => {
+  hU('exam:paper:create', (uid, input) => {
     const built = examCore.buildPaper({
       count: (input && input.count) || 20,
       durationSec: (input && input.durationSec) || 1800
@@ -161,8 +166,8 @@ function registerIpc() {
     });
     return { paper, questions, composition: built.composition };
   });
-  h('exam:paper:list', (uid) => store.listExamPapers(uid));
-  h('exam:paper:get', (uid, paperId) => {
+  hU('exam:paper:list', (uid) => store.listExamPapers(uid));
+  hU('exam:paper:get', (uid, paperId) => {
     const paper = store.getExamPaper(uid, paperId);
     if (!paper) throw new Error('试卷不存在或已删除');
     const questions = paper.questionIds.map((id) => {
@@ -171,14 +176,14 @@ function registerIpc() {
     });
     return { paper, questions };
   });
-  h('exam:attempt:start', (uid, paperId) => {
+  hU('exam:attempt:start', (uid, paperId) => {
     const drafts = store.listExamAttempts(uid, paperId).filter((a) => a.status === 'draft');
     if (drafts.length) return { attempt: drafts[0], resumed: true };
     const attempt = store.saveExamAttempt(uid, { paperId, answers: {}, status: 'draft' });
     return { attempt, resumed: false };
   });
-  h('exam:attempt:save', (uid, attemptId, answers) => store.saveExamAttempt(uid, { id: attemptId, answers, status: 'draft' }));
-  h('exam:attempt:submit', (uid, attemptId, answers) => {
+  hU('exam:attempt:save', (uid, attemptId, answers) => store.saveExamAttempt(uid, { id: attemptId, answers, status: 'draft' }));
+  hU('exam:attempt:submit', (uid, attemptId, answers) => {
     const attempt = store.getExamAttempt(uid, attemptId);
     const paper = store.getExamPaper(uid, attempt.paperId);
     const graded = examCore.gradePaper(paper.questionIds, answers || {});
@@ -196,15 +201,15 @@ function registerIpc() {
       }
     };
   });
-  h('exam:attempt:list', (uid, paperId) => store.listExamAttempts(uid, paperId));
-  h('exam:wrong:list', (uid) => store.listWrongQuestions(uid).map((w) => {
+  hU('exam:attempt:list', (uid, paperId) => store.listExamAttempts(uid, paperId));
+  hU('exam:wrong:list', (uid) => store.listWrongQuestions(uid).map((w) => {
     const q = examBank.getQuestion(w.questionId);
     return Object.assign({}, w, {
       question: q ? { id: q.id, type: q.type, domain: q.domain, tags: q.tags, stem: q.stem, options: q.options, answer: q.answer, explanation: q.explanation } : null
     });
   }).filter((x) => x.question));
-  h('exam:wrong:master', (uid, qid, mastered) => store.setWrongMastered(uid, qid, mastered));
-  h('exam:review:create', (uid, count) => {
+  hU('exam:wrong:master', (uid, qid, mastered) => store.setWrongMastered(uid, qid, mastered));
+  hU('exam:review:create', (uid, count) => {
     const ids = examCore.buildReviewPaper(store.listWrongQuestions(uid), count || 10);
     const paper = store.saveExamPaper(uid, { title: '错题强化练习', questionIds: ids, durationSec: 600, passScore: 60, domain: 'review' });
     const questions = ids.map((id) => {
@@ -213,10 +218,10 @@ function registerIpc() {
     });
     return { paper, questions };
   });
-  h('exam:plan:get', (uid, jobId) => store.getStudyPlan(uid, jobId));
-  h('exam:plan:list', (uid) => store.listStudyPlans(uid));
-  h('exam:plan:save', (uid, input) => store.saveStudyPlan(uid, input));
-  h('exam:trends', (uid, topN) => examCore.buildTagTrends(store.listExamAttempts(uid), topN || 3));
+  hU('exam:plan:get', (uid, jobId) => store.getStudyPlan(uid, jobId));
+  hU('exam:plan:list', (uid) => store.listStudyPlans(uid));
+  hU('exam:plan:save', (uid, input) => store.saveStudyPlan(uid, input));
+  hU('exam:trends', (uid, topN) => examCore.buildTagTrends(store.listExamAttempts(uid), topN || 3));
   // 编程题：题库与判题器都用真实模块（判题会真起子进程，截图流程不会点进去）
   const codeBank = require(path.join(ROOT, 'dist/main/code-bank'));
   const codeRunner = require(path.join(ROOT, 'dist/main/code-runner'));
@@ -1576,6 +1581,84 @@ async function main() {
     return out.join('\\n');
   })()`));
   mockAgentAvailable = false;
+
+  // ---------------- 笔试中心 / 编程题（作品集用图） ----------------
+  // 这两块是「工程能力」最直观的证据，之前 15 张图里没有。
+  // 走的是真实 exam-core / codeRunner（mock 层只替换了数据落地），所以判题结果是真跑出来的。
+  console.log('--- 笔试中心与编程题 ---');
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.nav-item[data-route="exam"]').click();
+    return true;
+  })()`);
+  await sleep(1300);
+  await win.webContents.executeJavaScript(`(async () => {
+    examState.view = 'home';
+    await renderExamCenter();
+    return true;
+  })()`);
+  await sleep(1000);
+  await shot(win, '09-exam-home');
+
+  // 直接复现 startExam 内部步骤，而不是调它：这样出错时能把错误带回来（它内部 catch 成 toast 了）
+  const examStarted = await win.webContents.executeJavaScript(`(async () => {
+    try {
+      const created = await call(window.api.exam.createPaper({ count: 10, durationSec: 1800, passScore: 60, domain: 'backend' }));
+      const started = await call(window.api.exam.startAttempt(created.paper.id));
+      examState.paper = created.paper;
+      examState.questions = created.questions || [];
+      examState.attempt = started.attempt;
+      examState.answers = Object.assign({}, started.attempt.answers || {});
+      examState.index = 0;
+      examState.result = null;
+      examState.view = 'answering';
+      startExamTimer(created.paper, started.attempt.startedAt);
+      await renderExamCenter();
+      await new Promise(r => setTimeout(r, 900));
+      const opt = document.querySelector('.exam-opt');
+      if (opt) opt.click();
+      await new Promise(r => setTimeout(r, 350));
+      return JSON.stringify({ view: examState.view, opts: document.querySelectorAll('.exam-opt').length });
+    } catch (e) { return 'ERR:' + e.message; }
+  })()`);
+  let examInfo = null;
+  try { examInfo = JSON.parse(examStarted); } catch (_) { /* 保持 null */ }
+  if (examInfo && examInfo.view === 'answering') {
+    await shot(win, '10-exam-answering');
+  } else {
+    console.log('   [skip] 答题页未进入: ' + examStarted);
+  }
+
+  await win.webContents.executeJavaScript(`(async () => {
+    examState.view = 'code';
+    await renderExamCenter();
+    await new Promise(r => setTimeout(r, 1300));
+    const sel = document.getElementById('code-lang');
+    if (sel) { sel.value = 'cpp'; sel.dispatchEvent(new Event('change')); }
+    await new Promise(r => setTimeout(r, 900));
+    const ed = document.querySelector('.code-editor');
+    if (ed) {
+      ed.value = '#include <iostream>\\nusing namespace std;\\nint main(){long long a,b;if(!(cin>>a>>b))return 0;cout<<a+b<<endl;return 0;}';
+      ed.dispatchEvent(new Event('input'));
+    }
+    return true;
+  })()`);
+  await sleep(1300);
+  await shot(win, '11-code-problem');
+
+  // 真跑一次「运行样例」，留下 AC 结果面板（C++ 首次编译 + Defender 扫描需要几秒）
+  await win.webContents.executeJavaScript(`(async () => {
+    try { await runCode('run'); } catch (e) { /* 失败也让截图继续，图里会显示错误 */ }
+    return true;
+  })()`);
+  await sleep(7000);
+  // 结果面板在编辑器下方，不滚动会被视口裁掉（只截到题面和代码）
+  await win.webContents.executeJavaScript(`(() => {
+    const el = document.getElementById('code-result');
+    if (el) el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    return true;
+  })()`);
+  await sleep(700);
+  await shot(win, '12-code-judged');
 
   console.log('done. shots in', SHOTS);
   app.exit(0);

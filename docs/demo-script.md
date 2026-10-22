@@ -110,7 +110,8 @@ ffmpeg -i demo-raw.mp4 -vf "scale=1280:-2" -c:v libx264 -crf 28 -an demo.mp4
 
 ## 六、配套静态图（已有）
 
-`shots/` 下已有 15 张由 `npm run smoke:ui` 生成的截图，可直接用于 README / 简历附件：
+`shots/` 下已有 19 张由 `npm run smoke:ui`（`scripts/screenshot.js`）生成的截图，
+可直接用于 README / 简历附件。注意 `shots/` 在 `.gitignore` 里，是本地素材、不入库：
 
 | 文件 | 内容 |
 |---|---|
@@ -122,7 +123,20 @@ ffmpeg -i demo-raw.mp4 -vf "scale=1280:-2" -c:v libx264 -crf 28 -an demo.mp4
 | `06-about.png` | 关于（含运行记录入口） |
 | `07-interview.png` | 面试准备 |
 | `08-versions.png` | 简历版本管理 |
+| `09-exam-home.png` | **笔试中心**：组卷表单 + 题库规模（151 题 / 133 知识点 / 12 方向） |
+| `10-exam-answering.png` | **答题页**：题号导航、倒计时、草稿自动保存 |
+| `11-code-problem.png` | **编程题**：43 题侧栏、C++ 17 语言切换、起始代码 |
+| `12-code-judged.png` | **判题结果**：通过 2/2、逐用例输入/期望/实际对比、自定义输入区 |
 
-**缺**：笔试中心、编程题判题结果、Agent 运行中。这三张需要手动截（`Win + Shift + S`），
-或后续把 `scripts/shots-for-portfolio.js` 改成主进程内 `webContents.capturePage` 再补
-（当前 CDP 版本会卡在首帧，脚本头部已注明）。
+**仍缺**：Agent 运行中（步骤条）与运行记录 trace。这两处需要触发一次 Agent 运行，
+截图脚本目前走的是规则引擎通道，补这两张要另外接一段——按 `demo-script.md` 手动录一段更省事。
+
+### 截图脚本的两个坑（已修，记下来免得再踩）
+
+1. `npm run smoke:ui` 必须在**剥掉 `ELECTRON_RUN_AS_NODE`** 的环境下跑，
+   否则 electron 会退化成 Node，报 `Cannot read properties of undefined (reading 'whenReady')`：
+   ```bash
+   env -u ELECTRON_RUN_AS_NODE npm run smoke:ui
+   ```
+2. mock 的 exam handler 曾把「第一个入参」当 userId 用（真实主进程是从 session 取的），
+   导致组卷时抛「用户不存在」。已加 `hU()` 包装，把当前登录的演示用户 id 注入进去。
