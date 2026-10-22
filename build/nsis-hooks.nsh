@@ -7,10 +7,15 @@
 ;    「简历锻造炉.exe」，用户每次升级后双击它就弹
 ;    「Windows 正在查找 简历锻造炉.exe」。
 ;
-;  两层处理：
-;    1) customInit：删掉已知的旧形态（桌面 + 开始菜单里指向废弃 exe 名的项）
-;    2) customInstall：跑 fix-shortcuts.ps1 兜底扫描，清理用户重命名过、
-;       或固定到别处的失效快捷方式
+;  处理：安装/升级前删掉已知的旧形态（桌面 + 开始菜单里指向废弃 exe 名的项）。
+;
+;  为什么不再调 PowerShell 兜底扫描（2026-10-22 的教训）：
+;    原本 customInstall 里用 ExecWait 调 fix-shortcuts.ps1 扫桌面/开始菜单/任务栏，
+;    但在 CI 的 NSIS 安装器冒烟里稳定复现 0xC0000005（访问冲突）崩溃 ——
+;    静默安装（/S）路径上同步拉起 PowerShell 会与安装器状态冲突。
+;    稳定性优先：清理是增强项，装不上才是事故。
+;    现在 fix-shortcuts.ps1 仍随应用打包（resources/fix-shortcuts.ps1），
+;    作为用户可手动执行的修复工具；自动清理只保留纯 NSIS 指令这一段。
 ;
 ;  注意：只用 NSIS 核心指令，不依赖 LogicLib / nsExec 等额外 include ——
 ;  electron-builder 的模板不保证 include 了它们，用了会在编译期直接报错。
@@ -25,17 +30,4 @@
   Delete "$SMPROGRAMS\简历锻造炉\卸载 简历锻造炉.lnk"
   ; 空目录才删（RMDir 不带 /r），不会碰用户放进来的其他快捷方式
   RMDir "$SMPROGRAMS\简历锻造炉"
-!macroend
-
-!macro customInstall
-  ; 文件已就位（$INSTDIR\resources 存在），跑兜底扫描。
-  ; ExecWait 是 NSIS 核心指令（等子进程结束、把退出码取到 $0），不需要额外 include。
-  ; 失败不阻断安装 —— 清理是增强项，装不上才是事故。
-  IfFileExists "$INSTDIR\resources\fix-shortcuts.ps1" 0 done
-    ExecWait 'powershell -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\fix-shortcuts.ps1"' $0
-    IntCmp $0 0 0 notzero
-    Goto done
-  notzero:
-    DetailPrint "快捷方式清理脚本返回非 0（$0），已跳过，不影响安装"
-  done:
 !macroend
