@@ -116,18 +116,32 @@ assert(relSrc.includes('smoke:packaged') && relSrc.includes('xvfb-run -a'),
 const nsisHooks = fs.readFileSync(path.join(__dirname, 'build', 'nsis-hooks.nsh'), 'utf8');
 assert(nsisHooks.includes('!macro customInit'), 'NSIS 含升级前清理钩子');
 assert(nsisHooks.includes('!macro customInstall'), 'NSIS 含安装后重写钩子');
-assert(nsisHooks.includes('CreateShortCut "$DESKTOP\\简历锻造炉.lnk" "$INSTDIR\\简历锻造炉.exe"'),
-  '安装后重写桌面快捷方式目标');
-assert(nsisHooks.includes('CreateShortCut "$SMPROGRAMS\\简历锻造炉.lnk" "$INSTDIR\\简历锻造炉.exe"'),
-  '安装后重写开始菜单快捷方式目标');
-assert(nsisHooks.includes('StrCpy $launchLink "$INSTDIR\\简历锻造炉.exe"'),
-  '安装完成页直接启动当前安装目录 exe');
+// 快捷方式名用 ${SHORTCUT_NAME} 常量而不是中文字面量：productName 改过一次，
+// 字面量会让"改了名但忘了改钩子"变成静默不一致（.lnk 落在旧名下，新名永远不生成）。
+assert(/CreateShortCut\s+"\$DESKTOP\\\$\{SHORTCUT_NAME\}\.lnk"\s+"\$INSTDIR\\\$\{APP_EXECUTABLE_FILENAME\}"/.test(nsisHooks),
+  '安装后重写桌面快捷方式目标（用 SHORTCUT_NAME 常量）');
+assert(/CreateShortCut\s+"\$SMPROGRAMS\\\$\{SHORTCUT_NAME\}\.lnk"\s+"\$INSTDIR\\\$\{APP_EXECUTABLE_FILENAME\}"/.test(nsisHooks),
+  '安装后重写开始菜单快捷方式目标（用 SHORTCUT_NAME 常量）');
+// 完成页启动目标必须是真实 exe：模板先赋 $newStartMenuLink（.lnk），
+// 坏 .lnk 会让 ShellExecute 弹「Windows 正在查找 xxx.exe」。
+assert(/StrCpy\s+\$launchLink\s+"\$INSTDIR\\\$\{APP_EXECUTABLE_FILENAME\}"/.test(nsisHooks),
+  '完成页启动目标指向当前安装目录的真实 exe');
+// 只查「非注释行」：注释里解释模板行为时会写到 $newStartMenuLink，那不该触发断言
+const nsisCodeOnly = nsisHooks.split(/\r?\n/).filter((l) => !/^\s*(;|#)/.test(l)).join('\n');
+assert(!/StrCpy\s+\$launchLink\s+"\$newStartMenuLink"/.test(nsisCodeOnly),
+  '不把 $launchLink 留给 .lnk（.lnk 失效即触发查找弹窗）');
+assert(/IfFileExists\s+"\$launchLink"\s+\$\{LAUNCH_READY\}\s+0/.test(nsisHooks) &&
+  /StrCpy\s+\$launchLink\s+"\$appExe"/.test(nsisHooks),
+  'exe 未落地时回退 $appExe，保证 $launchLink 永不指向失效目标');
 // 只在「非注释行」里查外部进程调用：注释里描述历史事故的写法不该触发断言
 const nsisCodeLines = nsisHooks.split(/\r?\n/).filter((l) => !/^\s*(;|#)/.test(l));
 assert(!nsisCodeLines.some((l) => /ExecWait\s+.*powershell/i.test(l)),
   'NSIS 钩子不启动外部 PowerShell（避免静默安装崩溃）');
 
-// 6b) 桌面独立旧副本清理——2026-10-23 定位到的真正复发源
+// 6b) 桌面上若残留独立旧副本，安装时顺手清掉
+// 2026-10-23 复核：实测该用户的桌面既无快捷方式也无此目录，所以这不是主因；
+// 但这份副本确实会与正式安装共用一个 updaterCacheDirName 并互相覆盖安装包，
+// 留着是隐患，故保留清理逻辑（双判据 + 写死路径 + 不通配）。
 assert(/RMDir\s+\/r\s+"\$DESKTOP\\grad-resume-forge"/.test(nsisHooks),
   'NSIS 清理桌面上的独立旧副本目录（它会与正式安装抢同一更新缓存）');
 assert(nsisHooks.includes('app-update.yml') && nsisHooks.includes('简历锻造炉.exe'),
