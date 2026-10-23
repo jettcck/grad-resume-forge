@@ -16,7 +16,9 @@ const { spawn, execFileSync } = require('child_process');
 const { listPackage } = require('@electron/asar');
 
 const ROOT = path.resolve(__dirname, '..');
-const STARTUP_WAIT_MS = 8000;
+const STARTUP_WAIT_MS = 15000;
+const DATA_DIR_WAIT_MS = 15000;
+const DATA_DIR_POLL_MS = 250;
 
 function findExecutable() {
   const explicit = String(process.env.GRF_PACKAGED_EXE || '').trim();
@@ -137,8 +139,13 @@ async function main() {
       );
     }
     const dataDir = path.join(userData, 'grad-resume-data');
+    const dataDeadline = Date.now() + DATA_DIR_WAIT_MS;
+    while (!fs.existsSync(dataDir) && Date.now() < dataDeadline) {
+      await sleep(DATA_DIR_POLL_MS);
+    }
     if (!fs.existsSync(dataDir)) {
-      throw new Error('进程保持运行，但没有创建本地数据目录：' + dataDir);
+      throw new Error('进程保持运行，但在 ' + DATA_DIR_WAIT_MS + 'ms 内没有创建本地数据目录：' + dataDir +
+        '\nstdout:\n' + tail(stdout) + '\nstderr:\n' + tail(stderr));
     }
     console.log('✅ 打包版启动冒烟通过');
     console.log('  executable:', executable);
