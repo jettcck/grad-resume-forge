@@ -106,6 +106,9 @@ assert(typeof pkg.devDependencies['@electron/asar'] === 'string',
   '打包产物冒烟显式声明 @electron/asar 开发依赖');
 assert(pkg.scripts['smoke:installer'] === 'node scripts/smoke-installer.js',
   'package.json 注册 NSIS 安装器冒烟命令');
+const packagedSmokeSrc = fs.readFileSync(path.join(__dirname, 'scripts', 'smoke-packaged.js'), 'utf8');
+assert(packagedSmokeSrc.includes('DATA_DIR_WAIT_MS') && packagedSmokeSrc.includes('DATA_DIR_POLL_MS'),
+  '打包版冒烟等待数据目录异步创建（Linux runner 冷启动更稳）');
 assert(relSrc.includes('smoke:packaged') && relSrc.includes('xvfb-run -a'),
   '发布前启动真实产物（Linux 通过 xvfb）');
 

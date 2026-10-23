@@ -22,7 +22,8 @@ const owner = 'jettcck';
 const repo = 'grad-resume-forge';
 
 const pkg = JSON.parse(fs.readFileSync(path.join(REPO, 'package.json'), 'utf8'));
-const tag = String(process.argv[2] || ('v' + pkg.version)).trim();
+const mainOnly = process.argv.includes('--main-only');
+const tag = String(process.argv.find((arg) => /^v\d+\.\d+\.\d+$/.test(arg)) || ('v' + pkg.version)).trim();
 const localHead = execFileSync('git', ['-C', REPO, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 const token = process.env.GITHUB_TOKEN;
 if (!token) throw new Error('GITHUB_TOKEN missing');
@@ -75,13 +76,18 @@ function buildCommitMessage() {
 async function main() {
   console.log('localHead=' + localHead + ' tag=' + tag);
 
+  // 0) main-only 只同步 main，不检查/创建 tag，供发版前 CI 验证。
+  if (mainOnly) {
+    console.log('--main-only：只同步 main，不创建 tag/release');
+  }
+
   // 0) 前置检查：tag / release 不能已存在
-  const existingRelease = await api(`/repos/${owner}/${repo}/releases/tags/${tag}`).catch((e) => {
+  const existingRelease = mainOnly ? null : await api(`/repos/${owner}/${repo}/releases/tags/${tag}`).catch((e) => {
     if (String(e.message).includes('404')) return null;
     throw e;
   });
   if (existingRelease) throw new Error(`release ${tag} already exists — 不覆盖，终止`);
-  const existingTag = await api(`/repos/${owner}/${repo}/git/refs/tags/${tag}`).catch((e) => {
+  const existingTag = mainOnly ? null : await api(`/repos/${owner}/${repo}/git/refs/tags/${tag}`).catch((e) => {
     if (String(e.message).includes('404')) return null;
     throw e;
   });
@@ -132,11 +138,14 @@ async function main() {
   }
   console.log('blobs uploaded=' + uploaded + ' skipped=' + skipped + ' deletions=' + deletions.length);
 
-  // 4) 建 tree（base_tree + 差异项 + 删除项）→ 回读逐条校验
-  const newTree = await api(`/repos/${owner}/${repo}/git/trees`, {
-    method: 'POST',
-    body: JSON.stringify({ base_tree: baseTreeSha, tree: [...entries, ...deletions] })
-  });
+  // 4) 建 tree（base_tree + 差异项 + 删除项）→ 回读逐条校验。
+  // 远端与本地完全一致时 GitHub 会拒绝空 tree 数组；直接复用 base tree。
+  const newTree = (entries.length === 0 && deletions.length === 0)
+    ? { sha: baseTreeSha, truncated: false }
+    : await api(`/repos/${owner}/${repo}/git/trees`, {
+      method: 'POST',
+      body: JSON.stringify({ base_tree: baseTreeSha, tree: [...entries, ...deletions] })
+    });
   console.log('newTree=' + newTree.sha + ' (truncated=' + !!newTree.truncated + ')');
 
   const verifyTree = await api(`/repos/${owner}/${repo}/git/trees/${newTree.sha}?recursive=1`);
@@ -171,6 +180,11 @@ async function main() {
     body: JSON.stringify({ sha: newCommit.sha, force: false })
   });
   console.log('main updated -> ' + newCommit.sha);
+
+  if (mainOnly) {
+    console.log('main-only 完成，不创建 tag');
+    return;
+  }
 
   // 7) 注释标签（触发 release.yml）
   const identity = {
