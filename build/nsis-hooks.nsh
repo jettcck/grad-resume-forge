@@ -19,12 +19,25 @@
 ;        升级时若 KeepShortcuts=true 且 $appExe 存在，只做「旧名→新名」Rename，
 ;        TargetPath 原样保留 → 坏目标被一版一版继承下去。
 ;
-;    [3] 桌面上存在一份独立的旧副本目录（本次真正的复发源）
-;        实证：<Desktop>\grad-resume-forge\ 是一份完整 Electron 应用，
-;        自带 resources\app-update.yml，且 updaterCacheDirName 与正式安装完全相同。
-;        它的 autoInstallOnAppQuit=true，自己也会下载更新并静默装到正式目录；
-;        用户双击的往往是桌面这份旧副本 → 表现为「一更新又弹」。
-;        两者共用同一个更新缓存目录，还会互相覆盖对方的安装包。
+;    [3] 完成页 $launchLink 的取值来源（这是「一更新就弹」的直接触发点）
+;        见 installSection.nsh:71-74，模板在 customInstall 之前这样赋值：
+;            ${if} ${FileExists} "$newStartMenuLink"
+;              StrCpy $launchLink "$newStartMenuLink"   ; ← 指向 .lnk
+;            ${else}
+;              StrCpy $launchLink "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+;            ${endIf}
+;        而 electron-updater 非静默安装时 autoRunAppAfterInstall=true
+;        （BaseUpdater.js:13-16 → doInstall 不带 /S），完成页"运行"默认勾选，
+;        走 StartApp → StdUtils.ExecShellAsUser "$launchLink" open。
+;        一旦那个 .lnk 是坏的，ShellExecute 就弹「Windows 正在查找 xxx.exe」。
+;        所以 $launchLink 必须无条件指向 $INSTDIR 下的真实 exe，不能是 .lnk。
+;
+;    2026-10-23 追加核实（推翻了曾以为是主因的"桌面独立副本"假设）：
+;      实测用户桌面既无快捷方式也无 grad-resume-forge 目录，
+;      且用缓存安装包做 /S 静默升级验证过：customInstall 能正确重建两个 .lnk
+;      （TargetPath 指向当前 exe，Test-Path 为 True）。故 [1][2] 两条在
+;      当前版本已不复发；残留的坏引用只在开始菜单磁贴缓存
+;      (Start\TileProperties / CloudStore appleveltilelist) 与 MuiCache 里。
 ;
 ;  处理策略（两段钩子，全部用 NSIS 核心指令）：
 ;    customInit   ：删旧形态快捷方式 + 清掉桌面上的独立旧副本 + 修正坏 InstallLocation
@@ -96,9 +109,23 @@
   ; electron-builder 的 KeepShortcuts 机制会在升级时保留同名旧 .lnk，
   ; 即使它的 TargetPath 已指向不存在的旧目录，也不会重新创建。
   ; 安装完成后无条件重写标准桌面/开始菜单快捷方式，确保目标是本次安装的 exe。
-  CreateShortCut "$DESKTOP\简历锻造炉.lnk" "$INSTDIR\简历锻造炉.exe" "" "$INSTDIR\简历锻造炉.exe" 0 "" "" "${APP_DESCRIPTION}"
-  CreateShortCut "$SMPROGRAMS\简历锻造炉.lnk" "$INSTDIR\简历锻造炉.exe" "" "$INSTDIR\简历锻造炉.exe" 0 "" "" "${APP_DESCRIPTION}"
-  ; 完成页的“运行简历锻造炉”会使用 $launchLink；强制改为本次安装的 exe，
-  ; 禁止完成页沿用旧开始菜单快捷方式触发“Windows 正在查找旧 exe”。
-  StrCpy $launchLink "$INSTDIR\简历锻造炉.exe"
+  ;
+  ; 注意 SHORTCUT_NAME 用了中文常量而不是字面量：productName 改过一次，
+  ; 字面量会让"改了名但没改这里"变成静默不一致。这里仍按当前 productName
+  ; 生成，并额外用 ${SHORTCUT_NAME} 兜住 electron-builder 的实际配置。
+  CreateShortCut "$DESKTOP\${SHORTCUT_NAME}.lnk" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0 "" "" "${APP_DESCRIPTION}"
+  CreateShortCut "$SMPROGRAMS\${SHORTCUT_NAME}.lnk" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" "" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" 0 "" "" "${APP_DESCRIPTION}"
+
+  ; ---------- 完成页启动目标：只认真实 exe，绝不指向 .lnk ----------
+  ; 模板在 installSection.nsh:71-74 先给 $launchLink 赋 $newStartMenuLink（一个 .lnk），
+  ; 完成页 StartApp 走 StdUtils.ExecShellAsUser "$launchLink" open。
+  ; electron-updater 非静默安装（autoRunAppAfterInstall=true）时完成页默认勾选"运行"，
+  ; 只要那个 .lnk 指向失效目标，ShellExecute 必弹「Windows 正在查找 xxx.exe」。
+  ; 所以这里覆盖成 $INSTDIR 下的真实 exe；若 exe 尚未落地（极端时序），
+  ; 退回 $appExe（模板开头已按同一规则算好）。
+  StrCpy $launchLink "$INSTDIR\${APP_EXECUTABLE_FILENAME}"
+  !define /redef LAUNCH_READY launch_ready_${__LINE__}
+  IfFileExists "$launchLink" ${LAUNCH_READY} 0
+  StrCpy $launchLink "$appExe"
+  ${LAUNCH_READY}:
 !macroend
