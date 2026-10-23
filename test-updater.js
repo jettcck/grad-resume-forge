@@ -120,6 +120,8 @@ assert(nsisHooks.includes('CreateShortCut "$DESKTOP\\简历锻造炉.lnk" "$INST
   '安装后重写桌面快捷方式目标');
 assert(nsisHooks.includes('CreateShortCut "$SMPROGRAMS\\简历锻造炉.lnk" "$INSTDIR\\简历锻造炉.exe"'),
   '安装后重写开始菜单快捷方式目标');
+assert(nsisHooks.includes('StrCpy $launchLink "$INSTDIR\\简历锻造炉.exe"'),
+  '安装完成页直接启动当前安装目录 exe');
 assert(!/ExecWait\s+.*powershell/i.test(nsisHooks),
   'NSIS 钩子不启动外部 PowerShell（避免静默安装崩溃）');
 
