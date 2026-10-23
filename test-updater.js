@@ -122,8 +122,32 @@ assert(nsisHooks.includes('CreateShortCut "$SMPROGRAMS\\简历锻造炉.lnk" "$I
   '安装后重写开始菜单快捷方式目标');
 assert(nsisHooks.includes('StrCpy $launchLink "$INSTDIR\\简历锻造炉.exe"'),
   '安装完成页直接启动当前安装目录 exe');
-assert(!/ExecWait\s+.*powershell/i.test(nsisHooks),
+// 只在「非注释行」里查外部进程调用：注释里描述历史事故的写法不该触发断言
+const nsisCodeLines = nsisHooks.split(/\r?\n/).filter((l) => !/^\s*(;|#)/.test(l));
+assert(!nsisCodeLines.some((l) => /ExecWait\s+.*powershell/i.test(l)),
   'NSIS 钩子不启动外部 PowerShell（避免静默安装崩溃）');
+
+// 6b) 桌面独立旧副本清理——2026-10-23 定位到的真正复发源
+assert(/RMDir\s+\/r\s+"\$DESKTOP\\grad-resume-forge"/.test(nsisHooks),
+  'NSIS 清理桌面上的独立旧副本目录（它会与正式安装抢同一更新缓存）');
+assert(nsisHooks.includes('app-update.yml') && nsisHooks.includes('简历锻造炉.exe'),
+  '清理前校验目录确实是本应用副本（双判据，避免误删用户目录）');
+assert(!/RMDir\s+\/r\s+"\$DESKTOP\\\*/.test(nsisHooks),
+  '不按通配删除桌面内容');
+
+// 6c) InstallLocation 纠错——防止畸形注册表值把后续所有版本带偏
+assert(/DeleteRegValue\s+HKCU\s+"\$\{INSTALL_REGISTRY_KEY\}"\s+InstallLocation/.test(nsisHooks),
+  '清除失效的 InstallLocation，避免继承坏安装路径');
+assert(/StrCpy\s+\$INSTDIR\s+"\$LOCALAPPDATA\\Programs\\\$\{APP_FILENAME\}"/.test(nsisHooks),
+  '畸形 $INSTDIR 回退到默认安装目录');
+assert(/StrCpy\s+\$R0\s+\$INSTDIR\s+1\s+2/.test(nsisHooks),
+  '盘符校验用 offset 2 取第 3 个字符（offset 1 是冒号，会误判）');
+
+// 6d) NSIS 宏标签必须唯一——宏被插入两次时裸标签会编译失败
+assert(/\$\{__LINE__\}/.test(nsisHooks),
+  '宏内标签用 ${__LINE__} 拼唯一后缀（裸标签二次插入会报 already declared）');
+assert(!/^\s*(staleCopyDone|locChecked|instDirOk):/m.test(nsisHooks),
+  '不留裸标签');
 
 // 7) 跨平台支持（Linux）——防止配置被无意破坏
 const linux = pkg.build && pkg.build.linux;
