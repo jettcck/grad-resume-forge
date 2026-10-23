@@ -109,7 +109,18 @@ assert(pkg.scripts['smoke:installer'] === 'node scripts/smoke-installer.js',
 assert(relSrc.includes('smoke:packaged') && relSrc.includes('xvfb-run -a'),
   '发布前启动真实产物（Linux 通过 xvfb）');
 
-// 6) 跨平台支持（Linux）——防止配置被无意破坏
+// 6) Windows 升级快捷方式——防止 KeepShortcuts 保留旧 exe 目标
+const nsisHooks = fs.readFileSync(path.join(__dirname, 'build', 'nsis-hooks.nsh'), 'utf8');
+assert(nsisHooks.includes('!macro customInit'), 'NSIS 含升级前清理钩子');
+assert(nsisHooks.includes('!macro customInstall'), 'NSIS 含安装后重写钩子');
+assert(nsisHooks.includes('CreateShortCut "$DESKTOP\\简历锻造炉.lnk" "$INSTDIR\\简历锻造炉.exe"'),
+  '安装后重写桌面快捷方式目标');
+assert(nsisHooks.includes('CreateShortCut "$SMPROGRAMS\\简历锻造炉.lnk" "$INSTDIR\\简历锻造炉.exe"'),
+  '安装后重写开始菜单快捷方式目标');
+assert(!/ExecWait\s+.*powershell/i.test(nsisHooks),
+  'NSIS 钩子不启动外部 PowerShell（避免静默安装崩溃）');
+
+// 7) 跨平台支持（Linux）——防止配置被无意破坏
 const linux = pkg.build && pkg.build.linux;
 assert(!!linux, 'package.json 有 linux 打包配置');
 const linTargets = ((linux && linux.target) || []).map((t) => (typeof t === 'string' ? t : t.target));

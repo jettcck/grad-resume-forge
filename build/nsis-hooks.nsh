@@ -26,8 +26,17 @@
   ; electron-builder 只按 shortcutName 覆盖它自己管理的那几个，
   ; 用户重命名过的、放在非标准位置的不会被覆盖 —— 这里显式删。
   Delete "$DESKTOP\简历锻造炉.lnk"
+  Delete "$SMPROGRAMS\简历锻造炉.lnk"
   Delete "$SMPROGRAMS\简历锻造炉\简历锻造炉.lnk"
   Delete "$SMPROGRAMS\简历锻造炉\卸载 简历锻造炉.lnk"
   ; 空目录才删（RMDir 不带 /r），不会碰用户放进来的其他快捷方式
   RMDir "$SMPROGRAMS\简历锻造炉"
+!macroend
+
+!macro customInstall
+  ; electron-builder 的 KeepShortcuts 机制会在升级时保留同名旧 .lnk，
+  ; 即使它的 TargetPath 已指向不存在的旧目录，也不会重新创建。
+  ; 安装完成后无条件重写标准桌面/开始菜单快捷方式，确保目标是本次安装的 exe。
+  CreateShortCut "$DESKTOP\简历锻造炉.lnk" "$INSTDIR\简历锻造炉.exe" "" "$INSTDIR\简历锻造炉.exe" 0 "" "" "${APP_DESCRIPTION}"
+  CreateShortCut "$SMPROGRAMS\简历锻造炉.lnk" "$INSTDIR\简历锻造炉.exe" "" "$INSTDIR\简历锻造炉.exe" 0 "" "" "${APP_DESCRIPTION}"
 !macroend
