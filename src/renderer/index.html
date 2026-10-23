@@ -28,15 +28,14 @@
     </div>
     <div class="auth-stage">
       <div class="auth-poster" aria-hidden="true">
-        <div class="poster-spine">GRAD RESUME FORGE — LOCAL FIRST — EST. 2025</div>
-        <div class="poster-index">NO.001 / SPEC-SHEET</div>
-        <div class="poster-word" data-text="FORGE">FORGE</div>
+        <div class="poster-index">应届生求职工作台<span class="poster-note">本地优先 · 数据不出本机</span></div>
+        <div class="poster-word">FORGE</div>
         <div class="poster-sub">锻 · 造 · 炉</div>
         <div class="poster-spark"></div>
         <ul class="poster-facts">
-          <li><div><b>去 AI 味</b><span>规则引擎 · 非大模型生成</span></div></li>
-          <li><div><b>本地优先</b><span>数据留在你本机 · 离线可用</span></div></li>
-          <li><div><b>scrypt</b><span>密码加盐哈希存储</span></div></li>
+          <li><b>去 AI 味</b><span>规则引擎</span></li>
+          <li><b>本地优先</b><span>离线可用</span></li>
+          <li><b>密码存储</b><span>scrypt 加盐哈希</span></li>
         </ul>
       </div>
     <div class="auth-card">
@@ -109,7 +108,7 @@
         <span>简历锻造炉</span>
       </div>
       <nav class="side-nav">
-        <div class="side-label">CONSOLE</div>
+        <div class="side-label">求职流程</div>
         <button class="nav-item active" data-route="profile"><span class="nav-ico">01</span>信息录入</button>
         <button class="nav-item" data-route="resume"><span class="nav-ico">02</span>简历预览</button>
         <button class="nav-item" data-route="jobs"><span class="nav-ico">03</span>岗位池</button>
@@ -117,12 +116,12 @@
         <button class="nav-item" data-route="exam"><span class="nav-ico">05</span>笔试中心</button>
         <button class="nav-item" data-route="interview"><span class="nav-ico">06</span>面试准备</button>
       </nav>
-      <div class="side-furnace" aria-hidden="true">
-        <span class="furnace-dot" id="furnace-dot"></span>
-        <span class="furnace-txt" id="furnace-txt">炉温就绪 · FORGE READY</span>
-      </div>
+      <!-- 更新状态行：平时不存在，只在「检查中 / 下载中 / 已就绪」时出现。
+           上一版是一个常驻的「炉温就绪」仪表盘，永远闪着灯却什么也不说明——
+           把真实状态塞进常驻装饰里，用户就分不清哪句是真的。 -->
+      <div class="side-status" id="side-status" hidden></div>
       <div class="side-foot">
-        <div class="side-ver" id="side-ver">FORGE · LOCAL-FIRST · NO CLOUD REQUIRED</div>
+        <div class="side-ver" id="side-ver"></div>
         <div class="user-chip">
           <div class="avatar" id="user-avatar">U</div>
           <div class="user-meta">

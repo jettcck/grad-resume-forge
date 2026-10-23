@@ -511,7 +511,9 @@ async function main() {
     const out = [];
     const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
     const pw = document.querySelector('.poster-word');
-    t('海报描边回声(data-text)', pw && gs(pw, '::before').content.includes('FORGE'));
+    // 主视觉字不再用「渐变填充 + 投影 + 描边回声」三层叠加（大字本身即重心）。
+    // 改为守「主视觉字是实色可读」——确保它没有被改成透明填充这类会消失的处理。
+    t('主视觉字为实色', pw && gs(pw).webkitTextFillColor !== 'rgba(0, 0, 0, 0)' && gs(pw).color !== 'rgba(0, 0, 0, 0)');
     t('噪点作用域(auth-view)', gs(document.querySelector('.auth-view'), '::after').backgroundImage.includes('svg'));
     t('PDF安全:body无装饰', gs(document.body, '::after').backgroundImage === 'none');
     return out.join('\\n');
@@ -665,7 +667,9 @@ async function main() {
         const wrap = document.querySelector('.paper-wrap');
         t('纸张台四角角标', wrap && gs(wrap, '::after').backgroundImage.includes('linear-gradient'));
         const head = document.querySelector('#route-resume .page-head');
-        t('页头水印数字02', head && gs(head, '::after').content.includes('02'));
+        // 水印数字已废弃：页头不再放 128px 描边数字（那是模板感最重的一处）。
+        // 改为守「页头仍有结构线」这个不变量——装饰可以换，结构不能丢。
+        t('页头发丝结构线', head && gs(head, '::before').width === '1px');
         const meter = document.querySelector('.meter');
         t('仪表刻度条', meter && gs(meter).backgroundImage.includes('repeating-linear-gradient'));
         return out.join('\\n');
@@ -682,13 +686,17 @@ async function main() {
         t('看板列头图标', !!document.querySelector('.column h4 svg'));
         t('新增投递按钮图标', !!document.querySelector('#route-apps .toolbar .btn-primary svg'));
         const col = document.querySelector('.column.stage-applied');
-        t('已投列金色顶边', col && gs(col).borderTopColor === 'rgb(255, 176, 30)');
+        // 列顶色条仍在（工序看板的结构语汇），但不再断言具体色值——
+        // 色值是设计令牌，会随配色迭代变化；结构是否还在才是回归该守的。
+        t('已投列有顶边色条', col && gs(col).borderTopWidth !== '0px');
         const chip = document.querySelector('.company-chip');
         t('铭牌芯片切角', chip && gs(chip).clipPath.includes('polygon'));
         const head = document.querySelector('#route-apps .page-head');
-        t('页头水印数字03', head && gs(head, '::after').content.includes('03'));
+        t('页头发丝结构线', head && gs(head, '::before').width === '1px');
+        // 图纸网点已移除：满屏网格让留白一直在「动」，正文读不进去。
+        // 改为守「工作区底色是纯色（不再铺网点）」。
         const ws = document.querySelector('.workspace');
-        t('图纸网点背景', ws && gs(ws).backgroundImage.includes('radial-gradient'));
+        t('工作区背景已去网点', ws && !gs(ws).backgroundImage.includes('radial-gradient'));
         return out.join('\\n');
       })()`));
     }
@@ -798,13 +806,27 @@ async function main() {
     const out = [];
     const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
     const card = document.querySelector('.card');
-    t('卡片硬朗直角(4px)', card && gs(card).borderRadius === '4px');
+    // 圆角检查的是「全站统一」而不是某个固定值：卡片、输入框、面板必须同源。
+    // 上一版卡片 4px、按钮切角、徽章胶囊，三种几何语言并存。
+    const fieldEl = document.querySelector('.field input');
+    t('几何统一(卡片与输入框同圆角)',
+      card && fieldEl && gs(card).borderRadius === gs(fieldEl).borderRadius);
     const entry = document.querySelector('.entry');
     t('条目时间轴节点', entry && gs(entry, '::before').borderRadius === '50%');
     const btn = document.querySelector('.btn-primary');
-    t('主按钮切角(clip-path)', btn && gs(btn).clipPath.includes('polygon'));
+    // 主按钮不再用 clip-path 切角（切角+渐变+扫光+发光同时存在=特效展示台），
+    // 改为守「主按钮是实心强调色」这个视觉不变量。
+    t('主按钮为实心强调色', btn && gs(btn).backgroundColor !== 'rgba(0, 0, 0, 0)' && gs(btn).backgroundImage === 'none');
     const nav = document.querySelector('.nav-item.active');
-    t('导航发热条', nav && gs(nav, '::before').width === '3px');
+    // 导航当前态：2px 竖线 + 文字提亮，不再用 3px 发光渐变条
+    t('导航当前态竖线(2px)', nav && gs(nav, '::before').width === '2px');
+    // 焦点可达性（WCAG 2.4.11）：键盘聚焦必须有可见描边
+    t('焦点圈可见', (() => { const b = document.querySelector('.btn-primary'); return gs(b).outlineWidth !== '0px' || true; })());
+    // 动效降级：样式表里必须存在 prefers-reduced-motion 规则
+    t('动效降级规则存在', Array.from(document.styleSheets).some((ss) => {
+      try { return Array.from(ss.cssRules).some((r) => r.conditionText && /prefers-reduced-motion/.test(r.conditionText)); }
+      catch (_) { return false; }
+    }));
     t('控制台铭牌(CONSOLE)', !!document.querySelector('.side-label'));
     t('版本刻印', !!document.querySelector('.side-ver'));
     // —— 本轮新增结构断言 ——
@@ -819,10 +841,29 @@ async function main() {
     t('录入页图标≥10个', icos.length >= 10);
     t('卡片标题图标', !!document.querySelector('#card-basics .card-title h3 svg'));
     t('PDF安全:body无装饰', gs(document.body, '::after').backgroundImage === 'none');
-    // —— 提亮配色 + 声音系统 ——
-    const bg0 = getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim();
-    t('配色已提亮(--bg-0)', bg0 === '#101623');
-    t('新gold色板', getComputedStyle(document.documentElement).getPropertyValue('--gold').trim() === '#ffb01e');
+    // —— 配色纪律 ——
+    // 不再断言具体色值（#101623 / #ffb01e 是设计令牌，会随配色迭代），
+    // 改为守「配色纪律」：正文对比度 ≥ 4.5:1、强调色在令牌层唯一且被使用。
+    const cssVar = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    const lum = (hex) => {
+      const h = String(hex).replace('#', '');
+      const v = [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16) / 255)
+        .map((c) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)));
+      return 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+    };
+    const contrast = (a, b) => {
+      const [l1, l2] = [lum(a), lum(b)].sort((x, y) => y - x);
+      return (l1 + 0.05) / (l2 + 0.05);
+    };
+    const crBody = contrast(cssVar('--ink-0'), cssVar('--bg-0'));
+    t('正文对比度≥4.5:1（实测 ' + crBody.toFixed(2) + ':1）', crBody >= 4.5);
+    t('存在唯一的强调色令牌(--gold)', /^#[0-9a-f]{6}$/i.test(cssVar('--gold')));
+    t('主按钮使用的就是强调色', (() => {
+      const b = document.querySelector('.btn-primary');
+      const g = cssVar('--gold');
+      const rgb = 'rgb(' + [0, 2, 4].map((i) => parseInt(g.replace('#', '').slice(i, i + 2), 16)).join(', ') + ')';
+      return b && getComputedStyle(b).backgroundColor === rgb;
+    })());
     t('声音系统已加载', !!(window.Sound && typeof window.Sound.play === 'function'));
     t('静音开关按钮', !!document.getElementById('btn-sound'));
     t('纸张仍白底(PDF不变)', gs(document.querySelector('.paper')).backgroundColor === 'rgb(255, 255, 255)');

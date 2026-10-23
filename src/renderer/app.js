@@ -264,13 +264,15 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
 
 tryResumeSession();
 
-// 侧栏版本刻印：从主进程读真实版本号（app.getVersion()），永不错版
+// 侧栏版本：只显示真实版本号。
+// 「LOCAL-FIRST · NO CLOUD REQUIRED」这类口号放在每个页面左下角常驻，
+// 既不随状态变化也不承载操作，属于装饰性文案——删掉不影响任何信息。
 (async () => {
   try {
     const st = await window.api.updater.status();
     const el = document.getElementById('side-ver');
     if (el && st && st.version) {
-      el.textContent = 'FORGE v' + st.version + ' · LOCAL-FIRST · NO CLOUD REQUIRED';
+      el.textContent = 'v' + st.version;
     }
   } catch (_) {} // eslint-disable-line no-empty
 })();
@@ -323,10 +325,15 @@ let _updState = { status: null, downloaded: null, target: null }; // 更新运�
 let _aboutUi = null;
 
 function setFurnace(text, hot) {
-  const txt = document.getElementById('furnace-txt');
-  const dot = document.getElementById('furnace-dot');
-  if (txt) txt.textContent = text;
-  if (dot) dot.classList.toggle('hot', !!hot);
+  // 状态行只在有真实状态时出现：'' / null 表示回到常态 → 整行隐藏。
+  // 不再用「炉温就绪」这类永远为真的文案占位（那不叫状态，叫装饰）。
+  const row = document.getElementById('side-status');
+  if (!row) return;
+  const idle = !text || /^炉温就绪/.test(text);
+  row.hidden = idle;
+  if (idle) return;
+  row.dataset.hot = hot ? '1' : '0';
+  row.textContent = text;
 }
 
 // 弹窗状态渲染：tone 决定配色（info/ok/warn/err），终态会自动解锁按钮
@@ -895,7 +902,7 @@ function renderProfile() {
   const ico = (n, s) => window.Icons.icon(n, s);
 
   const head = el('div', { class: 'page-head' }, [
-    el('div', { class: 'page-kicker' }, ['STEP 01 / 信息录入']),
+    el('div', { class: 'page-kicker' }, ['信息录入 / PROFILE']),
     el('h1', { class: 'page-title' }, ['讲清楚你真实做过什么']),
     el('p', { class: 'page-desc' }, ['用大白话填写即可——生成时引擎会自动删除套话、强化动词、提醒你补量化。左侧填档案，右侧看完成度。'])
   ]);
@@ -916,7 +923,7 @@ function renderProfile() {
   let onboarding = null;
   if (isProfileEmpty(p)) {
     onboarding = el('div', { class: 'card onboarding' }, [
-      el('div', { class: 'ob-badge' }, ['FIRST RUN']),
+      el('div', { class: 'ob-badge' }, ['首次使用']),
       el('h3', { class: 'ob-title' }, ['第一次用？30 秒看完整个锻造流程']),
       el('p', { class: 'ob-desc' }, ['不用逐个填表——选一份示例档案直接进炉：看体检评分、贴 JD 匹配、跑 Agent 改写，玩完再换成你自己的经历。']),
       el('div', { class: 'ob-actions' }, [
@@ -994,7 +1001,8 @@ function renderProfile() {
 
   // ---- 右列：锻造侧栏（环形完成度仪表 + 档案统计 + 快照）----
   const stats = buildProfileStats(p);
-  const scoreColor = stats.score >= 80 ? 'var(--teal)' : stats.score >= 50 ? 'var(--gold)' : 'var(--danger)';
+  // 0 分不该是红的：空档案是「还没填」，不是「出错了」。红色只留给真正的问题。
+  const scoreColor = stats.score <= 0 ? 'var(--ink-2)' : stats.score >= 80 ? 'var(--teal)' : stats.score >= 50 ? 'var(--gold)' : 'var(--ember)';
   // 完成度与速览两张卡抽成函数：输入时要在原地重建（见 refreshProfileSide），
   // 只重建侧栏、不动表单，否则会打断用户正在输入的光标。
   const completenessCard = () => el('div', { class: 'card side-card completeness', id: 'card-completeness' }, [
@@ -1050,7 +1058,7 @@ function renderProfile() {
     state.profile = collectProfile();
     state.profileDirty = true;
     const fresh = buildProfileStats(state.profile);
-    const color = fresh.score >= 80 ? 'var(--teal)' : fresh.score >= 50 ? 'var(--gold)' : 'var(--danger)';
+    const color = fresh.score <= 0 ? 'var(--ink-2)' : fresh.score >= 80 ? 'var(--teal)' : fresh.score >= 50 ? 'var(--gold)' : 'var(--ember)';
     const cBox = document.getElementById('card-completeness');
     const oBox = document.getElementById('card-overview');
     if (cBox) {
@@ -1231,6 +1239,9 @@ function ringGauge(percent, colorVar) {
   const fill = svg.querySelector('.ring-fill');
   fill.style.strokeDasharray = String(C);
   fill.style.strokeDashoffset = String(C);
+  // 0 分时不画弧：round linecap 会把「长度为 0」描成一个小圆点，
+  // 看起来像仪表上多了个勿扰指示灯。空档案直接留空环。
+  fill.style.opacity = percent > 0 ? '1' : '0';
   // 下一帧再设置目标值，触发 CSS 过渡（从 0 滚到 percent）
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -1521,12 +1532,16 @@ async function onSaveProfile(silent) {
 
 // ---------------- 页面 2：简历预览 + 体检 ----------------
 // A4 纸张（794px 宽）按容器宽度自适应缩放
+// 用 zoom 而不是 transform:scale——transform 只改视觉、不改布局盒，
+// 794px 的盒子比容器宽时会被按起点对齐，右边留白被吃掉、纸张贴住框线；
+// zoom 参与布局，容器宽度与高度自动收到缩放后的尺寸，居中天然成立。
 function fitPaperToWidth(paperWrap, paper) {
   const avail = paperWrap.clientWidth - 52;
   if (avail <= 0) return;
   const scale = Math.min(1, Math.max(0.1, avail / 794));
-  paper.style.transform = 'scale(' + scale + ')';
-  paper.style.marginBottom = (794 * scale * 1.414 - 794 * 1.414) + 'px';
+  paper.style.zoom = String(scale);
+  paper.style.transform = 'none';
+  paper.style.marginBottom = '0px';
 }
 let _paperResizeHandler = null;
 
@@ -1535,7 +1550,7 @@ async function renderResumePage() {
   root.innerHTML = '';
 
   const head = el('div', { class: 'page-head' }, [
-    el('div', { class: 'page-kicker' }, ['STEP 02 / 简历预览']),
+    el('div', { class: 'page-kicker' }, ['简历预览 / PREVIEW']),
     el('h1', { class: 'page-title' }, ['你的简历，已去 AI 味']),
     el('p', { class: 'page-desc' }, ['右侧「去 AI 味体检」实时评分：分数越高越像真人手写。切换模板、按建议打磨，然后一键导出 PDF。'])
   ]);
@@ -2648,7 +2663,7 @@ async function renderApps() {
   root.innerHTML = '';
 
   const head = el('div', { class: 'page-head' }, [
-    el('div', { class: 'page-kicker' }, ['STEP 03 / 投递管理']),
+    el('div', { class: 'page-kicker' }, ['投递管理 / TRACKER']),
     el('h1', { class: 'page-title' }, ['把每一次投递管起来']),
     el('p', { class: 'page-desc' }, ['像看板一样跟踪投递进度，随时更新状态。所有记录只保存在你本机。'])
   ]);
@@ -3517,7 +3532,7 @@ async function renderJobs() {
   root.innerHTML = '';
 
   const head = el('div', { class: 'page-head' }, [
-    el('div', { class: 'page-kicker' }, ['STEP 03 / 岗位池']),
+    el('div', { class: 'page-kicker' }, ['岗位池 / JOB POOL']),
     el('h1', { class: 'page-title' }, ['把看中的岗位攒起来']),
     el('p', { class: 'page-desc' }, ['收藏浏览中发现的岗位先放进池里挑一挑，合适的再转进投递看板。所有记录只保存在你本机。'])
   ]);
@@ -3777,7 +3792,7 @@ async function renderExamHome(root) {
   stopExamTimer();
 
   const head = el('div', { class: 'page-head' }, [
-    el('div', { class: 'page-kicker' }, ['STEP 05 / 笔试中心']),
+    el('div', { class: 'page-kicker' }, ['笔试中心 / EXAM']),
     el('h1', { class: 'page-title' }, ['按岗位组一套卷子，限时练一遍']),
     el('p', { class: 'page-desc' }, ['题目来自本机题库，按岗位 JD 的知识点抽题。交卷后自动评分、归档错题，并给出下一轮练习建议。'])
   ]);
@@ -4009,7 +4024,7 @@ function buildUpcomingCard(applications) {
 
 // 知识点趋势：数据由主进程 exam:trends 计算（纯逻辑在 exam-core，可单测），
 // 渲染层只负责画图。
-const TREND_COLORS = ['#d6a84a', '#59b98a', '#6aa8d6'];
+const TREND_COLORS = ['#ffb01e', '#2fd6a6', '#6aa8f0'];
 
 function trendSvg(series) {
   const W = 560;
@@ -4022,8 +4037,8 @@ function trendSvg(series) {
   const py = (v) => pad.t + (1 - v) * ih;
   const parts = [];
   [0, 0.5, 1].forEach((v) => {
-    parts.push('<line x1="' + pad.l + '" y1="' + py(v) + '" x2="' + (W - pad.r) + '" y2="' + py(v) + '" stroke="#2a3550" stroke-width="1"/>');
-    parts.push('<text x="' + (pad.l - 6) + '" y="' + (py(v) + 3) + '" text-anchor="end" fill="#7b869c" font-size="9">' + Math.round(v * 100) + '%</text>');
+    parts.push('<line x1="' + pad.l + '" y1="' + py(v) + '" x2="' + (W - pad.r) + '" y2="' + py(v) + '" stroke="#28374f" stroke-width="1"/>');
+    parts.push('<text x="' + (pad.l - 6) + '" y="' + (py(v) + 3) + '" text-anchor="end" fill="#8b9ab2" font-size="9">' + Math.round(v * 100) + '%</text>');
   });
   series.forEach((s, si) => {
     if (!s.points.length) return;
@@ -4353,7 +4368,7 @@ function renderExamResult(root) {
       ? el('div', { class: 'exam-tags' }, tagRows.map((t) => el('div', { class: 'exam-tag-row' }, [
           el('span', { class: 'et-name' }, [t.tag]),
           el('span', { class: 'et-bar' }, [
-            el('i', { style: 'width:' + Math.round(t.rate * 100) + '%;background:' + (t.rate >= 0.8 ? '#59b98a' : t.rate >= 0.5 ? '#d6a84a' : '#d4695f') })
+            el('i', { style: 'width:' + Math.round(t.rate * 100) + '%;background:' + (t.rate >= 0.8 ? '#2fd6a6' : t.rate >= 0.5 ? '#ffb01e' : '#ff5f52') })
           ]),
           el('span', { class: 'et-num' }, [t.correct + '/' + t.total])
         ])))
@@ -4427,7 +4442,7 @@ async function renderExamWrongs(root) {
     examWrongFilter === 'all' ? true : examWrongFilter === 'mastered' ? w.mastered : !w.mastered);
 
   const head = el('div', { class: 'page-head' }, [
-    el('div', { class: 'page-kicker' }, ['STEP 05 / 错题本']),
+    el('div', { class: 'page-kicker' }, ['笔试中心 / 错题本']),
     el('h1', { class: 'page-title' }, ['把错过的题吃透']),
     el('p', { class: 'page-desc' }, ['按知识点复习错题，标记已掌握后不再进入下一轮练习。'])
   ]);
@@ -4575,7 +4590,7 @@ async function renderCodeView(root) {
 
   const q = codeState.question;
   const head = el('div', { class: 'page-head' }, [
-    el('div', { class: 'page-kicker' }, ['STEP 05 / 编程题']),
+    el('div', { class: 'page-kicker' }, ['笔试中心 / 编程题']),
     el('h1', { class: 'page-title' }, ['ACM 模式：读标准输入，写标准输出']),
     el('p', { class: 'page-desc' }, [
       q
@@ -5338,7 +5353,7 @@ async function renderInterviewPage() {
   const ico = (n, s) => window.Icons.icon(n, s);
 
   const head = el('div', { class: 'page-head' }, [
-    el('div', { class: 'page-kicker' }, ['STEP 04 / 面试准备']),
+    el('div', { class: 'page-kicker' }, ['面试准备 / INTERVIEW']),
     el('h1', { class: 'page-title' }, ['面试前，把这些准备好']),
     el('p', { class: 'page-desc' }, [
       '全部本地生成、不需要任何模型：自我介绍按你的档案自动拼稿（不会编造你没写过的经历和数字），',
