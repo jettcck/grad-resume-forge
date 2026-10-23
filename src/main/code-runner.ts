@@ -23,6 +23,14 @@ const MAX_OUTPUT_BYTES = 64 * 1024;
 const MAX_STDERR_BYTES = 8 * 1024;
 const COMPILE_TIMEOUT_MS = 30000;
 /**
+ * 每个进程里「某语言第一次真正跑代码」要额外留预算：
+ * 冷启动（解释器首次加载、新建临时脚本被 Defender 扫描、刚编译出的 exe 首次执行）
+ * 实测在 Windows CI 上能吃掉 2.5s 以上，会把正确解法误判成 TLE。
+ * 这里不用放宽平时限时，而是第一次失败时重试一次——死循环照样两次都超时。
+ */
+const COLD_START_COMPILE_MS = 60000;
+const coldLangDone = new Set<ProgramLang>();
+/**
  * 进程启动缓冲：Windows 上首次运行「刚编译出来的 exe」会被 Defender 实时扫描，
  * 实测冷启动能到 1.5s 以上。若按题目限制硬卡，用户第一发提交会被误判 TLE。
  * 这里给所有语言统一加一段宽限，真正的死循环仍会被杀掉（只是晚 1.5 秒）。
@@ -149,11 +157,11 @@ interface Prepared {
   error?: string;
 }
 
-function compileCpp(compiler: CppCompiler, cwd: string, srcFile: string, exeFile: string): { ok: boolean; output: string } {
+function compileCpp(compiler: CppCompiler, cwd: string, srcFile: string, exeFile: string, timeoutMs: number = COMPILE_TIMEOUT_MS): { ok: boolean; output: string } {
   const args = ['-O2', '-std=c++17', '-static', '-o', exeFile, srcFile];
   const r = spawnSync(compiler.cmd, args, {
     cwd,
-    timeout: COMPILE_TIMEOUT_MS,
+    timeout: timeoutMs,
     windowsHide: true,
     encoding: 'utf8',
     // 编译器自己要能找到头文件与库：把它的 bin 目录放进 PATH
@@ -210,7 +218,10 @@ function prepareProgram(lang: ProgramLang, code: string, memoryLimitMb: number):
   const src = path.join(dir, 'main.cpp');
   const exe = path.join(dir, process.platform === 'win32' ? 'main.exe' : 'main');
   fs.writeFileSync(src, code, 'utf8');
-  const built = compileCpp(compiler, dir, src, exe);
+  // 冷编译（首次跑 C++）给更长预算：CI 上首次调用 g++ 要加载大量头文件，
+  // 30s 在冷 runner 上会撞线，被判成 CE 而不是「编译失败」。
+  const compileTimeout = coldLangDone.has('cpp') ? COMPILE_TIMEOUT_MS : COLD_START_COMPILE_MS;
+  const built = compileCpp(compiler, dir, src, exe, compileTimeout);
   if (!built.ok) {
     cleanup();
     return { cmd: '', args: [], cwd: dir, env: baseEnv, cleanup, error: 'COMPILE_FAILED:' + built.output };
@@ -361,6 +372,12 @@ export async function runCustomInput(
 
   try {
     let out = await runOnce(prepared, input, question.timeLimitMs + RUNTIME_GRACE_MS);
+    // 冷启动：首次自定义运行超时不代表代码有问题，重试一次
+    if (out.timedOut && !coldLangDone.has(lang)) {
+      const retry = await runOnce(prepared, input, question.timeLimitMs + RUNTIME_GRACE_MS);
+      if (!retry.spawnError && !retry.timedOut && !retry.outputExceeded) out = retry;
+    }
+    if (!out.timedOut && !out.spawnError) coldLangDone.add(lang);
     // 与判题一致：Defender 杀刚编译的 exe 会被误判成 RE，重试一次
     if (!out.spawnError && !out.timedOut && !out.outputExceeded && out.exitCode !== 0) {
       const retry = await runOnce(prepared, input, question.timeLimitMs + RUNTIME_GRACE_MS);
@@ -467,6 +484,18 @@ export async function judgeCode(
       else if (out.exitCode !== 0) verdict = 'RE';
       else if (normalizeOutput(out.stdout) !== normalizeOutput(c.output)) verdict = 'WA';
       else verdict = 'AC';
+
+      // 冷启动保护：某语言在本进程里第一次跑就 TLE，可能只是解释器/首次执行太慢。
+      // 重试一次，只有两次都超时才算真的超时（死循环必然两次都超）。
+      if (verdict === 'TLE' && !coldLangDone.has(lang)) {
+        const retry = await runOnce(prepared, c.input, question.timeLimitMs + RUNTIME_GRACE_MS);
+        if (!retry.spawnError && !retry.timedOut && !retry.outputExceeded &&
+            retry.exitCode === 0 && normalizeOutput(retry.stdout) === normalizeOutput(c.output)) {
+          out = retry;
+          verdict = 'AC';
+        }
+      }
+      if (verdict === 'AC') coldLangDone.add(lang);
 
       if (verdict === 'AC') passed++;
       else if (!firstBad) firstBad = verdict;
