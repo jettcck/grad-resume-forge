@@ -20,7 +20,9 @@ Everything except *semantic* rewriting works with **no model, no key, no setup**
 | JD precision matching | ❌ none — deterministic rules |
 | Application kanban | ❌ none |
 | **Resume versions** — save a named variant per job target (keeps its JD + scores) and reload it in one click | ❌ none |
-| **Interview prep** — self-intro generated from your own profile + 66-question bank + open-question templates | ❌ none — generated locally |
+| **Interview prep** — self-intro generated from your own profile + 174-question bank + open-question templates | ❌ none — generated locally |
+| **Exam center** — local paper generation · auto grading · wrong-answer book · review papers · study plans · weak-topic trends | ❌ none — local bank |
+| **Coding drills** — 43 algorithm problems judged in a restricted local sandbox, fully offline | ❌ none |
 | **Rotating data backups** — one kept per app launch, restorable in one click from the About dialog | ❌ none |
 | Job-hunt assistant (built-in knowledge base) | ❌ none — local, offline |
 | JD-driven optimization | ❌ none in **zero-config (rules)** mode · ✅ only if you want semantic rewriting |
@@ -58,8 +60,10 @@ Linux notes:
 - **JD precision matching** — paste a job description, see exactly which required skills your resume hits or misses
 - **Agent deep-optimization** — an LLM rewrites your bullets against a specific JD (in-app model / local Ollama / cloud BYOK — see the matrix above), but each output must pass the validation gate (cliché / lost numbers / score regression → rejected & regenerated). Human-in-the-loop: you approve every rewrite with a checkbox
 - **Application kanban** — track wish → applied → interviewing → offer, with one-click links to job platforms
+- **Job pool** — park the jobs you intend to apply for (company / role / city·district / salary / link / notes), promote any of them to an application in one click, sort by status or distance; supports **paste-import** from a job-board page (parsed locally, never scraped)
+- **Exam center** — generate a paper from the **local question bank** by the knowledge points in a job's JD, then answer → auto grade → wrong-answer book → review papers → study plans, with trends for your weakest topics. Plus **43 coding problems** judged inside a restricted local sandbox (no network, no arbitrary system commands)
 - **Resume versions** — one variant per job target. Save the current profile under a name (e.g. "ByteDance-backend"), and it stores *that version's* JD plus the audit score and JD coverage it achieved, so you can compare variants side by side and reload any of them in one click. Loading a version first backs up what you had, so nothing is ever lost.
-- **Interview prep** — your 30s/60s self-intro is **generated from your own profile** (it never invents experience or numbers you did not write), plus a 66-question bank filtered by your target role, each with what the interviewer is really testing, a structured answer frame, common pitfalls, and — for experience-based questions — a pointer to which of *your* resume items to answer with. Also: open-question templates for application forms and a list of questions to ask back.
+- **Interview prep** — your 30s/60s self-intro is **generated from your own profile** (it never invents experience or numbers you did not write), plus a 174-question bank filtered by your target role, each with what the interviewer is really testing, a structured answer frame, common pitfalls, and — for experience-based questions — a pointer to which of *your* resume items to answer with. Also: open-question templates for application forms and a list of questions to ask back.
 - **Local-first** — all data stays on your machine (scrypt-hashed credentials), works offline, zero telemetry
 - **Rotating backups** — one is kept automatically at each launch (up to 5, unchanged content does not consume a slot) and restorable in one click from the About dialog; restoring first snapshots your current state, so a mis-click is recoverable too
 - **Auto-update** — silent download via GitHub Releases, with an optional mirror prefix for users in China
@@ -83,7 +87,7 @@ Electron
 │   ├── resume-importer.js  PDF/TXT resume parser (school lookup, section mapping)
 │   └── store.js            atomic JSON store
 ├── renderer
-│   └── app.js              3 views: profile editor / resume preview / application board
+│   └── app.js              6 views: profile editor / resume preview / job pool / application kanban / exam center / interview prep
 └── evals/                  two-layer evals: golden cases (CI gate) + LLM offline eval
 ```
 

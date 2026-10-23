@@ -34,7 +34,12 @@ const IMPORT_SAMPLE = [
   '负责用户增长数据分析；搭建留存看板；把周报产出时间从 2 天降到半天',
   '项目经历',
   '2023.10-2024.03  校园消费行为分析  负责人',
-  '清洗 12 万条问卷数据；用 Python 做聚类分群；产出 3 份结论报告',
+  // 故意写成多行：真实简历里一条经历通常是 2-3 行，导入器要按行拆成 string[]，
+  // 表单也要按行回填。以前样例把三条挤在一行用「；」分隔，
+  // 那条「多行描述按行展开」的断言从来没真正测到东西。
+  '清洗 12 万条问卷数据，覆盖 8 个院系',
+  '用 Python 做聚类分群，识别出 4 类消费人群',
+  '产出 3 份结论报告，被学院采纳用于食堂排班',
   '奖项与证书',
   '全国大学生数学建模竞赛 省级二等奖 2024',
   '校级三好学生 2023',
@@ -1447,14 +1452,22 @@ async function main() {
   console.log(await verify(win, `(() => {
     const out = [];
     const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
-    const areas = Array.from(document.querySelectorAll('#proj-list textarea, #intern-list textarea'));
-    // 必须断言「导入的内容真的进了表单」：演示档案本来就有 textarea，
-    // 只数 textarea 个数的话，渲染中途抛错也能蒙过去（第一版断言就是这么空转的）
-    const impProject = areas.find((a) => (a.value || '').includes('校园消费行为分析'));
-    const impIntern = areas.find((a) => (a.value || '').includes('数据分析实习生'));
-    t('导入的项目出现在表单里（表单渲染没有中途抛错）', !!impProject);
-    t('导入的实习出现在表单里', !!impIntern);
-    const lines = impProject ? impProject.value.split('\\n').filter((x) => x.trim()) : [];
+    // 注意字段分工：项目/实习的「名称」「角色」是 <input>，只有「经历描述」是 <textarea>。
+    // 旧版断言把名称也当成 textarea 去找，必然找不到——那不是导入失败，是断言问错了元素。
+    const projEntries = Array.from(document.querySelectorAll('#proj-list .entry'));
+    const internEntries = Array.from(document.querySelectorAll('#intern-list .entry'));
+    const entryText = (e) => Array.from(e.querySelectorAll('input, textarea')).map((x) => x.value || '').join('\\n');
+    // 必须断言「导入的内容真的进了表单」：演示档案本来就有这些控件，
+    // 只数控件个数的话，渲染中途抛错也能蒙过去（第一版断言就是这么空转的）
+    const impProjectEntry = projEntries.find((e) => entryText(e).includes('校园消费行为分析'));
+    const impInternEntry = internEntries.find((e) => entryText(e).includes('数据分析实习生'));
+    // 描述区：名称命中之后，真正要守的是「描述被拆成了多行，且没有被逗号拼接」
+    const descArea = impProjectEntry ? impProjectEntry.querySelector('textarea') : null;
+    const impProject = descArea; // 供后续「描述内容一致」用
+    t('导入的项目出现在表单里（名称进了输入框）', !!impProjectEntry);
+    t('导入的实习出现在表单里', !!impInternEntry);
+    t('项目的角色也被导入（负责人）', !!impProjectEntry && entryText(impProjectEntry).includes('负责人'));
+    const lines = descArea ? descArea.value.split('\\n').filter((x) => x.trim()) : [];
     t('导入的多行描述按行展开（每行一条，实际 ' + lines.length + ' 行）', lines.length >= 2);
     t('第一行没有被逗号拼接过（无数组残留）', lines.length > 0 && !/,$/.test(lines[0]));
     t('描述内容与导入结果一致（含清洗 12 万条问卷数据）', !!impProject && /12 万条问卷数据/.test(impProject.value));

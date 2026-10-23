@@ -78,7 +78,10 @@ line(deadIpc.length === 0 ? '  OK  没有死 IPC'
 // 只对 invoke 型要求 mock 覆盖：send 型（fire-and-forget）没有 handler 也不会报错，
 // 但 invoke 型缺 mock 会直接弹 "No handler registered" —— 那正是 applications 那次事故的形态。
 const mockHandles = new Set([...mock.matchAll(/ipcMain\.handle\('([^']+)'/g)].map((m) => m[1]));
-[...mock.matchAll(/\bh\('([^']+)'/g)].forEach((m) => mockHandles.add(m[1]));
+// hU 是 h 的变体（第一参自动注入 demo uid），必须一起匹配。
+// 只写 \bh\( 会把所有 hU(...) 注册的 channel 判成「没 mock」——
+// 这正是本审计曾误报「笔试中心 15 个接口全都缺 mock」的原因。
+[...mock.matchAll(/\bhU?\('([^']+)'/g)].forEach((m) => mockHandles.add(m[1]));
 const mockOns = new Set([...mock.matchAll(/ipcMain\.on\('([^']+)'/g)].map((m) => m[1]));
 const mockMissing = [];
 [...usedByRenderer].forEach((c) => {

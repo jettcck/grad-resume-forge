@@ -681,11 +681,32 @@ function parseExperiences(lines: string[], ref?: RefData): ExperienceEntry[] {
       const period = matchPeriod(rest);
       if (period) {
         cur.period = period;
-        rest = rest.replace(/20\d{2}\s*[.\/年]?\s*\d{0,2}\s*[-–—~至到\s].*/g, '');
+        // 只删掉「时间段原文本身」，绝不能写成 /20\d{2}...[\s].*/：
+        // 「2023.10-2024.03  校园消费行为分析  负责人」里名称与角色同样在时间之后，
+        // 用 .* 会一路吃到行尾，把项目名和角色一起删空（只剩 period + 描述）。
+        const periodMatch = rest.match(PERIOD_RE);
+        if (periodMatch && periodMatch.index !== undefined) {
+          rest = rest.slice(0, periodMatch.index) + rest.slice(periodMatch.index + periodMatch[0].length);
+        }
       }
-      // 剥掉时间段后可能留下孤零零的开括号（「复旦大学中文系（2007–2009）」→「复旦大学中文系（」），
+      // 剥掉时间段后可能留下孤零零的空括号（「复旦大学中文系（2007–2009）」→「复旦大学中文系（）」），
       // 连括号一起收尾，别把残缺括号留给用户看
-      rest = rest.replace(/[（(【\[]\s*$/, '').trim();
+      rest = rest.replace(/[（(【\[]\s*[)）】\]]/g, '').replace(/[（(【\[]\s*$/, '').trim();
+      // 「名称  角色」写在同一行是中文简历最常见的排版。原实现用 .* 把整行吃掉了，
+      // 这里改成：末段是短词、不像机构名、且前面还有内容时，才把它当角色切出来。
+      // 单空格也切——「某公司 数据分析实习生」「校园消费行为分析 负责人」正是这种写法；
+      // 只有在切完名称会变空时才放弃，保证名称永远不丢。
+      {
+        const segs = rest.split(/\s+/).map((s) => s.trim()).filter(Boolean);
+        if (segs.length >= 2) {
+          const last = segs[segs.length - 1]!;
+          const head = segs.slice(0, -1).join(' ');
+          if (head && last.length <= 16 && !isSentence(last) && !looksLikeOrg(last)) {
+            cur.role = last.slice(0, 40);
+            rest = head;
+          }
+        }
+      }
       const roleM = rest.match(/[(（]([^()（）]{2,12})[)）]/);
       // 括号里是城市（如「美国暑期中文项目（北京）」）时不当角色，那只是地点
       if (roleM && !(ref && ref.citySet.has(roleM[1]!.trim()))) {
