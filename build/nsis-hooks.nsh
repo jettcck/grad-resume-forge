@@ -39,4 +39,7 @@
   ; 安装完成后无条件重写标准桌面/开始菜单快捷方式，确保目标是本次安装的 exe。
   CreateShortCut "$DESKTOP\简历锻造炉.lnk" "$INSTDIR\简历锻造炉.exe" "" "$INSTDIR\简历锻造炉.exe" 0 "" "" "${APP_DESCRIPTION}"
   CreateShortCut "$SMPROGRAMS\简历锻造炉.lnk" "$INSTDIR\简历锻造炉.exe" "" "$INSTDIR\简历锻造炉.exe" 0 "" "" "${APP_DESCRIPTION}"
+  ; 完成页的“运行简历锻造炉”会使用 $launchLink；强制改为本次安装的 exe，
+  ; 禁止完成页沿用旧开始菜单快捷方式触发“Windows 正在查找旧 exe”。
+  StrCpy $launchLink "$INSTDIR\简历锻造炉.exe"
 !macroend
