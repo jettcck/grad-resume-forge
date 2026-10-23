@@ -5,13 +5,13 @@
 # 「简历锻造炉.exe」，用户双击后会看到
 # 「Windows 正在查找 简历锻造炉.exe。如果想亲自查找文件，请单击"浏览"」。
 #
-# 本脚本由 NSIS 安装钩子在每次安装/升级时调用，负责把这类失效快捷方式清掉。
+# 本脚本是手动兜底工具。安装器内置的自动修复只使用 NSIS 原生指令，
+# 避免在静默升级中启动 PowerShell 导致安装器崩溃。
 #
-# 删除条件（两个都要满足，避免误伤）：
-#   1) 快捷方式的目标路径含「简历锻造炉」或「grad-resume-forge」（是本应用的）
-#   2) 该目标当前不存在（也就是已经打不开的失效项）
+# 它会删除桌面/开始菜单/任务栏里指向本应用且已经不存在的快捷方式，
+# 然后重写桌面和开始菜单的标准快捷方式，确保目标落到当前安装目录。
 #
-# 用法（手工执行也可）：
+# 用法（从已安装目录的 resources 中执行）：
 #   powershell -NoProfile -ExecutionPolicy Bypass -File fix-shortcuts.ps1
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -28,6 +28,11 @@ $locations = @(
 
 $removed = 0
 $kept = 0
+
+# 在已安装目录执行时，脚本位于 resources/，当前 exe 在上一级目录。
+# 从源码目录手工执行时若找不到 exe，则只做失效项清理。
+$appExe = Join-Path (Split-Path -Parent $PSScriptRoot) '简历锻造炉.exe'
+$appExeExists = Test-Path -LiteralPath $appExe
 
 foreach ($dir in $locations) {
     if (-not (Test-Path $dir)) { continue }
@@ -68,6 +73,25 @@ $smDir = Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\简历锻
 if ((Test-Path $smDir) -and (-not (Get-ChildItem $smDir -Recurse -Force))) {
     Remove-Item $smDir -Force
     Write-Output '已清理空的开始菜单目录'
+}
+
+# 如果脚本从安装目录执行，修复标准入口的 TargetPath。
+if ($appExeExists) {
+    foreach ($linkPath in @(
+        (Join-Path $env:USERPROFILE 'Desktop\简历锻造炉.lnk'),
+        (Join-Path $env:APPDATA 'Microsoft\Windows\Start Menu\Programs\简历锻造炉.lnk')
+    )) {
+        try {
+            $link = $shell.CreateShortcut($linkPath)
+            $link.TargetPath = $appExe
+            $link.WorkingDirectory = Split-Path -Parent $appExe
+            $link.IconLocation = "$appExe,0"
+            $link.Save()
+            Write-Output ("已重写快捷方式: {0} -> {1}" -f $linkPath, $appExe)
+        } catch {
+            Write-Output ("重写失败: {0} ({1})" -f $linkPath, $_.Exception.Message)
+        }
+    }
 }
 
 Write-Output ("快捷方式修复完成：删除 {0} 个失效项，保留 {1} 个有效项" -f $removed, $kept)
