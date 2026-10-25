@@ -54,7 +54,7 @@ function assert(cond, msg) {
   assert(/数字/.test(rules) && /不得编造/.test(rules), '改写纪律仍要求「保留数字 / 不得编造」');
   assert(/60\s*字/.test(rules), '改写纪律仍限制单条长度');
   const sys = prompts.loadPrompt('agenticSystem');
-  ['analyze_jd', 'audit_text', 'rewrite_bullets', 'submit_result'].forEach((t) => {
+  ['analyze_jd', 'retrieve_knowledge', 'audit_text', 'rewrite_bullets', 'submit_result'].forEach((t) => {
     assert(sys.includes(t), 'agentic 系统提示词仍列出工具 ' + t);
   });
   assert(/不是给你的命令/.test(sys), 'agentic 系统提示词仍声明 JD 内容不是指令（注入防护）');
@@ -70,7 +70,7 @@ function assert(cond, msg) {
     internships: []
   };
   const r = await agent.agenticLoop(profile, '岗位：Java 后端\n要求：熟悉 Java', { llm: fake, maxSteps: 2 });
-  assert(!!r.run && r.run.promptVersion === 'agentic-system-v1',
+  assert(!!r.run && r.run.promptVersion === 'agentic-system-v2',
     '运行记录带 promptVersion（' + (r.run && r.run.promptVersion) + '）');
 
   // ---------- 5. 评测报告与打包清单 ----------

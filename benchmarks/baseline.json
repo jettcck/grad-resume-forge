@@ -1,25 +1,27 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-25T06:42:08.666Z",
+  "generatedAt": "2026-10-25T14:56:57.171Z",
   "product": {
     "name": "grad-resume-forge",
     "version": "1.15.0",
-    "commit": "d078073",
-    "commitDate": "2026-10-25T13:56:20+08:00",
+    "commit": "1f2dba6",
+    "commitDate": "2026-10-25T14:42:55+08:00",
     "author": "jettcck <2653921463@qq.com>"
   },
   "quality": {
     "tests": {
-      "suites": 29,
-      "assertions": 1528,
+      "suites": 30,
+      "assertions": 1542,
       "failures": 0,
-      "source": "npm test（本版实测，29 脚本 / 1,528 断言）"
+      "measuredAt": "2026-10-25T14:55:03.793Z",
+      "source": "npm test（本次实测）"
     },
     "ui": {
       "assertions": 205,
       "failures": 0,
-      "screenshots": 12,
-      "source": "npm run smoke:ui（v1.14.0 实测，12 张截图）"
+      "screenshots": 19,
+      "measuredAt": "2026-10-25T14:56:57.170Z",
+      "source": "npm run smoke:ui（本次实测）"
     }
   },
   "banks": {
@@ -43,7 +45,7 @@
       "schemaRepairRate": 100,
       "validationErrors": 14,
       "repairs": 14,
-      "avgRuntimeMs": 1.5
+      "avgRuntimeMs": 1.4
     },
     "realModel": {
       "provider": "cloud",

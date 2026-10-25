@@ -59,8 +59,8 @@ const GOOD_JSON = JSON.stringify({
 });
 
 // ---------- 1) 工具注册表 ----------
-assert(agent.TOOLS.length === 4, '工具注册表含 4 个工具');
-assert(new Set(agent.TOOLS.map((t) => t.name)).size === 4, '工具名唯一');
+assert(agent.TOOLS.length === 5, '工具注册表含 5 个工具');
+assert(new Set(agent.TOOLS.map((t) => t.name)).size === 5, '工具名唯一');
 agent.TOOLS.forEach((t) => {
   assert(t.inputSchema && t.inputSchema.type === 'object' && t.description, '工具 ' + t.name + ' 有 schema 与描述');
 });
@@ -395,7 +395,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     // 14a. 工具集构建与协议转换
     const ctxX = { profile: PROFILE, jd: JD, items: agent.buildTaskItems(PROFILE), accepted: new Map(), rejected: [] };
     const atools = buildAgentTools(ctxX);
-    assert(atools.length === 4, 'agentic 工具集含 4 个工具');
+    assert(atools.length === 5, 'agentic 工具集含 5 个工具');
     const proto = toolsToProtocol(atools);
     assert(proto[0].type === 'function' && proto[0].function.name === 'analyze_jd', 'toolsToProtocol 输出 OpenAI function 格式');
     assert(proto.every((t) => t.function.parameters && t.function.parameters.type === 'object'), '全部工具带 parameters schema');
@@ -414,7 +414,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     const callsSeen = [];
     const llmA = {
       chat: async (_msgs, opts) => {
-        assert(Array.isArray(opts.tools) && opts.tools.length === 4, 'agenticLoop 向 LLM 传入 4 个工具定义');
+        assert(Array.isArray(opts.tools) && opts.tools.length === 5, 'agenticLoop 向 LLM 传入 5 个工具定义');
         const r = script[Math.min(callsSeen.length, script.length - 1)];
         callsSeen.push(1);
         return { content: '', toolCalls: r.toolCalls, rawToolCalls: [] };

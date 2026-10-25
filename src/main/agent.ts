@@ -11,6 +11,7 @@
 import * as engine from './resume-engine';
 import { AI_CLICHES, EMPTY_ADJECTIVES, ROLE_SKILLS } from './lexicon';
 import { loadPrompt, promptVersion, promptVersions } from './prompts';
+import { retrieveKnowledge } from './retrieval';
 import type {
   Profile, Resume, Domain, AgentStep, AcceptedRewrite, RejectedRewrite,
   PipelineResult, AgenticResult, LlmClient, ChatMessage,
@@ -238,6 +239,24 @@ export const TOOLS: ToolSpec[] = [
     run: (args, ctx) => (ctx as { llm: LlmClient }).llm.chat((args as { messages: ChatMessage[] }).messages)
   },
   {
+    name: 'retrieve_knowledge',
+    description: '从本地笔试知识库检索与查询相关的知识条目；支持 none、bm25、vector、hybrid 模式，向量模式只返回真实 embedding 结果',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', minLength: 1, description: '要检索的问题或技能描述' },
+        topK: { type: 'number', description: '返回条数，范围 1-10，默认 5' },
+        mode: { type: 'string', description: 'none / bm25 / vector / hybrid，默认 bm25' }
+      },
+      required: ['query']
+    },
+    run: async (args) => retrieveKnowledge(
+      (args as { query: string }).query,
+      (args as { topK?: number }).topK,
+      (args as { mode?: string }).mode
+    )
+  },
+  {
     name: 'validate_rewrites',
     description: '确定性校验门：套话/丢数字/超长/评分下降一律拒收',
     inputSchema: {
@@ -399,6 +418,10 @@ function brief(tool: string, out: unknown): string {
   if (tool === 'rule_rewrite') {
     const r = out as { rewrites?: unknown[] };
     return '规则产出 ' + ((r.rewrites && r.rewrites.length) || 0) + ' 条（无模型）';
+  }
+  if (tool === 'retrieve_knowledge') {
+    const r = out as { mode?: string; results?: unknown[]; note?: string };
+    return String(r.mode || 'retrieval') + ' 返回 ' + ((r.results && r.results.length) || 0) + ' 条';
   }
   return '完成';
 }
@@ -605,6 +628,24 @@ export function buildAgentTools(ctx: AgentCtx): ToolSpec[] {
       }
     },
     {
+      name: 'retrieve_knowledge',
+      description: '检索本地知识库，为 JD 分析或改写补充相关知识；支持 none、bm25、vector、hybrid 模式，向量不可用时会明确返回状态',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', minLength: 1, description: '要检索的问题或技能描述' },
+          topK: { type: 'number', description: '返回条数，范围 1-10，默认 5' },
+          mode: { type: 'string', description: 'none / bm25 / vector / hybrid，默认 bm25' }
+        },
+        required: ['query']
+      },
+      run: async (args) => retrieveKnowledge(
+        (args as { query: string }).query,
+        (args as { topK?: number }).topK,
+        (args as { mode?: string }).mode
+      )
+    },
+    {
       name: 'audit_text',
       description: '体检当前简历条目的去 AI 味评分（0-100）与问题点',
       inputSchema: { type: 'object', properties: {}, required: [] },
@@ -755,6 +796,7 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
   // Agent 本身没有无约束写权限。
   const POLICY: Record<string, { permission: 'readonly' | 'write'; timeoutMs: number; maxRetries: number; idempotent: boolean }> = {
     analyze_jd: { permission: 'readonly', timeoutMs: 20_000, maxRetries: 1, idempotent: true },
+    retrieve_knowledge: { permission: 'readonly', timeoutMs: 65_000, maxRetries: 0, idempotent: true },
     audit_text: { permission: 'readonly', timeoutMs: 10_000, maxRetries: 1, idempotent: true },
     rewrite_bullets: { permission: 'write', timeoutMs: 15_000, maxRetries: 1, idempotent: true },
     submit_result: { permission: 'readonly', timeoutMs: 5_000, maxRetries: 0, idempotent: true }

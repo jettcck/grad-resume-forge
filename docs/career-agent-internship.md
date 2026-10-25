@@ -35,7 +35,7 @@
 | Agent 运行时 | **1,109 行**（独立包，零 Electron 依赖） | `wc -l packages/agent-core/src/*.ts` |
 | LLM 适配层 | 429 行（Ollama + OpenAI 兼容双协议，含流式解析） | `wc -l packages/llm-adapters/src/*.ts` |
 | 评测代码 | 957 行 | `wc -l evals/*.js` |
-| 自动化断言 | **1,528 项**（29 个测试脚本 + 205 项界面断言，全绿） | 逐文件 `node test-*.js` 汇总 |
+| 自动化断言 | **1,542 项**（30 个测试脚本 + 205 项界面断言，全绿） | 逐文件 `node test-*.js` 汇总 |
 | Agent 状态 | **11 个**（7 非终态 + 4 终态），允许转移表约束 | `packages/agent-core/src/state-machine.ts:8` |
 | Agent 工具 | **6 个**（analyze_jd / audit_text / llm_rewrite / rewrite_bullets / validate_rewrites / submit_result） | `src/main/agent.ts` |
 | 评测用例 | **65 个 / 9 类场景**（含 injection / bad_args / lazy / all_rejected） | `node evals/agent-bench.js` |
@@ -66,7 +66,7 @@
 | 指标 | 表述要点 |
 |---|---|
 | 30,051 行 | 只在"个人项目规模"语境用，**不要**当能力证明 |
-| 1,528 项断言 | 强调"27 个脚本全绿 + 205 项界面断言"，比数字本身有说服力 |
+| 1,542 项断言 | 强调"30 个脚本全绿 + 205 项界面断言"，比数字本身有说服力 |
 | 65 用例 / 9 类场景 | 强调**场景分类设计**（happy / lazy / injection / bad_args），不是"写了 65 个测试" |
 | 编造技能率 0% | 配一句"靠校验门 + 注入用例验证"，否则听起来像吹 |
 | 数字保全率 100% | 同上，说明是"改写不许动数字"的硬约束 |
@@ -229,6 +229,17 @@ node evals/agent-bench-llm.js --sample 20
 - recall@3 多少 → 用 hit@3 而非 recall（单相关文档场景两者等价），数字见上表
 - 为什么融合没赢 → 见结论 2，这是实测不是推测
 
+### P2 · 检索进入 Agent 工具链（已完成，2026-10-25）
+
+`retrieve_knowledge(query, topK, mode)` 已接入 Agentic Loop，工具结果可被模型用于 JD 分析与改写前的知识补充，但不会被当作用户本人经历证据。支持三组可复现对照：
+
+- `mode=none`：不访问语料，作为 no-retrieval 对照组；
+- `mode=bm25`：151 条客观题语料上的零依赖中文 bigram BM25；
+- `mode=vector`：调用本地 Ollama embedding 后做余弦 top-k；端点不可用时返回 `vectorAvailable:false`，不伪造结果；
+- 另有 `mode=hybrid`：BM25 + vector 的 RRF 融合，向量不可用时明确降级 BM25。
+
+复现：`node evals/agent-retrieval-eval.js`。环境变量 `AGENT_RETRIEVAL_ENDPOINT`、`AGENT_RETRIEVAL_MODEL` 可固定 embedding 端点与模型。实现位于 `src/main/retrieval.ts`，工具协议与运行时接入位于 `src/main/agent.ts`。
+
 ### P2 · 工具调用的结构化输出加固（1 天）
 
 **为什么**：你已有 `bad_args` 用例，但没有"模型给错 JSON → 自动修复重试"的闭环。这是生产级 Agent 的必备。
@@ -277,7 +288,7 @@ node evals/agent-bench-llm.js --sample 20
    · 为什么工具只有幂等的才重试 → 写操作重试可能重复写入
 4. 评测结果（表格，直接贴 agent-bench 输出）
 5. 已知限制（主动写）
-   · 检索已做但未接入组卷；无多 Agent；真实模型评测仅链路自测 + 1.5B 负结果
+   · 检索已接入 Agent 工具链但未接入组卷；无多 Agent；真实模型评测仅链路自测 + 1.5B 负结果
    · 本地单机，无服务端与用户数据
 6. 如何复现
    npm test / node evals/agent-bench.js / node scripts/audit-exam-bank.js
@@ -301,7 +312,7 @@ node evals/agent-bench-llm.js --sample 20
 2. **做法**：把 runtime 抽出来做成状态机 + 工具契约，把"能不能写"交给校验门而不是 prompt。
 3. **验证**：65 用例 9 类场景，注入攻击用例专门测编造，编造率 0%。
 4. **踩坑**（选一个讲透）：脱敏阈值 24→12 被自己的测试证伪 / 状态机漏配转移导致整次运行失败。
-5. **边界**：检索做了但没接进组卷、没做多 Agent，说明原因与补法。
+5. **边界**：检索已接进 Agent 工具链，但尚未接入组卷；没做多 Agent，说明原因与补法。
 
 ---
 
@@ -314,8 +325,9 @@ node evals/agent-bench-llm.js --sample 20
 | **P0** | 简历条目改写（中英双版） | ✅ 完成 | `docs/resume-bullets.md`：3 个中文版 + 英文版 + JD 映射表 + 60 秒口述稿 + 8 个追问应答 |
 | **P1** | 最小 RAG + recall@3 | ✅ 完成 | `packages/retrieval` + 20 条标注评测 + `docs/retrieval.md`；bge-m3 hit@3 80% |
 | **P1** | Demo 录屏 | 🟡 分镜已就绪，待录 | `docs/demo-script.md`：90 秒 + 30 秒两版分镜、口播词、翻车备选、压缩命令；只差开录制 |
-| **P2** | 结构化输出 + 自修复重试 | ⬜ 未开始 | 从"拦下错误"升级到"修好错误"（1 天） |
-| **P2** | Prompt 版本管理 | ⬜ 未开始 | 让"改 prompt 有没有变好"可测（半天） |
+| **P2** | 检索接入 Agent | ✅ 完成 | `retrieve_knowledge` + none/BM25/vector/hybrid 对照；向量不可用时明确降级或跳过 |
+| **P2** | 结构化输出 + 自修复重试 | ✅ 完成 | 从"拦下错误"升级到"修好错误"，结构化 `fix.path` 回灌并计量 `repairs` |
+| **P2** | Prompt 版本管理 | ✅ 完成 | `prompts/*-v1.txt` + 运行记录与评测报告版本字段 |
 | **P3** | critic 拆成独立 agent | ⬜ 可选 | 补 multi-agent 叙事（3–5 天） |
 | **P3** | 统一技能成长看板 | ⬜ 产品向 | 求职不加分，暂缓 |
 

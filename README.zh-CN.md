@@ -19,11 +19,11 @@
 | **Prompt 版本化** | 提示词放 `prompts/*-v1.txt`（文件名即版本），运行记录与评测报告带 `promptVersion` + `temperature`，「改 prompt 有没有变好」能用数据回答 | `src/main/prompts.ts` |
 | **评测（mock 层）** | 72 个脚本化用例 / 12 类场景（happy / lazy / injection / bad args / **参数自修复** / all-rejected），断言「失败次数**恰好**等于注入次数」，多一次少一次都算回归 | `evals/agent-bench.js` |
 | **评测（真实模型）** | 同一套用例打真实端点；`--self-test` 用假服务先把评测台本身验一遍（离线可验） | `evals/agent-bench-llm.js` |
-| **检索** | BM25 + 向量 + RRF，自带评测集（目前是库级能力，**尚未**接进 Agent 工具链——这点如实写） | `packages/retrieval/src/index.ts` |
+| **检索** | `retrieve_knowledge` 已接入 Agent，支持 no-retrieval / BM25 / 向量 / hybrid；向量端点不可用时明确降级或跳过，另有 RRF 库级评测 | `src/main/retrieval.ts` + `packages/retrieval/src/index.ts` |
 
 mock 层基线（`node evals/agent-bench.js` 可复现）：行为符合预期 **100%**、干净路径工具成功率 **100%**、数字保全率 **100%**、编造技能率 **0%**、参数自修复率 **100%**（14 次被拒 → 14 次改对）、业务完成率 **66.7%**、工具调用成功率 **86.2%**（失败是**故意注入**的用例，门本来就该拒）。
 
-限制也写在明面上：单 Agent 循环 + critic（不是 multi-agent）、检索尚未进入主循环、工具超时是 `Promise.race`（底层任务未必真停）。见 [`docs/agent-engineering.md`](./docs/agent-engineering.md)。
+限制也写在明面上：单 Agent 循环 + critic（不是 multi-agent）、向量检索依赖本地 embedding 端点（无端点时 BM25 仍可用）、工具超时是 `Promise.race`（底层任务未必真停）。见 [`docs/agent-engineering.md`](./docs/agent-engineering.md)。
 
 所有数字只有一个来源：[`benchmarks/baseline.json`](./benchmarks/baseline.json)；文档与它不一致时 `npm test` 会直接失败。
 
@@ -110,7 +110,7 @@ Electron
 ```bash
 npm install
 npm start          # 启动应用
-npm test           # 全量测试（1,528 项断言 / 29 个脚本 + 规则层评测）
+npm test           # 全量测试（1,542 项断言 / 30 个脚本 + 规则层评测）
 npm run eval       # 规则层 golden case 评测
 npm run eval:llm   # LLM 层评测（需要本机 Ollama）
 ```
@@ -183,7 +183,7 @@ git config http.proxy http://127.0.0.1:7890
 
 ## 📊 测试与评测
 
-**1,528 项自动化断言**（29 个脚本）**+ 205 项界面断言**，push 即跑（CI 门禁）。所有数字的唯一来源是 [`benchmarks/baseline.json`](./benchmarks/baseline.json)，文档与它的偏差会让 `npm test` 直接失败。
+**1,542 项自动化断言**（30 个脚本）**+ 205 项界面断言**，push 即跑（CI 门禁）。所有数字的唯一来源是 [`benchmarks/baseline.json`](./benchmarks/baseline.json)，文档与它的偏差会让 `npm test` 直接失败。
 
 | 套件 | 内容 | 命令 |
 |---|---|---|

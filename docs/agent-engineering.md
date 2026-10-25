@@ -122,11 +122,11 @@ prompt 是「会被反复调参的输入」，不是逻辑。放在 `agent.ts` �
 
 | 约定 | 落地方式 |
 |---|---|
-| 版本号写在文件名里 | `prompts/rewrite-system-v1.txt` · `rewrite-rules-v1.txt` · `agentic-system-v1.txt` |
+| 版本号写在文件名里 | `prompts/rewrite-system-v1.txt` · `rewrite-rules-v1.txt` · `agentic-system-v2.txt`（Agentic P2 接入检索后的版本） |
 | 改内容必须新建版本 | 不许原地改 v1；否则历史评测记录全部失真（`test-prompts.js` 守着不变量） |
 | 代码里不许有第二份副本 | `test-prompts.js` 扫描 `agent.ts`，出现内联提示词即失败 |
 | 运行时按版本取回原文 | `src/main/prompts.ts` 的 `loadPrompt()` / `promptVersion()`，路径同时兼容 `dist/main` 与打包后的 `app.asar` |
-| 运行记录带版本 | `RunRecord.promptVersion`（`agentic-system-v1`） |
+| 运行记录带版本 | `RunRecord.promptVersion`（`agentic-system-v2`） |
 | 评测报告带版本与温度 | `evals/llm-report.json` 新增 `temperature` / `promptVersion` / `cases` / `commit` |
 | 打包不漏文件 | `package.json` 的 `build.files` 含 `prompts/**/*`；`smoke:packaged` 检查 asar 内确实有这几个 txt |
 
@@ -222,7 +222,7 @@ npm run baseline:full
 | 优先级 | 事项 | 现状 | 计划 |
 |---|---|---|---|
 | P1 | 真实模型基线 | 有一份 2026-09 的 8 次运行报告（缺 `temperature` / `promptVersion`） | 报告字段已补，缺的是用固定参数跑 30 次，产出 `benchmarks/real-model.json` |
-| P2 | 检索接入 Agent | BM25 / 向量 / RRF 有库和评测，未成为工具 | 新增 `retrieve_knowledge` 工具，做「无检索 / BM25 / 向量」三组对比 |
+| ~~P2~~ | ~~检索接入 Agent~~ | **已实现**：`retrieve_knowledge(query, topK, mode)` 已进入 Agent 工具链，支持 `none` / `bm25` / `vector` / `hybrid`；向量不可用时明确返回状态，hybrid 明确降级 BM25 | `src/main/retrieval.ts` + `evals/agent-retrieval-eval.js`；用同一查询对比 no-retrieval / BM25 / vector |
 | ~~P3~~ | ~~参数错误自修复~~ | **已实现**：结构化错误（`fix.path`）→ 回灌 → 一次内改对；同一错误连续 3 次即 `validation_exhausted` | 实测 7/7 用例修复，`usage.repairs` 计入基线 |
 | ~~P4~~ | ~~Prompt 版本化~~ | **已实现**：`prompts/*-v1.txt` + `src/main/prompts.ts` + 运行记录/评测报告带版本 | 改 prompt 时新建 v2 文件，用同一批用例做 A/B |
 
@@ -232,4 +232,4 @@ npm run baseline:full
 - **单 Agent 循环 + critic 阶段**，不是 multi-agent；不建议为了「看起来像」硬加角色。
 - 工具超时是 `Promise.race`，底层任务未必真停（代码注释已标明）。
 - 校验门是强领域规则（数字 / 技能 / 套话），迁移到通用 Agent 还需要抽象更多约束类型。
-- 检索模块尚未进入主循环，目前只有库级 benchmark。
+- Agent 的向量检索依赖本地 Ollama embedding 端点；端点不可用时 vector 不返回伪造结果，hybrid 明确降级 BM25。检索工具已进入主循环，但当前默认语料仍是 151 条客观题，后续可扩展为用户简历与 JD 专属语料。

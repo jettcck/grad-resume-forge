@@ -21,11 +21,11 @@ The product is the excuse; the interesting engineering is the **controllable age
 | **Prompt versioning** | Prompts live in `prompts/*-v1.txt` (filename = version). Runs and eval reports carry `promptVersion` + `temperature`, so "did the prompt change help?" is answerable with data instead of memory | `src/main/prompts.ts` |
 | **Evals (mock)** | 72 scripted cases over 12 scenario families — happy / lazy / injection / bad args / **schema repair** / all-rejected. Assertions check failures occur **exactly** at the injection point, not one more or one fewer | `evals/agent-bench.js` |
 | **Evals (real model)** | Same cases against a real endpoint; `--self-test` uses a fake server so the harness itself is verifiable offline | `evals/agent-bench-llm.js` |
-| **Retrieval** | BM25 + embeddings + RRF with its own benchmark suite (library-level, not yet wired into the loop — stated plainly) | `packages/retrieval/src/index.ts` |
+| **Retrieval** | `retrieve_knowledge` Agent tool with no-retrieval / BM25 / vector modes; BM25 fallback is explicit when embedding is unavailable; library benchmark also covers RRF | `src/main/retrieval.ts` + `packages/retrieval/src/index.ts` |
 
 Mock-layer baseline (reproduce with `node evals/agent-bench.js`): behavior match **100%**, clean-path tool success **100%**, metric preservation **100%**, hallucinated skills **0%**, schema-repair **100%** (14 rejections → 14 corrected), business completion **66.7%**, tool-call success **86.2%** (failure cases are injected on purpose — the gate is supposed to reject them).
 
-Where the honest limits are: single-agent loop + critic (no multi-agent orchestration), retrieval benchmarked but not yet a tool in the loop, and tool timeouts are `Promise.race` — the underlying task may keep running after the timeout fires. Those are documented rather than papered over: [`docs/agent-engineering.md`](./docs/agent-engineering.md).
+Where the honest limits are: single-agent loop + critic (no multi-agent orchestration), vector retrieval depends on a local embedding endpoint (BM25 remains available without it), and tool timeouts are `Promise.race` — the underlying task may keep running after the timeout fires. Those are documented rather than papered over: [`docs/agent-engineering.md`](./docs/agent-engineering.md).
 
 All numbers live in one place — [`benchmarks/baseline.json`](./benchmarks/baseline.json) — and `npm test` fails if the docs drift from it.
 
@@ -166,7 +166,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 
 ## 📊 Testing & Evals
 
-**1,528 automated assertions** across **29 suites** (plus **205 UI assertions** in the screenshot pipeline), run on every push (CI gate).
+**1,542 automated assertions** across **30 suites** (plus **205 UI assertions** in the screenshot pipeline), run on every push (CI gate).
 
 | Suite | Scope | Command |
 |---|---|---|
