@@ -8,7 +8,9 @@
     "typecheck": "tsc --noEmit",
     "start": "tsc && node scripts/run-electron.js .",
     "dev": "tsc && node scripts/run-electron.js . --dev",
-    "test": "npm run build:core && tsc && node test-renderer-apply.js && node test-geo.js && node test-place-search.js && node test-job-import.js && node test-job-sync.js && node test-jobs.js && node test-exam.js && node test-exam-store.js && node test-code.js && node test-map.js && node test-engine.js && node test-importer.js && node test-portfolio.js && node test-agent.js && node test-runtime.js && node test-retrieval.js && node test-cli.js && node test-e2e.js && node test-versions.js && node test-contract.js && node test-stream.js && node test-validate.js && node test-backup.js && node test-updater.js && node test-embedded.js && node test-secure-store.js && node test-interview.js && node test-assistant.js && node evals/agent-bench.js && node evals/agent-bench-llm.js --self-test && node evals/run-evals.js",
+    "test": "npm run build:core && tsc && node test-renderer-apply.js && node test-geo.js && node test-place-search.js && node test-job-import.js && node test-job-sync.js && node test-jobs.js && node test-exam.js && node test-exam-store.js && node test-code.js && node test-map.js && node test-engine.js && node test-importer.js && node test-portfolio.js && node test-agent.js && node test-runtime.js && node test-retrieval.js && node test-cli.js && node test-e2e.js && node test-versions.js && node test-contract.js && node test-stream.js && node test-validate.js && node test-backup.js && node test-updater.js && node test-embedded.js && node test-secure-store.js && node test-interview.js && node test-assistant.js && node test-docs-consistency.js && node evals/agent-bench.js && node evals/agent-bench-llm.js --self-test && node evals/run-evals.js",
+    "baseline": "node scripts/baseline.js",
+    "baseline:full": "node scripts/baseline.js --tests --ui --llm",
     "eval": "node evals/run-evals.js",
     "eval:retrieval": "node evals/retrieval-eval.js --no-vector",
     "eval:retrieval:vector": "node evals/retrieval-eval.js --model bge-m3",
@@ -33,7 +35,7 @@
     "eval:agent:llm": "node evals/agent-bench-llm.js",
     "smoke:map": "node scripts/run-electron.js scripts/smoke-map-live.js --no-sandbox --disable-gpu"
   },
-  "author": "",
+  "author": "jettcck <2653921463@qq.com>",
   "license": "MIT",
   "devDependencies": {
     "@electron/asar": "^3.4.1",

@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-10-25T05:55:58.930Z",
+  "product": {
+    "name": "grad-resume-forge",
+    "version": "1.14.0",
+    "commit": "dc3b4c6",
+    "commitDate": "2026-10-23T17:20:38+08:00",
+    "author": "jettcck <2653921463@qq.com>"
+  },
+  "quality": {
+    "tests": {
+      "suites": 28,
+      "assertions": 1491,
+      "failures": 0,
+      "source": "npm test（本版实测，含文档一致性自测）"
+    },
+    "ui": {
+      "assertions": 205,
+      "failures": 0,
+      "screenshots": 12,
+      "source": "npm run smoke:ui（上一轮实测）"
+    }
+  },
+  "banks": {
+    "interviewQuestions": 174,
+    "interviewUnique": 173,
+    "examQuestions": 151,
+    "examBankVersion": 2,
+    "codeProblems": 43
+  },
+  "agent": {
+    "bench": {
+      "cases": 65,
+      "layer": "mock",
+      "behaviorMatch": 100,
+      "businessCompletion": 63.1,
+      "toolCallSuccess": 89.3,
+      "cleanPathSuccess": 100,
+      "rewriteAcceptance": 87.2,
+      "metricPreservation": 100,
+      "hallucinationRate": 0,
+      "avgRuntimeMs": 1.3
+    },
+    "realModel": {
+      "provider": "cloud",
+      "model": "deepseek-chat",
+      "runAt": "2026-09-05T09:29:16.817Z",
+      "runs": 8,
+      "successRate": 1,
+      "acceptanceRate": 1,
+      "avgRounds": 2,
+      "avgLatencyMs": 2522.5,
+      "temperature": null,
+      "promptVersion": null
+    }
+  },
+  "notes": [
+    "文档只能引用本文件里的数字；test-docs-consistency.js 会在 npm test 里校验。",
+    "product.commit 是「生成这份基线时的 HEAD」，也就是携带本文件的提交的父提交——避免自己引用自己的死循环。",
+    "agent.bench 是 mock 层用例，证明运行时与校验门正确，不证明模型效果。",
+    "agent.realModel 来自 evals/llm-report.json；temperature / promptVersion 为空表示当次运行没有记录，属于不可复现项。"
+  ]
+}

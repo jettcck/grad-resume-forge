@@ -9,6 +9,25 @@ A local-first desktop app that helps new grads of every major **write resumes, d
 
 > 💡 **Why "de-AI-flavor"?** Recruiters increasingly reject resumes that smell like ChatGPT. This app rewrites your real experience into strong, quantified, human-sounding bullets — and every LLM output must pass a **deterministic validation gate** before it can touch your profile.
 
+## 🧠 The agent part (read this if you're hiring)
+
+The product is the excuse; the interesting engineering is the **controllable agent runtime** underneath it. Everything below is implemented and testable, not a design sketch.
+
+| Layer | What it actually does | Where |
+|---|---|---|
+| **Runtime** | 11-state machine with an explicit allowed-transition table, four budgets (steps / tokens / wall-clock / tool calls), cancel, replay, redacted trace | `packages/agent-core/src/runtime.ts` |
+| **Tool contract** | Runtime JSON-Schema-subset validation, per-tool timeout, idempotent retry with a call budget — a wrong argument is rejected, never silently coerced | `packages/agent-core/src/tools.ts` |
+| **Domain gate** | Deterministic gate: numbers preserved, no invented skills, no clichés. LLM output cannot reach the profile without passing it | `src/main/agent.ts` |
+| **Evals (mock)** | 65 scripted cases over 9 scenario families — happy / lazy / injection / bad args / all-rejected. Assertions check failures occur **exactly** at the injection point, not one more or one fewer | `evals/agent-bench.js` |
+| **Evals (real model)** | Same cases against a real endpoint; `--self-test` uses a fake server so the harness itself is verifiable offline | `evals/agent-bench-llm.js` |
+| **Retrieval** | BM25 + embeddings + RRF with its own benchmark suite (library-level, not yet wired into the loop — stated plainly) | `packages/retrieval/src/index.ts` |
+
+Mock-layer baseline (reproduce with `node evals/agent-bench.js`): behavior match **100%**, clean-path tool success **100%**, metric preservation **100%**, hallucinated skills **0%**, business completion **63.1%**, tool-call success **89.3%** (failure cases are injected on purpose — the gate is supposed to reject them).
+
+Where the honest limits are: single-agent loop + critic (no multi-agent orchestration), retrieval benchmarked but not yet a tool in the loop, and tool timeouts are `Promise.race` — the underlying task may keep running after the timeout fires. Those are documented rather than papered over: [`docs/agent-engineering.md`](./docs/agent-engineering.md).
+
+All numbers live in one place — [`benchmarks/baseline.json`](./benchmarks/baseline.json) — and `npm test` fails if the docs drift from it.
+
 ## 🧭 Zero-barrier to start, AI is optional
 
 Everything except *semantic* rewriting works with **no model, no key, no setup** — install and use:
@@ -146,7 +165,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 
 ## 📊 Testing & Evals
 
-**490+ automated assertions**, run on every push (CI gate).
+**1,491 automated assertions** across **28 suites** (plus **205 UI assertions** in the screenshot pipeline), run on every push (CI gate).
 
 | Suite | Scope | Command |
 |---|---|---|
