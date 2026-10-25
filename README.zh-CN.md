@@ -14,13 +14,14 @@
 | 层 | 它到底做了什么 | 位置 |
 |---|---|---|
 | **运行时** | 11 状态机 + 显式允许转移表，四项预算（步数 / token / 墙钟 / 工具调用），取消、回放、脱敏 trace | `packages/agent-core/src/runtime.ts` |
-| **工具契约** | 运行时 JSON Schema 子集校验、单工具超时、幂等重试与调用预算——参数错了直接拒，不做静默强转 | `packages/agent-core/src/tools.ts` |
+| **工具契约** | 运行时 JSON Schema 子集校验、单工具超时、幂等重试与调用预算。参数错返回**结构化错误**（`fix.path/expected/received`），模型有一次自修复机会；同一个错误连犯 3 次直接叫停 | `packages/agent-core/src/tools.ts` |
 | **领域校验门** | 确定性门：数字必须保全、不许编造技能、不许套话。LLM 输出不过门就进不了档案 | `src/main/agent.ts` |
-| **评测（mock 层）** | 65 个脚本化用例 / 9 类场景（happy / lazy / injection / bad args / all-rejected），断言「失败次数**恰好**等于注入次数」，多一次少一次都算回归 | `evals/agent-bench.js` |
+| **Prompt 版本化** | 提示词放 `prompts/*-v1.txt`（文件名即版本），运行记录与评测报告带 `promptVersion` + `temperature`，「改 prompt 有没有变好」能用数据回答 | `src/main/prompts.ts` |
+| **评测（mock 层）** | 72 个脚本化用例 / 12 类场景（happy / lazy / injection / bad args / **参数自修复** / all-rejected），断言「失败次数**恰好**等于注入次数」，多一次少一次都算回归 | `evals/agent-bench.js` |
 | **评测（真实模型）** | 同一套用例打真实端点；`--self-test` 用假服务先把评测台本身验一遍（离线可验） | `evals/agent-bench-llm.js` |
 | **检索** | BM25 + 向量 + RRF，自带评测集（目前是库级能力，**尚未**接进 Agent 工具链——这点如实写） | `packages/retrieval/src/index.ts` |
 
-mock 层基线（`node evals/agent-bench.js` 可复现）：行为符合预期 **100%**、干净路径工具成功率 **100%**、数字保全率 **100%**、编造技能率 **0%**、业务完成率 **63.1%**、工具调用成功率 **89.3%**（失败是**故意注入**的用例，门本来就该拒）。
+mock 层基线（`node evals/agent-bench.js` 可复现）：行为符合预期 **100%**、干净路径工具成功率 **100%**、数字保全率 **100%**、编造技能率 **0%**、参数自修复率 **100%**（14 次被拒 → 14 次改对）、业务完成率 **66.7%**、工具调用成功率 **86.2%**（失败是**故意注入**的用例，门本来就该拒）。
 
 限制也写在明面上：单 Agent 循环 + critic（不是 multi-agent）、检索尚未进入主循环、工具超时是 `Promise.race`（底层任务未必真停）。见 [`docs/agent-engineering.md`](./docs/agent-engineering.md)。
 
@@ -109,7 +110,7 @@ Electron
 ```bash
 npm install
 npm start          # 启动应用
-npm test           # 全量测试（1,491 项断言 / 28 个脚本 + 规则层评测）
+npm test           # 全量测试（1,528 项断言 / 29 个脚本 + 规则层评测）
 npm run eval       # 规则层 golden case 评测
 npm run eval:llm   # LLM 层评测（需要本机 Ollama）
 ```
@@ -182,7 +183,7 @@ git config http.proxy http://127.0.0.1:7890
 
 ## 📊 测试与评测
 
-**1,491 项自动化断言**（28 个脚本）**+ 205 项界面断言**，push 即跑（CI 门禁）。所有数字的唯一来源是 [`benchmarks/baseline.json`](./benchmarks/baseline.json)，文档与它的偏差会让 `npm test` 直接失败。
+**1,528 项自动化断言**（29 个脚本）**+ 205 项界面断言**，push 即跑（CI 门禁）。所有数字的唯一来源是 [`benchmarks/baseline.json`](./benchmarks/baseline.json)，文档与它的偏差会让 `npm test` 直接失败。
 
 | 套件 | 内容 | 命令 |
 |---|---|---|
@@ -202,7 +203,7 @@ git config http.proxy http://127.0.0.1:7890
 | 零门槛守卫 | 应用内模型加载形态 / 国内镜像 / CSP / 文案口径 | `node test-embedded.js` |
 | 密钥存储 | 明文不落盘 / 加解密往返 | `node test-secure-store.js` |
 | Agent Runtime | 状态机 / 工具注册层（校验·超时·幂等重试·预算）/ 取消 / trace / 运行记录脱敏 / 回放 | `node test-runtime.js` |
-| Agent 评测（mock 层） | 65 个任务用例 + 质量门禁（任务成功率·数字保全·编造技能） | `npm run eval:agent` |
+| Agent 评测（mock 层） | 72 个任务用例 + 质量门禁（任务成功率·数字保全·编造技能·参数自修复） | `npm run eval:agent` |
 | Agent 评测（真实模型） | 同一套用例打真实模型（需配置端点，不配则明确跳过） | `npm run eval:agent:llm` |
 | 规则层评测 | 32 个 golden case 回归门禁 | `npm run eval` |
 | LLM 层评测 | 真实模型双模式对比 | `npm run eval:llm` |

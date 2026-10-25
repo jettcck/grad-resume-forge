@@ -212,6 +212,30 @@ function buildCases() {
       ],
       expect: { ok: true, expectUnknownTool: true, expectedToolErrors: 1 }
     });
+    // 7.5) 参数错误自修复：模型先传错形状，看到**结构化错误**后自己改对。
+    //      和 bad_args 的区别：这一条不写死「第二步就是正确的」，
+    //      而是让脚本模型读上一轮工具结果——拿不到 retryable + fix.path 就继续传错。
+    //      这样测的是「错误回灌链路」而不是「我们写死了重试」。
+    push({
+      id: dk + '/schema_repair', category: 'schema_repair', domain: dk, profile, jd: d.jd,
+      script: [
+        { calls: [{ name: 'rewrite_bullets', args: { rewrites: 'oops' } }] },
+        {
+          calls: (messages) => {
+            const last = lastToolResult(messages);
+            const repairable = last && last.errorType === 'validation' && last.retryable === true &&
+              last.fix && last.fix.path === 'rewrites' && last.fix.expected === 'array';
+            return [{
+              name: 'rewrite_bullets',
+              args: repairable ? { rewrites: goodRewrites(dk, profile) } : { rewrites: 'still-wrong' }
+            }];
+          }
+        },
+        { calls: [{ name: 'analyze_jd', args: {} }] },
+        { calls: [{ name: 'submit_result', args: {} }] }
+      ],
+      expect: { ok: true, minAccepted: 1, expectValidationError: true, expectedToolErrors: 1, repaired: true }
+    });
     // 8) 提示词注入：JD 里夹带指令，模型试图把 JD 技能写进简历 → 必须被防幻觉门拦住
     push({
       id: dk + '/injection', category: 'injection', domain: dk,
@@ -271,13 +295,26 @@ function buildCases() {
 }
 
 // ---------- 运行 ----------
+/** 取最后一条工具结果（模型视角：它只能看到 pushToolResult 写进去的内容） */
+function lastToolResult(messages) {
+  for (let i = (messages || []).length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && m.role === 'tool') {
+      try { return JSON.parse(m.content); } catch (_) { return null; }
+    }
+  }
+  return null;
+}
+
 async function runCase(c) {
   let step = 0;
   const llm = {
-    chat: async () => {
+    // messages 会一路传进来：脚本模型可以像真模型一样「读完工具结果再决定下一步」
+    chat: async (messages) => {
       const entry = c.script[Math.min(step, c.script.length - 1)];
       step++;
-      return { content: '', toolCalls: (entry.calls || []).map((x) => ({ name: x.name, args: x.args || {} })), rawToolCalls: [] };
+      const calls = typeof entry.calls === 'function' ? entry.calls(messages) : entry.calls;
+      return { content: '', toolCalls: (calls || []).map((x) => ({ name: x.name, args: x.args || {} })), rawToolCalls: [] };
     }
   };
   const started = Date.now();
@@ -315,6 +352,11 @@ function judge(c, run) {
     const has = (r.steps || []).some((s) => !s.ok && /未知工具/.test(s.detail || ''));
     if (!has) problems.push('没有出现未知工具拦截');
   }
+  if (e.repaired) {
+    const u = (r.run && r.run.usage) || {};
+    if (!(u.validationErrors >= 1)) problems.push('没有记录到参数校验错误（validationErrors=' + u.validationErrors + '）');
+    if (!(u.repairs >= 1)) problems.push('模型没有把参数修好（repairs=' + u.repairs + '）');
+  }
   if (e.noFabricated) {
     const fabricated = (r.accepted || []).filter((a) => /Kubernetes|微服务/.test(a.text));
     if (fabricated.length) problems.push('接受了编造技能的改写：' + fabricated[0].text);
@@ -345,6 +387,8 @@ function judge(c, run) {
   let toolCalls = 0, toolErrors = 0, accepted = 0, rejected = 0;
   let metricKept = 0, fabricated = 0, latencies = [], retries = 0, tokens = 0, coverageDelta = [];
   let completed = 0, cancelledOrFailed = 0;
+  // 参数自修复：只在 schema_repair 用例上算比率（其它用例的重试不算）
+  let repairCases = 0, repairOk = 0, validationErrorsTotal = 0, repairsTotal = 0;
 
   function numberTokens(text) {
     return (String(text || '').match(/\d+(?:[.,]\d+)?\s*(?:%|‰|万|亿|千|百|ms|s|秒|分钟|小时|天|周|月|年|人|次|个|条|倍|元|GB|MB|KB|TB|QPS|qps)?/g) || []).map((s) => s.replace(/\s+/g, ''));
@@ -359,6 +403,12 @@ function judge(c, run) {
       cancelledOrFailed += rec.status === 'COMPLETED' ? 0 : 1;
       retries += rec.usage.retries || 0;
       tokens += rec.usage.tokens || 0;
+      validationErrorsTotal += rec.usage.validationErrors || 0;
+      repairsTotal += rec.usage.repairs || 0;
+    }
+    if (c.category === 'schema_repair') {
+      repairCases++;
+      if (rec && rec.usage && rec.usage.repairs >= 1) repairOk++;
     }
     latencies.push(run.ms);
     (r.steps || []).forEach((s) => {
@@ -387,7 +437,8 @@ function judge(c, run) {
   const okRuns = runs.filter((x) => x.run && x.run.result && x.run.result.ok === true).length;
   const partialRuns = runs.filter((x) => x.run && x.run.result && x.run.result.partial === true).length;
   // 干净路径（不含故意注入失败的类别）的工具成功率：这一项才是真正该 100% 的
-  const INJECTS_FAILURE = ['bad_args', 'unknown_tool'];
+  // schema_repair 也算注入类：它第一步**故意**传错参数，失败是设计的一部分。
+  const INJECTS_FAILURE = ['bad_args', 'unknown_tool', 'schema_repair'];
   let cleanCalls = 0, cleanErrors = 0;
   runs.forEach(({ case: c, run }) => {
     if (INJECTS_FAILURE.includes(c.category)) return;
@@ -423,7 +474,12 @@ function judge(c, run) {
     toolCalls,
     cleanToolCalls: cleanCalls,
     accepted,
-    rejected
+    rejected,
+    // 参数自修复：分子只算「看到结构化错误后修好」的用例，不含写了正确答案的脚本
+    schemaRepairRate: repairCases ? Math.round(ok(repairOk, repairCases) * 1000) / 10 : null,
+    schemaRepairCases: repairCases,
+    validationErrors: validationErrorsTotal,
+    repairs: repairsTotal
   };
 
   if (WANT_JSON) {
@@ -440,6 +496,9 @@ function judge(c, run) {
   console.log('改写通过率          ' + metrics.rewriteAcceptanceRate + '%  （通过 ' + metrics.accepted + ' / 拒收 ' + metrics.rejected + '）');
   console.log('数字保全率          ' + metrics.metricPreservation + '%');
   console.log('编造技能率          ' + metrics.hallucinationRate + '%');
+  console.log('参数自修复率        ' + (metrics.schemaRepairRate == null ? '—' : metrics.schemaRepairRate + '%') +
+    '  （' + metrics.schemaRepairCases + ' 个 schema_repair 用例：看见结构化错误后改对的比例）');
+  console.log('校验拒绝 / 修复次数 ' + metrics.validationErrors + ' 次被拒 → ' + metrics.repairs + ' 次修好');
   console.log('JD 覆盖率提升均值   ' + metrics.jdCoverageDeltaAvg + ' 个百分点（' + metrics.jdCoverageCases + ' 个用例可测）');
   console.log('运行时开销均值      ' + metrics.avgRuntimeOverheadMs + 'ms  （不含模型推理：mock 不产生真实延迟）');
   console.log('平均重试次数        ' + metrics.avgRetries);
@@ -453,7 +512,10 @@ function judge(c, run) {
     taskSuccessRate: 100,
     cleanPathToolSuccessRate: 100,
     metricPreservation: 100,
-    hallucinationRate: 0
+    hallucinationRate: 0,
+    // 脚本模型在拿到 retryable + fix.path 后必然能改对；这条 100% 守的是
+    // 「结构化错误有没有真的送到模型手里」，不是模型的修复能力。
+    schemaRepairRate: 100
   };  const gateFailures = Object.keys(GATES).filter((k) => {
     const v = metrics[k];
     return k === 'hallucinationRate' ? v > GATES[k] : v < GATES[k];
@@ -464,7 +526,7 @@ function judge(c, run) {
     process.exitCode = 1;
   } else {
     console.log('✅ 全部达标（实测：行为符合预期 ' + metrics.taskSuccessRate + '%、干净路径 ' + metrics.cleanPathToolSuccessRate +
-      '%、数字保全 ' + metrics.metricPreservation + '%、编造技能 ' + metrics.hallucinationRate + '%；' +
+      '%、数字保全 ' + metrics.metricPreservation + '%、编造技能 ' + metrics.hallucinationRate + '%、参数自修复 ' + metrics.schemaRepairRate + '%；' +
       '业务完成率 ' + metrics.businessCompletionRate + '% 不计入门禁——失败样本本来就该不完成）');
   }
 })().catch((e) => {

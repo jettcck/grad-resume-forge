@@ -29,6 +29,8 @@ const apiKey = process.env.AGENT_BENCH_KEY || '';
 const sampleArg = process.argv.indexOf('--sample');
 const sample = sampleArg > 0 ? Math.max(1, Number(process.argv[sampleArg + 1]) || 4) : 4;
 const SELF_TEST = process.argv.includes('--self-test');
+// 采样温度写成一个常量：复现契约里它是必填项，散在调用处就容易被改掉而没人发现
+const TEMPERATURE = 0.3;
 
 // ---------- 链路自测：用本地仿真服务验证「脚本本身能跑通」 ----------
 // 为什么需要它：真实模型层需要端点，平时根本跑不到 —— 一个从没被执行过的脚本等于死代码。
@@ -91,7 +93,7 @@ const clientPromise = (async () => {
   // 否则无 apiKey 时会按 Ollama 协议（/api/chat）发请求，解析不到工具调用
   // —— 这个坑就是自测第一次跑时抓出来的。
   const provider = SELF_TEST ? 'cloud' : (apiKey ? 'cloud' : 'ollama');
-  return { client: llmClient.createLlmClient({ provider, endpoint: ep, model: md, apiKey: apiKey || (SELF_TEST ? 'sk-selftest' : ''), temperature: 0.3 }), endpointUsed: ep, modelUsed: md };
+  return { client: llmClient.createLlmClient({ provider, endpoint: ep, model: md, apiKey: apiKey || (SELF_TEST ? 'sk-selftest' : ''), temperature: TEMPERATURE }), endpointUsed: ep, modelUsed: md };
 })();
 
 const PROFILE = {
@@ -120,7 +122,8 @@ function numberTokens(text) {
   } else {
     console.log('=== Agent Benchmark · 真实模型 ===');
   }
-  console.log('端点 ' + endpointUsed + ' | 模型 ' + modelUsed + ' | 采样 ' + sample + ' 次\n');
+  console.log('端点 ' + endpointUsed + ' | 模型 ' + modelUsed + ' | 采样 ' + sample + ' 次');
+  console.log('温度 ' + TEMPERATURE + ' | 提示词 ' + JSON.stringify(agent.promptVersions ? agent.promptVersions() : {}) + '\n');
   const results = [];
   for (let i = 1; i <= sample; i++) {
     const t0 = Date.now();
@@ -174,6 +177,40 @@ function numberTokens(text) {
     if (fakeServer) { try { fakeServer.close(); } catch (_) { /* 忽略 */ } }
     process.exitCode = problems.length ? 1 : 0;
     return;
+  }
+
+  // 真实模型跑完就落一份可复现基线：模型 + 温度 + prompt 版本 + 采样数 + commit。
+  // 自测模式绝不写这个文件 —— 假服务产出的数字一旦被引用，整份基线就废了。
+  try {
+    let commit = null;
+    try {
+      commit = require('child_process').execSync('git rev-parse --short HEAD', { cwd: path.join(__dirname, '..') })
+        .toString().trim();
+    } catch (_) { /* 非 git 环境（如 CI 浅克隆）允许为空 */ }
+    const report = {
+      timestamp: new Date().toISOString(),
+      suite: 'agent-bench-llm',
+      endpoint: endpointUsed,
+      model: modelUsed,
+      temperature: TEMPERATURE,
+      promptVersion: agent.promptVersions ? agent.promptVersions() : null,
+      sample,
+      commit,
+      metrics: {
+        successRate: Math.round((okCount / Math.max(1, done.length)) * 1000) / 10,
+        avgLatencyMs: avgMs,
+        accepted: totalAccepted,
+        metricLoss: totalLost,
+        fabricated: totalFabricated,
+        tokens: done.reduce((a, b) => a + (b.tokens || 0), 0)
+      }
+    };
+    const outDir = path.join(__dirname, '..', 'benchmarks');
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, 'real-model.json'), JSON.stringify(report, null, 2) + '\n');
+    console.log('已写入 benchmarks/real-model.json（含 promptVersion / temperature / commit，可直接引用）');
+  } catch (e) {
+    console.log('⚠️ 写基线失败：' + (e && e.message));
   }
 
   console.log('\n注意：以上是本次运行的实测值，不同模型/温度会波动；不要把它当成稳定承诺，' +

@@ -265,7 +265,8 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
     budget,
     usage: Object.assign({}, usage),
     trace: trace.map((t) => Object.assign({}, t)),
-    result: finalized
+    result: finalized,
+    promptVersion: opts.promptVersion
   };
   if (opts.store) opts.store.append(record);
   if (opts.onFinish) opts.onFinish(record);

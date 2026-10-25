@@ -102,6 +102,7 @@ function countBenchCases() {
     const m = out.match(new RegExp(label + '\\s+([\\d.]+)' + (unit || '')));
     return m ? +m[1] : null;
   };
+  const repairLine = out.match(/(\d+)\s*次被拒\s*→\s*(\d+)\s*次修好/);
   return {
     cases: num('任务数'),
     layer: 'mock',
@@ -112,6 +113,9 @@ function countBenchCases() {
     rewriteAcceptance: num('改写通过率', '%'),
     metricPreservation: num('数字保全率', '%'),
     hallucinationRate: num('编造技能率', '%'),
+    schemaRepairRate: num('参数自修复率', '%'),
+    validationErrors: repairLine ? +repairLine[1] : null,
+    repairs: repairLine ? +repairLine[2] : null,
     avgRuntimeMs: num('运行时开销均值', 'ms')
   };
 }
@@ -124,14 +128,16 @@ function readLlmReport() {
     provider: j.provider || null,
     model: j.model || null,
     runAt: j.timestamp || null,
+    cases: j.cases == null ? null : j.cases,
+    commit: j.commit || null,
     runs: (j.runs || []).length,
     successRate: j.overall ? j.overall.successRate : null,
     acceptanceRate: j.overall ? j.overall.acceptanceRate : null,
     avgRounds: j.overall ? j.overall.avgRounds : null,
     avgLatencyMs: j.overall ? j.overall.avgMs : null,
-    // 报告里没有记录采样参数——这正是「不可复现」的部分，显式标出来
-    temperature: null,
-    promptVersion: null
+    // 老报告没有这两项 → 如实留 null，不要用「推测值」填进去
+    temperature: j.temperature == null ? null : j.temperature,
+    promptVersion: j.promptVersion || null
   };
 }
 
@@ -166,10 +172,10 @@ const baseline = {
   },
   quality: {
     tests: tests
-      ? { ...tests, source: wantTests ? 'npm test（本次实测）' : '沿用上次实测' }
+      ? { ...tests, source: wantTests ? 'npm test（本次实测）' : (tests.source || '沿用上次实测') }
       : { suites: null, assertions: null, failures: null, source: '未测' },
     ui: ui
-      ? { ...ui, source: wantUi ? 'npm run smoke:ui（本次实测）' : '沿用上次实测' }
+      ? { ...ui, source: wantUi ? 'npm run smoke:ui（本次实测）' : (ui.source || '沿用上次实测') }
       : { assertions: null, failures: null, screenshots: null, source: '未测' }
   },
   banks: {

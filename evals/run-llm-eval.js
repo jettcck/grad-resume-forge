@@ -178,6 +178,14 @@ function fmtRow(row) {
     provider: client.provider,
     model: client.config.model,
     endpoint: client.config.endpoint,
+    // 复现契约：模型 + 温度 + prompt 版本 + 用例数 + commit，缺一项就不是基线
+    temperature: client.config.temperature,
+    promptVersion: agent.promptVersions ? agent.promptVersions() : null,
+    cases: CASES.length,
+    commit: (() => {
+      try { return require('child_process').execSync('git rev-parse --short HEAD', { cwd: path.join(__dirname, '..') }).toString().trim(); }
+      catch (_) { return null; }
+    })(),
     overall: summarize(runs),
     byMode: { pipeline: summarize(pipelines), agentic: summarize(agentics) },
     runs

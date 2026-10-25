@@ -44,10 +44,14 @@ export interface RunUsage {
   retries: number;
   ms: number;
   tokens: number;
+  /** 入参校验被拒的次数（不含未知工具/预算拒绝） */
+  validationErrors: number;
+  /** 「先被拒、随后同一工具用合法参数成功」的次数：模型自修复的计量 */
+  repairs: number;
 }
 
 export function emptyUsage(): RunUsage {
-  return { steps: 0, toolCalls: 0, retries: 0, ms: 0, tokens: 0 };
+  return { steps: 0, toolCalls: 0, retries: 0, ms: 0, tokens: 0, validationErrors: 0, repairs: 0 };
 }
 
 // ---------- 工具 ----------
@@ -69,7 +73,7 @@ export interface JsonSchemaLite {
   required?: string[];
 }
 
-export type ToolErrorType = 'validation' | 'timeout' | 'runtime' | 'unknown_tool' | 'budget';
+export type ToolErrorType = 'validation' | 'validation_exhausted' | 'timeout' | 'runtime' | 'unknown_tool' | 'budget';
 
 export interface ToolMeta {
   attempts: number;
@@ -78,9 +82,25 @@ export interface ToolMeta {
   idempotentHit: boolean;
 }
 
+/**
+ * 结构化校验错误：为什么要给字段而不是只给一句话？
+ * 模型能修的是「rewrites 应该是数组，收到 string」这类可执行信息；
+ * 只给「参数不合法」它只能瞎猜，于是重试也错，白烧预算。
+ */
+export interface ValidationIssue {
+  /** 出错位置：'(root)' / 'rewrites' / 'rewrites[0].text' */
+  path: string;
+  /** 期望的类型或约束 */
+  expected: string;
+  /** 实际收到的类型（或 'undefined'） */
+  received: string;
+  /** 一句可直接展示的中文说明（保持既有报错文案） */
+  message: string;
+}
+
 export type ToolOutcome =
   | { ok: true; data: unknown; meta: ToolMeta }
-  | { ok: false; error: string; errorType: ToolErrorType; meta: ToolMeta };
+  | { ok: false; error: string; errorType: ToolErrorType; meta: ToolMeta; issue?: ValidationIssue };
 
 export interface ToolSpec<A = Record<string, unknown>, C = unknown> {
   name: string;
@@ -137,6 +157,8 @@ export interface RunRecord {
   trace: TraceEntry[];
   /** 运行结果摘要（回放与复盘用） */
   result?: unknown;
+  /** 本次运行用的提示词版本（如 agentic-system-v1）；评测复现必须带这个字段 */
+  promptVersion?: string;
 }
 
 // ---------- 运行时 ----------
@@ -209,6 +231,8 @@ export interface RuntimeOptions {
   signal?: AbortSignal;
   onStep?: (ev: RuntimeStepEvent) => void;
   store?: RunStore;
+  /** 本次运行使用的提示词版本（写进运行记录，评测时用来复现） */
+  promptVersion?: string;
   /** 时钟注入：测试里可以假装时间流逝，不必真的等 */
   now?: () => number;
   /** 收集一次运行的完成度/用量等额外结果 */

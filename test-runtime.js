@@ -129,6 +129,11 @@ function makeAdapter(opts) {
 
     const wrongType = await reg.call('ok_tool', { text: 123 }, undefined, 1);
     assert(wrongType.ok === false && /应为字符串/.test(wrongType.error), '参数类型错 → validation：' + wrongType.error);
+    assert(!!wrongType.issue && wrongType.issue.path === 'text' && wrongType.issue.expected === 'string' &&
+      wrongType.issue.received === 'number',
+      '校验错误带结构化字段（path=' + (wrongType.issue && wrongType.issue.path) +
+      ' expected=' + (wrongType.issue && wrongType.issue.expected) +
+      ' received=' + (wrongType.issue && wrongType.issue.received) + '）');
 
     const undeclared = await reg.call('ok_tool', { text: 'a', extra: 1 }, undefined, 1);
     assert(undeclared.ok === false && /未声明/.test(undeclared.error), '未声明参数被拒：' + undeclared.error);
@@ -138,9 +143,31 @@ function makeAdapter(opts) {
 
     const badItems = await reg.call('ok_tool', { text: 'a', items: [{ id: 1 }] }, undefined, 1);
     assert(badItems.ok === false && /应为字符串/.test(badItems.error), '数组元素字段类型错被拒：' + badItems.error);
+    assert(!!badItems.issue && badItems.issue.path === 'items[0].id',
+      '数组元素错误的 path 精确到下标与字段（' + (badItems.issue && badItems.issue.path) + '）');
 
     const okCall = await reg.call('ok_tool', { text: 'a', items: [{ id: 'x' }] }, undefined, 2);
     assert(okCall.ok === true && okCall.meta.attempts === 1, '合法调用成功且 attempts=1');
+    assert(usage.validationErrors >= 4, '被拒次数计入 usage.validationErrors（' + usage.validationErrors + ' 次）');
+    assert(usage.repairs === 1, '被拒后同一工具用合法参数跑通 → 记一次自修复（repairs=' + usage.repairs + '）');
+
+    // 同一个错误反复犯 → 叫停（否则模型会一直用同一个错参数烧预算）
+    {
+      const usage2 = core.emptyUsage();
+      const reg2 = new core.ToolRegistry({ runId: 'r2b', budget: Object.assign({}, core.DEFAULT_BUDGET), usage: usage2 });
+      const rep = makeTool('repeat_tool', {
+        schema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] }
+      });
+      reg2.register(rep.spec);
+      const bad1 = await reg2.call('repeat_tool', { text: 1 }, undefined, 1);
+      const bad2 = await reg2.call('repeat_tool', { text: 1 }, undefined, 2);
+      const bad3 = await reg2.call('repeat_tool', { text: 1 }, undefined, 3);
+      assert(bad1.errorType === 'validation' && bad2.errorType === 'validation',
+        '同一个错误前两次仍按 validation 返回（给模型修复机会）');
+      assert(bad3.errorType === 'validation_exhausted' && /连续出现 3 次/.test(bad3.error),
+        '同一个错误第 3 次 → validation_exhausted：' + bad3.error);
+      assert(rep.calls.count === 0, '被拒的调用从未真正执行工具（执行 ' + rep.calls.count + ' 次）');
+    }
 
     // 幂等：同样入参第二次不再真正执行
     const again = await reg.call('ok_tool', { text: 'a', items: [{ id: 'x' }] }, undefined, 3);

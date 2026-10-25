@@ -1,6 +1,6 @@
 # 技术岗 Agent 开发实习 · 求职优化建议
 
-> 基于 `grad-resume-forge`（简历锻造炉）v1.14.0 的真实代码与实测数据撰写。
+> 基于 `grad-resume-forge`（简历锻造炉）v1.15.0 的真实代码与实测数据撰写。
 > 所有数字的唯一来源是 [`benchmarks/baseline.json`](../benchmarks/baseline.json)（`npm run baseline:full` 重算）；
 > 文档与它不一致时 `npm test` 会失败（`test-docs-consistency.js`）。
 > 初版：2026-10-22 · 数据同步：2026-10-25
@@ -35,13 +35,13 @@
 | Agent 运行时 | **1,109 行**（独立包，零 Electron 依赖） | `wc -l packages/agent-core/src/*.ts` |
 | LLM 适配层 | 429 行（Ollama + OpenAI 兼容双协议，含流式解析） | `wc -l packages/llm-adapters/src/*.ts` |
 | 评测代码 | 957 行 | `wc -l evals/*.js` |
-| 自动化断言 | **1,491 项**（28 个测试脚本 + 205 项界面断言，全绿） | 逐文件 `node test-*.js` 汇总 |
+| 自动化断言 | **1,528 项**（29 个测试脚本 + 205 项界面断言，全绿） | 逐文件 `node test-*.js` 汇总 |
 | Agent 状态 | **11 个**（7 非终态 + 4 终态），允许转移表约束 | `packages/agent-core/src/state-machine.ts:8` |
 | Agent 工具 | **6 个**（analyze_jd / audit_text / llm_rewrite / rewrite_bullets / validate_rewrites / submit_result） | `src/main/agent.ts` |
 | 评测用例 | **65 个 / 9 类场景**（含 injection / bad_args / lazy / all_rejected） | `node evals/agent-bench.js` |
 | 编程题库 | **43 题 × 3 语言**（JS/Python/C++），207 条断言 | `node test-code.js` |
 | 客观题库 | **151 题 / 12 方向 / 133 知识点标签** | `node scripts/audit-exam-bank.js` |
-| 产品版本 | v1.14.0 | `package.json` |
+| 产品版本 | v1.15.0 | `package.json` |
 
 ### 评测实测基线（`node evals/agent-bench.js` 可直接复现）
 
@@ -66,7 +66,7 @@
 | 指标 | 表述要点 |
 |---|---|
 | 30,051 行 | 只在"个人项目规模"语境用，**不要**当能力证明 |
-| 1,491 项断言 | 强调"27 个脚本全绿 + 205 项界面断言"，比数字本身有说服力 |
+| 1,528 项断言 | 强调"27 个脚本全绿 + 205 项界面断言"，比数字本身有说服力 |
 | 65 用例 / 9 类场景 | 强调**场景分类设计**（happy / lazy / injection / bad_args），不是"写了 65 个测试" |
 | 编造技能率 0% | 配一句"靠校验门 + 注入用例验证"，否则听起来像吹 |
 | 数字保全率 100% | 同上，说明是"改写不许动数字"的硬约束 |

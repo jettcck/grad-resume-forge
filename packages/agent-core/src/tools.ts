@@ -18,7 +18,8 @@ import {
   ToolOutcome,
   ToolSpec,
   TraceEntry,
-  RunUsage
+  RunUsage,
+  ValidationIssue
 } from './types';
 import { redactValue, truncateArgs } from './run-store';
 
@@ -47,51 +48,81 @@ function summarize(value: unknown, max = 200): string {
   return s.length > max ? s.slice(0, max) + '…' : s;
 }
 
-/** 运行时校验：只支持我们真正用到的 JSON Schema 子集，返回错误信息或 null */
-export function validateArgs(schema: JsonSchemaLite, args: unknown): string | null {
+const typeName = (v: unknown): string => {
+  if (v === null) return 'null';
+  if (Array.isArray(v)) return 'array';
+  return typeof v;
+};
+
+const issue = (path: string, expected: string, received: string, message: string): ValidationIssue => ({
+  path, expected, received, message
+});
+
+/**
+ * 运行时校验：只支持我们真正用到的 JSON Schema 子集。
+ * 返回结构化 issue（path / expected / received）而不是一句话：
+ * 模型拿到「rewrites 应为 array，收到 string」才能一次改对；
+ * 只拿到「参数不合法」就只能猜，重试照样错。
+ */
+export function validateArgs(schema: JsonSchemaLite, args: unknown): ValidationIssue | null {
   if (args == null || typeof args !== 'object' || Array.isArray(args)) {
-    return '参数必须是对象';
+    return issue('(root)', 'object', typeName(args), '参数必须是对象');
   }
   const obj = args as Record<string, unknown>;
   const props = schema.properties || {};
   for (const key of schema.required || []) {
-    if (obj[key] == null) return '缺少必填参数 ' + key;
+    if (obj[key] == null) return issue(key, 'required', 'undefined', '缺少必填参数 ' + key);
   }
   for (const key of Object.keys(obj)) {
     const spec = props[key];
-    if (!spec) return '出现未声明的参数 ' + key;
+    if (!spec) return issue(key, 'declared', 'undeclared', '出现未声明的参数 ' + key);
     const v = obj[key];
     if (v == null) continue;
     if (spec.type === 'string') {
-      if (typeof v !== 'string') return '参数 ' + key + ' 应为字符串';
-      if (spec.minLength != null && v.length < spec.minLength) return '参数 ' + key + ' 太短（至少 ' + spec.minLength + ' 字）';
-      if (spec.maxLength != null && v.length > spec.maxLength) return '参数 ' + key + ' 太长（最多 ' + spec.maxLength + ' 字）';
+      if (typeof v !== 'string') return issue(key, 'string', typeName(v), '参数 ' + key + ' 应为字符串');
+      if (spec.minLength != null && v.length < spec.minLength) {
+        return issue(key, 'minLength:' + spec.minLength, 'length:' + v.length, '参数 ' + key + ' 太短（至少 ' + spec.minLength + ' 字）');
+      }
+      if (spec.maxLength != null && v.length > spec.maxLength) {
+        return issue(key, 'maxLength:' + spec.maxLength, 'length:' + v.length, '参数 ' + key + ' 太长（最多 ' + spec.maxLength + ' 字）');
+      }
     } else if (spec.type === 'number') {
-      if (typeof v !== 'number' || Number.isNaN(v)) return '参数 ' + key + ' 应为数字';
+      if (typeof v !== 'number' || Number.isNaN(v)) return issue(key, 'number', typeName(v), '参数 ' + key + ' 应为数字');
     } else if (spec.type === 'boolean') {
-      if (typeof v !== 'boolean') return '参数 ' + key + ' 应为布尔值';
+      if (typeof v !== 'boolean') return issue(key, 'boolean', typeName(v), '参数 ' + key + ' 应为布尔值');
     } else if (spec.type === 'array') {
-      if (!Array.isArray(v)) return '参数 ' + key + ' 应为数组';
-      if (spec.maxItems != null && v.length > spec.maxItems) return '参数 ' + key + ' 最多 ' + spec.maxItems + ' 项';
+      if (!Array.isArray(v)) return issue(key, 'array', typeName(v), '参数 ' + key + ' 应为数组');
+      if (spec.maxItems != null && v.length > spec.maxItems) {
+        return issue(key, 'maxItems:' + spec.maxItems, 'length:' + v.length, '参数 ' + key + ' 最多 ' + spec.maxItems + ' 项');
+      }
       if (spec.items) {
         for (let i = 0; i < v.length; i++) {
           const item = v[i];
+          const at = key + '[' + i + ']';
           if (spec.items.type === 'object') {
-            if (item == null || typeof item !== 'object' || Array.isArray(item)) return '参数 ' + key + '[' + i + '] 应为对象';
+            if (item == null || typeof item !== 'object' || Array.isArray(item)) {
+              return issue(at, 'object', typeName(item), '参数 ' + at + ' 应为对象');
+            }
             const o = item as Record<string, unknown>;
             for (const rk of spec.items.required || []) {
-              if (o[rk] == null) return '参数 ' + key + '[' + i + '] 缺少字段 ' + rk;
+              if (o[rk] == null) return issue(at + '.' + rk, 'required', 'undefined', '参数 ' + at + ' 缺少字段 ' + rk);
             }
             for (const ik of Object.keys(spec.items.properties || {})) {
               const iv = o[ik];
               if (iv == null) continue;
               const it = (spec.items.properties || {})[ik]!.type;
-              if (it === 'string' && typeof iv !== 'string') return '参数 ' + key + '[' + i + '].' + ik + ' 应为字符串';
-              if (it === 'number' && typeof iv !== 'number') return '参数 ' + key + '[' + i + '].' + ik + ' 应为数字';
-              if (it === 'boolean' && typeof iv !== 'boolean') return '参数 ' + key + '[' + i + '].' + ik + ' 应为布尔值';
+              if (it === 'string' && typeof iv !== 'string') {
+                return issue(at + '.' + ik, 'string', typeName(iv), '参数 ' + at + '.' + ik + ' 应为字符串');
+              }
+              if (it === 'number' && typeof iv !== 'number') {
+                return issue(at + '.' + ik, 'number', typeName(iv), '参数 ' + at + '.' + ik + ' 应为数字');
+              }
+              if (it === 'boolean' && typeof iv !== 'boolean') {
+                return issue(at + '.' + ik, 'boolean', typeName(iv), '参数 ' + at + '.' + ik + ' 应为布尔值');
+              }
             }
           } else if (typeof item !== spec.items.type) {
-            return '参数 ' + key + '[' + i + '] 类型应为 ' + spec.items.type;
+            return issue(at, spec.items.type, typeName(item), '参数 ' + at + ' 类型应为 ' + spec.items.type);
           }
         }
       }
@@ -100,9 +131,16 @@ export function validateArgs(schema: JsonSchemaLite, args: unknown): string | nu
   return null;
 }
 
+/** 同一个参数错误重复几次后停止调用（防止模型靠重复同一错误烧预算） */
+export const MAX_SAME_VALIDATION_ERRORS = 2;
+
 export class ToolRegistry {
   private specs = new Map<string, ToolSpec>();
   private idempotentCache = new Map<string, unknown>();
+  /** 每个工具最近一次校验错误签名与连续重复次数（用于叫停「同一个错反复犯」） */
+  private validationCounts = new Map<string, { sig: string; n: number }>();
+  /** 刚被校验拒过、还没修好的工具：它下一次成功就记一次 repairs */
+  private pendingRepair = new Set<string>();
   private opts: RegistryOptions;
 
   constructor(opts: RegistryOptions) {
@@ -187,12 +225,30 @@ export class ToolRegistry {
     const invalid = validateArgs(spec.inputSchema, args || {});
     if (invalid) {
       const meta = Object.assign({}, baseMeta, { latencyMs: this.now() - startedAt });
+      this.opts.usage.validationErrors++;
+      // 只对「同一个错误重复出现」计数：模型换着花样试不同的错误参数是探索，
+      // 反复用同一种错法是没在学习。后者才是该被叫停的。
+      const sig = invalid.path + '|' + invalid.expected + '|' + invalid.message;
+      const prev = this.validationCounts.get(name);
+      const repeated = prev && prev.sig === sig ? prev.n + 1 : 1;
+      this.validationCounts.set(name, { sig, n: repeated });
+      if (repeated > MAX_SAME_VALIDATION_ERRORS) {
+        const msg = '同一个参数错误已连续出现 ' + repeated + ' 次（' + invalid.message + '），已停止调用 ' + name + '。' +
+          '请按 fix 修正参数结构，或改用其它工具。';
+        this.trace({
+          stepId, tool: name, inputSummary: summarize(args), outputSummary: msg,
+          latencyMs: meta.latencyMs, retryCount: 0, tokens: null, errorType: 'validation_exhausted',
+          startedAt, args: this.traceArgs(args)
+        });
+        return { ok: false, error: msg, errorType: 'validation_exhausted', meta, issue: invalid };
+      }
+      this.pendingRepair.add(name);
       this.trace({
-        stepId, tool: name, inputSummary: summarize(args), outputSummary: invalid,
+        stepId, tool: name, inputSummary: summarize(args), outputSummary: invalid.message,
         latencyMs: meta.latencyMs, retryCount: 0, tokens: null, errorType: 'validation',
         startedAt, args: this.traceArgs(args)
       });
-      return { ok: false, error: invalid, errorType: 'validation', meta };
+      return { ok: false, error: invalid.message, errorType: 'validation', meta, issue: invalid };
     }
 
     const cacheKey = name + '::' + JSON.stringify(args || {});
@@ -222,6 +278,8 @@ export class ToolRegistry {
         const meta: ToolMeta = { attempts: attempt, latencyMs, idempotentHit: false };
         if (spec.idempotent) this.idempotentCache.set(cacheKey, data);
         this.opts.usage.retries += attempt - 1;
+        // 修好了：这个工具之前被校验拒过，现在用合法参数跑通 → 记一次自修复
+        if (this.pendingRepair.delete(name)) this.opts.usage.repairs++;
         this.trace({
           stepId, tool: name, inputSummary: summarize(args), outputSummary: summarize(data),
           latencyMs, retryCount: attempt - 1, tokens: null, errorType: null,
