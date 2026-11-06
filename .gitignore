@@ -56,3 +56,13 @@ _tmp/
 
 # 检索评测的向量缓存（按模型分文件，体积大且可重建）
 evals/.emb-cache*.json
+
+# Python 服务本地环境与缓存（不入库）
+.venv-py/
+services/python-api/.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 本地 npm 测试输出（诊断用，不入库）
+npm-test-*.log

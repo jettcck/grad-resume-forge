@@ -121,5 +121,118 @@ const json = (res, obj) => { res.writeHead(200, { 'content-type': 'application/j
     await new Promise((r) => srv.close(r));
   }
 
+  // 外部取消必须到达实际 HTTP 请求，不能等客户端自身的超时。
+  {
+    let requests = 0;
+    const srv = await startServer((_req, res) => { requests++; json(res, { message: { content: '{}' } }); });
+    const client = createLlmClient({ endpoint: 'http://127.0.0.1:' + srv.address().port, model: 'test', timeout: 10000 });
+    const ctl = new AbortController(); ctl.abort();
+    const started = Date.now(); let error;
+    try { await client.chat([{ role: 'user', content: 'x' }], { signal: ctl.signal }); } catch (e) { error = e; }
+    assert(error && error.name === 'AbortError' && Date.now() - started < 1000, 'Ollama 预取消立即返回 AbortError');
+    assert(requests === 0, 'Ollama 预取消不发送 HTTP 请求');
+    await new Promise((r) => srv.close(r));
+  }
+  {
+    let entered, closed;
+    const requestStarted = new Promise((r) => { entered = r; });
+    const requestClosed = new Promise((r) => { closed = r; });
+    const srv = await startServer((_req, res) => { res.on('close', () => closed(!res.writableEnded)); entered(); });
+    const client = createLlmClient({ endpoint: 'http://127.0.0.1:' + srv.address().port, model: 'test', timeout: 10000 });
+    const ctl = new AbortController();
+    const waiting = client.chat([{ role: 'user', content: 'x' }], { signal: ctl.signal }).catch((e) => e);
+    await requestStarted; const started = Date.now(); ctl.abort();
+    const error = await waiting;
+    assert(error.name === 'AbortError' && Date.now() - started < 1000, 'Ollama 等待期间取消立即结束客户端请求');
+    const disconnected = await Promise.race([requestClosed, new Promise((r) => setTimeout(() => r(false), 1000))]);
+    assert(disconnected, 'Ollama 取消确实关闭服务端连接，停止占用推理请求');
+    await new Promise((r) => srv.close(r));
+  }
+  // 普通改写也保留服务端 token 用量，评测无需把缺失值猜成 0。
+  for (const provider of ['ollama', 'cloud']) {
+    const srv = await startServer((_req, res) => json(res, provider === 'ollama'
+      ? { message: { content: '{}' }, prompt_eval_count: 12, eval_count: 3 }
+      : { choices: [{ message: { content: '{}' } }], usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 } }));
+    const client = createLlmClient({ provider, endpoint: 'http://127.0.0.1:' + srv.address().port, model: 'test', apiKey: 'test' });
+    let usage;
+    await client.chat([{ role: 'user', content: 'x' }], { onUsage: (u) => { usage = u; } });
+    assert(usage && usage.prompt_tokens === 12 && usage.completion_tokens === 3 && usage.total_tokens === 15, provider + '：普通改写回传实际 token 用量');
+    await new Promise((r) => srv.close(r));
+  }
+
+  // 流式尾帧可能只有用量、没有正文；累计上报由调用方按当前请求覆盖。
+  for (const provider of ['ollama', 'cloud']) {
+    let requestBody;
+    const srv = await startServer((req, res) => {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        requestBody = JSON.parse(body);
+        res.writeHead(200, { 'content-type': provider === 'ollama' ? 'application/x-ndjson' : 'text/event-stream' });
+        const frame = obj => provider === 'ollama' ? JSON.stringify(obj) : 'data: ' + JSON.stringify(obj);
+        res.write(frame(provider === 'ollama' ? { message: { content: '完整' } } : { choices: [{ delta: { content: '完整' } }] }) + '\n');
+        res.end(frame(provider === 'ollama' ? { done: true, prompt_eval_count: 12, eval_count: 3 }
+          : { choices: [], usage: { prompt_tokens: 12, completion_tokens: 3, total_tokens: 15 } }));
+      });
+    });
+    try {
+      const client = createLlmClient({ provider, endpoint: 'http://127.0.0.1:' + srv.address().port, model: 'test', apiKey: 'test' });
+      const reported = [];
+      const text = await client.chat([{ role: 'user', content: 'x' }], { onChunk: () => {}, onUsage: u => reported.push(u) });
+      assert(text === '完整' && reported.length === 1 && reported[0].total_tokens === 15, provider + '：无换行的纯用量尾帧回传实际 token');
+      assert(provider === 'ollama' ? requestBody.stream === true : requestBody.stream_options.include_usage === true, provider + '：流式请求启用用量报告');
+    } finally { await new Promise(r => srv.close(r)); }
+  }
+
+  {
+    let requests = 0;
+    const srv = await startServer((req, res) => {
+      let body = '';
+      req.on('data', chunk => { body += chunk; });
+      req.on('end', () => {
+        requests++;
+        if (JSON.parse(body).stream_options) {
+          res.writeHead(400, { 'content-type': 'application/json' });
+          return res.end(JSON.stringify({ error: { message: 'stream_options unsupported' } }));
+        }
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.end('data: {"choices":[{"delta":{"content":"兼容回复"}}],"usage":{"total_tokens":9}}');
+      });
+    });
+    try {
+      const client = createLlmClient({ provider: 'cloud', endpoint: 'http://127.0.0.1:' + srv.address().port, model: 'test', apiKey: 'test' });
+      let usage;
+      const text = await client.chat([{ role: 'user', content: 'x' }], { onChunk: () => {}, onUsage: u => { usage = u; } });
+      assert(requests === 2 && text === '兼容回复' && usage.total_tokens === 9, '服务拒绝 stream_options 时去掉可选参数重试，保留用量回调');
+    } finally { await new Promise(r => srv.close(r)); }
+  }
+
+  // 非流式收到响应头后仍要覆盖正文读取：分别验证普通回复与工具调用。
+  for (const tools of [undefined, [{ type: 'function', function: { name: 'noop', parameters: {} } }]]) {
+    for (const cancel of [true, false]) {
+      let entered, closed;
+      const headersSent = new Promise(resolve => { entered = resolve; });
+      const connectionClosed = new Promise(resolve => { closed = resolve; });
+      const srv = await startServer((_req, res) => {
+        res.on('close', () => closed(!res.writableEnded));
+        res.writeHead(200, { 'content-type': 'application/json' });
+        res.write('{"choices":['); entered();
+      });
+      try {
+        const client = createLlmClient({ provider: 'cloud', endpoint: 'http://127.0.0.1:' + srv.address().port, model: 'test', apiKey: 'test', timeout: cancel ? 5000 : 150 });
+        const controller = new AbortController();
+        const waiting = client.chat([{ role: 'user', content: 'x' }], { tools, signal: controller.signal }).catch(error => error);
+        await headersSent;
+        const started = Date.now();
+        if (cancel) controller.abort();
+        const result = await Promise.race([waiting, new Promise(resolve => setTimeout(() => resolve(null), 1000))]);
+        const label = (tools ? '工具调用' : '普通回复') + (cancel ? '主动取消' : '客户端期限');
+        assert(result?.name === 'AbortError' && Date.now() - started < 1000, label + '在响应头之后仍中断正文读取');
+        assert(await Promise.race([connectionClosed, new Promise(resolve => setTimeout(() => resolve(false), 1000))]), label + '关闭服务端连接');
+        srv.closeAllConnections(); await waiting;
+      } finally { srv.closeAllConnections(); await new Promise(resolve => srv.close(resolve)); }
+    }
+  }
+
   console.log('\n流式响应自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
 })();

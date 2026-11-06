@@ -1,0 +1,71 @@
+{
+  "timestamp": "2026-11-02T10:41:23.649Z",
+  "model": "qwen2.5:1.5b",
+  "modelDigest": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+  "ollamaVersion": "0.40.7",
+  "endpoint": "http://127.0.0.1:11434",
+  "temperature": 0.3,
+  "messages": [
+    {
+      "role": "system",
+      "content": "必须调用 ping 工具，不输出普通文本。"
+    },
+    {
+      "role": "user",
+      "content": "立即调用 ping。"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "ping",
+        "description": "测试工具调用协议",
+        "parameters": {
+          "type": "object",
+          "properties": {},
+          "required": []
+        }
+      }
+    }
+  ],
+  "response": {
+    "content": "",
+    "toolCalls": [
+      {
+        "name": "ping",
+        "args": {
+          "host": "example.com"
+        },
+        "raw": {
+          "id": "call_za3u8txp",
+          "function": {
+            "index": 0,
+            "name": "ping",
+            "arguments": {
+              "host": "example.com"
+            }
+          }
+        }
+      }
+    ],
+    "rawToolCalls": [
+      {
+        "id": "call_za3u8txp",
+        "function": {
+          "index": 0,
+          "name": "ping",
+          "arguments": {
+            "host": "example.com"
+          }
+        }
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 137,
+      "completion_tokens": 20,
+      "total_tokens": 157
+    }
+  },
+  "toolExecuted": false
+}

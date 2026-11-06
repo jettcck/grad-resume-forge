@@ -24,9 +24,9 @@ export const PROMPT_FILES = {
   /** 流水线模式：单条批量改写的 system 消息 */
   rewriteSystem: 'rewrite-system-v1.txt',
   /** 流水线模式：改写纪律与输出格式（拼在 user 消息尾部） */
-  rewriteRules: 'rewrite-rules-v1.txt',
+  rewriteRules: 'rewrite-rules-v3.txt',
   /** Agent 模式：系统提示词（工具说明与流程） */
-  agenticSystem: 'agentic-system-v2.txt'
+  agenticSystem: 'agentic-system-v3.txt'
 } as const;
 
 export type PromptKey = keyof typeof PROMPT_FILES;

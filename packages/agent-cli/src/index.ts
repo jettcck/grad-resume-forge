@@ -179,6 +179,7 @@ async function cmdReplay(flags: Record<string, string>): Promise<number> {
   const tools = agent.buildAgentTools(ctx).map((t: { name: string; description: string; inputSchema: unknown; run: (a: unknown, c: unknown) => unknown }) => ({
     name: t.name, description: t.description, inputSchema: t.inputSchema,
     permission: 'readonly', timeoutMs: 15000, maxRetries: 0, idempotent: true,
+    cacheResult: t.name !== 'rewrite_bullets',
     execute: async (args: Record<string, unknown>) => Promise.resolve(t.run(args, ctx))
   }));
   const replayed = await replayRun(rec, { tools, ctx });

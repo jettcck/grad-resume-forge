@@ -18,14 +18,19 @@
 | **领域校验门** | 确定性门：数字必须保全、不许编造技能、不许套话。LLM 输出不过门就进不了档案 | `src/main/agent.ts` |
 | **Prompt 版本化** | 提示词放 `prompts/*-v1.txt`（文件名即版本），运行记录与评测报告带 `promptVersion` + `temperature`，「改 prompt 有没有变好」能用数据回答 | `src/main/prompts.ts` |
 | **评测（mock 层）** | 72 个脚本化用例 / 12 类场景（happy / lazy / injection / bad args / **参数自修复** / all-rejected），断言「失败次数**恰好**等于注入次数」，多一次少一次都算回归 | `evals/agent-bench.js` |
-| **评测（真实模型）** | 同一套用例打真实端点；`--self-test` 用假服务先把评测台本身验一遍（离线可验） | `evals/agent-bench-llm.js` |
-| **检索** | `retrieve_knowledge` 已接入 Agent，支持 no-retrieval / BM25 / 向量 / hybrid；向量端点不可用时明确降级或跳过，另有 RRF 库级评测 | `src/main/retrieval.ts` + `packages/retrieval/src/index.ts` |
+| **评测（真实模型）** | 4 个固定用例 × N 次重复打真实端点；报告记录温度、提示词/用例集 SHA-256、完整 commit、运行环境与 `reproducible` 判定；`--self-test` 用假服务验证评测台且永不写入真实报告 | `evals/agent-bench-llm.js` |
+| **检索** | `retrieve_knowledge` 已接入 Agent，支持 no-retrieval / BM25 / 向量 / hybrid；向量端点不可用时明确降级。62 条分层评测集（关键词 / 同义改写 / 口语 / 多跳 / 语料外），报告 Hit@K、Recall@5、MRR、nDCG@5 与 bootstrap 置信区间，并用「语料外误召回率」反推分数阈值 | `src/main/retrieval.ts` + `packages/retrieval/src/index.ts` + `evals/retrieval-eval.js` |
+| **Python 服务** | 可选的 FastAPI 服务，把改写与检索暴露成 HTTP 接口：httpx 异步调用 + 超时与有限重试、错误按类型映射 502/503/504、令牌桶限流、请求 ID 结构化日志、存活/就绪分离、含 Dockerfile | `services/python-api/` |
 
 mock 层基线（`node evals/agent-bench.js` 可复现）：行为符合预期 **100%**、干净路径工具成功率 **100%**、数字保全率 **100%**、编造技能率 **0%**、参数自修复率 **100%**（14 次被拒 → 14 次改对）、业务完成率 **66.7%**、工具调用成功率 **86.2%**（失败是**故意注入**的用例，门本来就该拒）。
 
 限制也写在明面上：单 Agent 循环 + critic（不是 multi-agent）、向量检索依赖本地 embedding 端点（无端点时 BM25 仍可用）、工具超时是 `Promise.race`（底层任务未必真停）。见 [`docs/agent-engineering.md`](./docs/agent-engineering.md)。
 
 所有数字只有一个来源：[`benchmarks/baseline.json`](./benchmarks/baseline.json)；文档与它不一致时 `npm test` 会直接失败。
+
+v1.15.1 修复了账号切换期间的旧档案写入和迟到响应：改写校验、快照与保存由主进程同步提交，旧账号或另行保存后的旧版本会被拒收。云端取消与超时覆盖正文读取，应用内推理可取消并回传实际 token。数字校验保留正负号，核对已识别的指标归属，并接受“降至／缩减至”等同义表达。真实 IPC 回归 140 项通过；本次修复后真实模型评测未执行。
+
+**用户经历检索与溯源已接入改写**：BM25 检索当前用户的原始档案，项目／实习按经历隔离；改写预览展示来源原文与摘要，应用时再次核对。第三步新固定四用例共 **48 次真实流水线对照**（rewrite-rules-v3）。qwen3:8b 的目标技能表达并附同项目来源，检索组 **8/9（88.9%）**，无检索组 **0/9**；qwen2.5:1.5b 两组均 **0/9**。校验门检查阿拉伯数字 token、明确的前后值与变化方向及已知技能别名；职责和更复杂的因果归属仍需人审。见 [完整报告](./docs/resume-evidence.md)，实现位于 `src/main/resume-evidence.ts`。第二步双模式结果保留为旧提示词和对应源码快照的历史基线，见 [第二步报告](./docs/real-model-eval.md)。
 
 ## 🧭 零门槛起步，AI 是可选增强
 
@@ -110,7 +115,7 @@ Electron
 ```bash
 npm install
 npm start          # 启动应用
-npm test           # 全量测试（1,542 项断言 / 30 个脚本 + 规则层评测）
+npm test           # 全量测试（1,715 项断言 / 30 个脚本 + 规则层评测）
 npm run eval       # 规则层 golden case 评测
 npm run eval:llm   # LLM 层评测（需要本机 Ollama）
 ```
@@ -183,7 +188,7 @@ git config http.proxy http://127.0.0.1:7890
 
 ## 📊 测试与评测
 
-**1,542 项自动化断言**（30 个脚本）**+ 205 项界面断言**，push 即跑（CI 门禁）。所有数字的唯一来源是 [`benchmarks/baseline.json`](./benchmarks/baseline.json)，文档与它的偏差会让 `npm test` 直接失败。
+**1,715 项自动化断言**（30 个脚本）**+ 210 项界面断言**，push 即跑（CI 门禁）。所有数字的唯一来源是 [`benchmarks/baseline.json`](./benchmarks/baseline.json)，文档与它的偏差会让 `npm test` 直接失败。
 
 | 套件 | 内容 | 命令 |
 |---|---|---|
@@ -212,25 +217,21 @@ git config http.proxy http://127.0.0.1:7890
 | PDF 导入冒烟 | 在 **Electron 的 Node 版本**下解析真实中文简历 PDF（专治「本地绿、打包炸」） | `npm run smoke:pdf` |
 | 打包产物冒烟 | 检查 `app.asar` 关键文件，并在隔离用户目录启动真实可执行文件 | `npm run smoke:packaged` |
 | NSIS 安装器冒烟 | 仅在一次性 Windows CI runner 上安装、启动并卸载安装包，避免污染开发机 | `npm run smoke:installer` |
-| 界面截图管线 | 205 条 DOM 断言 + 截图（需 Electron） | `npm run smoke:ui` |
+| 界面截图管线 | 210 条 DOM 断言 + 截图（需 Electron） | `npm run smoke:ui` |
 
-### 真实模型评测（deepseek-chat，2026-09）
+### 真实模型评测（2026-11-02）
 
-双模式同 JD 同档案对比，4 用例（后端 / 前端 / 算法 / **财务**——覆盖技术与非技术方向）：
+**48 次真实运行**：后端 / 前端 / 算法 / 财务四份固定档案 × 3 次重复 × 两种模式 × 两种模型，温度固定 0.3。
 
-| 指标 | 流水线模式 | 自主 Agent 模式 |
-|---|---|---|
-| 成功率 | 100% | 100% |
-| 校验门接受率 | 100% | 100% |
-| 平均轮 / 步数 | 1.0 | 3.0 |
-| 体检分增益 | +7.5 | **+15.0** |
-| JD 覆盖增益 | **+25.8pp** | +13.0pp |
-| 平均耗时 | 1.1s | 3.9s |
+| 模型 | 流水线成功率 | 自主 Agent 成功率 | 流水线 / 自主条目覆盖率 |
+|---|---|---|---|
+| qwen2.5:1.5b | 11/12（91.7%） | 0/12（0%） | 40% / 0% |
+| qwen3:8b | 8/12（66.7%） | 3/12（25%） | 33.3% / 43.3% |
 
-> 财务用例（全专业）：agentic 模式把体检分 61→88、JD 覆盖 88%→100%——
-> 「本人…认真负责…各项任务」类套话同样被确定性校验门与改写清理。
-> 校验门接受率 100% 说明确定性约束在技术与非技术方向均零误杀。
-> 完整数据见 `evals/llm-report.json`。
+成功率按运行完成状态计数，条目覆盖率按通过校验的条目 ID 计数。最终接受的 **35 条**改写中，原文数字丢失 **0 条**，已标注缺失技能命中 **0 条**。
+主要失败是工具协议与参数错误、关键步骤未完成、候选全部拒收；前端拒收还需人工核验技能门是否误拒。
+1.5B 的简单工具探测能返回原生调用，完整任务却输出了文本形式的工具调用，结论仅适用于本任务配置。
+数据来自 [`benchmarks/baseline.json`](./benchmarks/baseline.json) 的 `agent.modelComparison`；成功率区间、耗时、token、失败证据与源码快照见 [完整报告](./docs/real-model-eval.md)。
 
 ## ⚠️ 能力边界——本项目**不**声称做到的事
 
@@ -261,7 +262,7 @@ MIT
 
 ```bash
 npm run agent:run    -- --input case.json --mode rules        # 规则通道，不需要模型
-npm run agent:eval                                            # 65 个用例 + 质量门禁
+npm run agent:eval                                            # 72 个用例 + 质量门禁
 npm run agent:replay -- --run <runId>                         # 看某次运行的逐步 trace
 ```
 

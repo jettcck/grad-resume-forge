@@ -85,6 +85,9 @@ export function createOllamaClient(config: Partial<LlmConfig> | undefined): LlmC
       const tools = Array.isArray(o.tools) && o.tools.length ? o.tools : null;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), cfg.timeout);
+      const abortExternal = (): void => ctrl.abort();
+      if (o.signal?.aborted) ctrl.abort();
+      else o.signal?.addEventListener('abort', abortExternal, { once: true });
       try {
         const body: Record<string, unknown> = {
           model: cfg.model,
@@ -107,10 +110,12 @@ export function createOllamaClient(config: Partial<LlmConfig> | undefined): LlmC
           const r = await resp.json() as { message?: { content?: string; tool_calls?: RawToolCall[] }; prompt_eval_count?: number; eval_count?: number };
           const msg = r.message || {};
           const content = msg.content;
+          const usage = normalizeUsage(r);
+          if (usage) o.onUsage?.(usage);
           if (tools) {
             const toolCalls = normalizeToolCalls(msg.tool_calls);
             // Ollama 的用量字段是 prompt_eval_count / eval_count
-            return { content: content || '', toolCalls, rawToolCalls: msg.tool_calls || [], usage: normalizeUsage(r) };
+            return { content: content || '', toolCalls, rawToolCalls: msg.tool_calls || [], usage };
           }
           if (!content) throw new Error('模型未返回内容');
           return content;
@@ -125,6 +130,8 @@ export function createOllamaClient(config: Partial<LlmConfig> | undefined): LlmC
           if (!line) return;
           try {
             const obj = JSON.parse(line) as { message?: { content?: string } };
+            const usage = normalizeUsage(obj);
+            if (usage) o.onUsage?.(usage);
             const piece = obj && obj.message && obj.message.content;
             if (piece) {
               full += piece;
@@ -147,6 +154,7 @@ export function createOllamaClient(config: Partial<LlmConfig> | undefined): LlmC
         return full;
       } finally {
         clearTimeout(timer);
+        o.signal?.removeEventListener('abort', abortExternal);
       }
     }
   };
@@ -175,8 +183,10 @@ export function createOpenAiClient(config: Partial<LlmConfig> | undefined): LlmC
   const cfg = Object.assign({}, CLOUD_DEFAULTS, config || {}) as Required<Pick<LlmConfig, 'endpoint' | 'model' | 'apiKey' | 'temperature' | 'timeout'>> & LlmConfig;
   const base = String(cfg.endpoint || '').replace(/\/+$/, '');
 
-  // 单次请求。raw=true 返回原始 Response；false 时消费 body 返回拼接全文
-  async function postChat(body: Record<string, unknown>, onChunk: ((p: string) => void) | null, raw?: boolean, externalSignal?: AbortSignal): Promise<Response | string> {
+  // 请求与正文读取共用同一个取消信号和期限，直到消费完成才清理监听。
+  async function postChat(body: Record<string, unknown>, onChunk: ((p: string) => void) | null,
+    consume?: (res: Response) => Promise<string | ToolCallReply>, externalSignal?: AbortSignal,
+    onUsage?: ChatOptions['onUsage']): Promise<string | ToolCallReply> {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), cfg.timeout);
     const abortExternal = () => ctrl.abort();
@@ -206,10 +216,12 @@ export function createOpenAiClient(config: Partial<LlmConfig> | undefined): LlmC
         throw err;
       }
 
-      if (raw) return resp;
+      if (consume) return await consume(resp);
 
       if (!onChunk || !resp.body) {
-        const r = await resp.json() as { choices?: Array<{ message?: { content?: string } }> };
+        const r = await resp.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
+        const usage = normalizeUsage(r.usage);
+        if (usage) onUsage?.(usage);
         const content = r.choices?.[0]?.message?.content;
         if (!content) throw new Error('模型未返回内容');
         return content;
@@ -225,7 +237,9 @@ export function createOpenAiClient(config: Partial<LlmConfig> | undefined): LlmC
         const payload = line.slice(5).trim();
         if (!payload || payload === '[DONE]') return;
         try {
-          const obj = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }> };
+          const obj = JSON.parse(payload) as { choices?: Array<{ delta?: { content?: string } }>; usage?: unknown };
+          const usage = normalizeUsage(obj.usage);
+          if (usage) onUsage?.(usage);
           const piece = obj.choices?.[0]?.delta?.content;
           if (piece) {
             full += piece;
@@ -299,6 +313,7 @@ export function createOpenAiClient(config: Partial<LlmConfig> | undefined): LlmC
         temperature: cfg.temperature,
         stream: !!onChunk
       };
+      if (onChunk && o.onUsage) body.stream_options = { include_usage: true };
       if (tools) {
         body.tools = tools;
         body.tool_choice = 'auto';
@@ -312,26 +327,27 @@ export function createOpenAiClient(config: Partial<LlmConfig> | undefined): LlmC
           const msg = r.choices?.[0]?.message || {};
           const toolCalls = normalizeToolCalls(msg.tool_calls);
           // usage 以前被直接丢掉，导致 Agent 的 token 预算永远读到 0
-          return { content: msg.content || '', toolCalls, rawToolCalls: msg.tool_calls || [], usage: normalizeUsage(r.usage) };
+          const usage = normalizeUsage(r.usage);
+          if (usage) o.onUsage?.(usage);
+          return { content: msg.content || '', toolCalls, rawToolCalls: msg.tool_calls || [], usage };
         }
-        const r = await res.json() as { choices?: Array<{ message?: { content?: string } }> };
+        const r = await res.json() as { choices?: Array<{ message?: { content?: string } }>; usage?: unknown };
+        const usage = normalizeUsage(r.usage);
+        if (usage) o.onUsage?.(usage);
         const content = r.choices?.[0]?.message?.content;
         if (!content) throw new Error('模型未返回内容');
         return content;
       }
 
       try {
-        if (onChunk) return await postChat(body, onChunk, false, o.signal) as string; // 流式路径直接拿全文
-        const res = await postChat(body, null, true, o.signal) as Response;
-        return await extract(res);
+        return await postChat(body, onChunk, onChunk ? undefined : extract, o.signal, o.onUsage);
       } catch (err) {
         const e = err as Error & { status?: number };
-        if ((e.status === 400 || e.status === 422) && body.response_format) {
+        if ((e.status === 400 || e.status === 422) && (body.response_format || body.stream_options)) {
           const retry = Object.assign({}, body);
           delete retry.response_format;
-          if (onChunk) return await postChat(retry, onChunk, false, o.signal) as string;
-          const res = await postChat(retry, null, true, o.signal) as Response;
-          return await extract(res);
+          delete retry.stream_options;
+          return await postChat(retry, onChunk, onChunk ? undefined : extract, o.signal, o.onUsage);
         }
         throw err;
       }

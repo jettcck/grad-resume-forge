@@ -56,8 +56,9 @@ function verifyAsar(asarPath) {
     'packages/agent-core/dist/index.js',
     'packages/llm-adapters/dist/index.js',
     // 提示词是运行时读的文本文件（不在 dist 里），漏打包会让 Agent 一启动就抛错
-    'prompts/agentic-system-v2.txt',
-    'prompts/rewrite-rules-v1.txt',
+    'dist/main/resume-evidence.js',
+    'prompts/agentic-system-v3.txt',
+    'prompts/rewrite-rules-v3.txt',
     'package.json'
   ];
   const missing = required.filter((entry) => !has(entry));

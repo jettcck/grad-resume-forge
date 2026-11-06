@@ -20,10 +20,22 @@ The product is the excuse; the interesting engineering is the **controllable age
 | **Domain gate** | Deterministic gate: numbers preserved, no invented skills, no clichés. LLM output cannot reach the profile without passing it | `src/main/agent.ts` |
 | **Prompt versioning** | Prompts live in `prompts/*-v1.txt` (filename = version). Runs and eval reports carry `promptVersion` + `temperature`, so "did the prompt change help?" is answerable with data instead of memory | `src/main/prompts.ts` |
 | **Evals (mock)** | 72 scripted cases over 12 scenario families — happy / lazy / injection / bad args / **schema repair** / all-rejected. Assertions check failures occur **exactly** at the injection point, not one more or one fewer | `evals/agent-bench.js` |
-| **Evals (real model)** | Same cases against a real endpoint; `--self-test` uses a fake server so the harness itself is verifiable offline | `evals/agent-bench-llm.js` |
-| **Retrieval** | `retrieve_knowledge` Agent tool with no-retrieval / BM25 / vector modes; BM25 fallback is explicit when embedding is unavailable; library benchmark also covers RRF | `src/main/retrieval.ts` + `packages/retrieval/src/index.ts` |
+| **Evals (real model)** | Fixed 4-case set × N repeats against a real endpoint; the report records temperature, prompt/case-set SHA-256, full commit, runtime and a `reproducible` verdict. `--self-test` uses a fake server and never writes the real report | `evals/agent-bench-llm.js` |
+| **Retrieval** | `retrieve_knowledge` Agent tool with no-retrieval / BM25 / vector modes; BM25 fallback is explicit when embedding is unavailable. A 62-query layered eval (keyword / paraphrase / colloquial / multi-hop / out-of-domain) reports Hit@K, Recall@5, MRR, nDCG@5 and bootstrap CIs, plus an out-of-domain false-positive rate used to tune the score floor | `src/main/retrieval.ts` + `packages/retrieval/src/index.ts` + `evals/retrieval-eval.js` |
+| **Python service** | Optional FastAPI service exposing rewrite + retrieval over HTTP: async `httpx` client with timeout and limited retry, error-to-status mapping (502/503/504), token-bucket rate limiting, request-id JSON logs, liveness/readiness split, Dockerfile | `services/python-api/` |
 
 Mock-layer baseline (reproduce with `node evals/agent-bench.js`): behavior match **100%**, clean-path tool success **100%**, metric preservation **100%**, hallucinated skills **0%**, schema-repair **100%** (14 rejections → 14 corrected), business completion **66.7%**, tool-call success **86.2%** (failure cases are injected on purpose — the gate is supposed to reject them).
+
+Step 2 historical evaluation (2026-11-02, rewrite-rules-v1 / agentic-system-v2): **48 runs**, four fixed profiles × three repeats × two modes × two models. Recorded source snapshots identify that implementation. Success is the runtime's completion status; accepted-item coverage is measured separately.
+
+| Model | Pipeline success | Agentic success | Pipeline / agentic item coverage |
+|---|---|---|---|
+| qwen2.5:1.5b | 11/12 (91.7%) | 0/12 (0%) | 40% / 0% |
+| qwen3:8b | 8/12 (66.7%) | 3/12 (25%) | 33.3% / 43.3% |
+
+The 35 accepted rewrites lost no original numbers and matched none of the annotated absent-skill aliases. Main failures were tool protocol/argument errors, incomplete required steps, and rejected candidates. [Full report](./docs/real-model-eval.md) includes confidence intervals, latency, tokens, failure traces and source snapshots.
+
+**Resume evidence is connected to rewriting:** BM25 retrieves the current user's original profile; each project or internship can use its own sources. Accepted rewrites show original quotes and source hashes, and applying them checks the sources again. The new **48-run pipeline comparison** uses rewrite-rules-v3: qwen3:8b expressed the required technology with its project source in **8/9 retrieval runs (88.9%)**, versus **0/9 without retrieval**. qwen2.5:1.5b scored **0/9 in both groups**. This measures grounded skill expression on these cases. The gate checks Arabic-number tokens, explicit before/after values and change directions, and known skill aliases; responsibilities and broader causal claims still require review. [Evidence report](./docs/resume-evidence.md) preserves both model results and the earlier prompt experiment. Implementation: `src/main/resume-evidence.ts`.
 
 Where the honest limits are: single-agent loop + critic (no multi-agent orchestration), vector retrieval depends on a local embedding endpoint (BM25 remains available without it), and tool timeouts are `Promise.race` — the underlying task may keep running after the timeout fires. Those are documented rather than papered over: [`docs/agent-engineering.md`](./docs/agent-engineering.md).
 
@@ -118,7 +130,7 @@ Electron
 ```bash
 npm install
 npm start          # launch the app
-npm test           # full suite: 194 assertions + rule-layer evals
+npm test           # full suite: 1,715 assertions / 30 suites + rule-layer evals
 npm run eval       # rule-layer golden-case evals
 npm run eval:llm   # LLM-layer evals (requires local Ollama)
 ```
@@ -166,7 +178,9 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 
 ## 📊 Testing & Evals
 
-**1,542 automated assertions** across **30 suites** (plus **205 UI assertions** in the screenshot pipeline), run on every push (CI gate).
+**1,715 automated assertions** across **30 suites** (plus **210 UI assertions** in the screenshot pipeline), run on every push (CI gate).
+
+v1.15.1 adds synchronous rewrite validation, snapshot and save with account/version checks, and ignores responses from previous accounts. Cloud cancellation and deadlines cover response bodies; embedded inference supports cancellation and reports actual tokens. Number checks preserve signs and recognized metric ownership, while accepting equivalent change wording. Real IPC smoke passed 140 assertions. Real-model evaluations were not rerun after these fixes.
 
 | Suite | Scope | Command |
 |---|---|---|
@@ -186,7 +200,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 | Zero-barrier guard | in-app model loading shape / China mirrors / CSP / honest copy | `node test-embedded.js` |
 | Secure store | no plaintext key on disk / encrypt-decrypt round trip | `node test-secure-store.js` |
 | Agent Runtime | state machine / tool registry (validation, timeout, idempotent retry, budget) / cancel / trace / redacted run records / replay | `node test-runtime.js` |
-| Agent benchmark (mock) | 65 task cases + quality gates (task success, metric preservation, fabricated skills) | `npm run eval:agent` |
+| Agent benchmark (mock) | 72 task cases + quality gates (task success, metric preservation, fabricated skills) | `npm run eval:agent` |
 | Agent benchmark (real model) | same cases against a real endpoint (explicitly skipped when unconfigured) | `npm run eval:agent:llm` |
 | Rule-layer evals | 32 golden cases as a regression gate | `npm run eval` |
 | LLM-layer evals | dual-mode comparison on a real model | `npm run eval:llm` |
@@ -244,7 +258,7 @@ The agent core is no longer tied to Electron — it is separately testable, runn
 
 ```bash
 npm run agent:run    -- --input case.json --mode rules        # rules-only, no model needed
-npm run agent:eval                                            # 65 cases + quality gates
+npm run agent:eval                                            # 72 cases + quality gates
 npm run agent:replay -- --run <runId>                         # step-by-step trace of one run
 ```
 

@@ -359,10 +359,12 @@ app.whenReady().then(async () => {
   // 这次运行会一直等到服务返回（8 秒）或客户端超时，测出来就是没被中断。
   const http = require('http');
   const slow = http.createServer((req, res) => {
+    req.resume();
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.flushHeaders(); // 收到响应头后，取消仍须中断正文等待。
     // 永不主动返回：只有客户端 abort 才能结束
     setTimeout(() => {
       try {
-        res.writeHead(200, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '', tool_calls: [] } }], usage: { total_tokens: 1 } }));
       } catch (_) { /* 连接已断 */ }
     }, 8000).unref();
@@ -371,17 +373,18 @@ app.whenReady().then(async () => {
   const slowPort = slow.address().port;
 
   try {
+    for (const mode of ['agentic', 'pipeline']) {
     const cancelOut = await win.webContents.executeJavaScript(`(async () => {
       const prof = { name: '取消测试', skills: 'Java', projects: [{ name: 'p', description: '负责订单系统开发，支撑日活 3 万' }], internships: [] };
       await window.api.settings.save('agent', {
         provider: 'cloud', endpoint: 'http://127.0.0.1:${slowPort}/v1', model: 'slow-model',
         apiKey: 'sk-slow-test', timeout: 30000
       });
-      const runId = 'run_cancel_test';
+      const runId = 'run_cancel_test' + ('${mode}' === 'pipeline' ? '_pipeline' : '');
       // 先发起一次运行（不 await），再马上用同一个 runId 起第二次
-      const first = window.api.agent.run(prof, '岗位：Java 后端工程师，要求熟悉 Java 与 Docker', { mode: 'agentic', runId });
+      const first = window.api.agent.run(prof, '岗位：Java 后端工程师，要求熟悉 Java 与 Docker', { mode: '${mode}', runId });
       await new Promise((r) => setTimeout(r, 700));
-      const dup = await window.api.agent.run(prof, '岗位：Java 后端工程师', { mode: 'agentic', runId });
+      const dup = await window.api.agent.run(prof, '岗位：Java 后端工程师', { mode: '${mode}', runId });
       const t0 = Date.now();
       const cancel = await window.api.agent.cancel(runId);
       const r = await first;
@@ -394,11 +397,13 @@ app.whenReady().then(async () => {
         recStatus: rec.ok && rec.data ? rec.data.status : null
       };
     })()`);
-    t(cancelOut.dupOk === false && /正在使用中/.test(String(cancelOut.dupErr)), '重复 runId 被拒绝（实得：' + cancelOut.dupErr + '）');
-    t(cancelOut.cancelOk === true, '取消请求被接受');
+    t(cancelOut.dupOk === false && /正在使用中/.test(String(cancelOut.dupErr)), mode + '：重复 runId 被拒绝（实得：' + cancelOut.dupErr + '）');
+    t(cancelOut.cancelOk === true, mode + '：取消请求被接受');
     t(cancelOut.status === 'CANCELLED' || cancelOut.recStatus === 'CANCELLED',
-      '取消后运行状态为 CANCELLED（实得 ' + cancelOut.status + '/' + cancelOut.recStatus + '）');
-    t(cancelOut.elapsed < 3000, '取消立即中断了正在等待的模型请求（耗时 ' + cancelOut.elapsed + 'ms，慢服务是 8 秒）');
+      mode + '：取消后运行状态为 CANCELLED（实得 ' + cancelOut.status + '/' + cancelOut.recStatus + '）');
+    t(cancelOut.recStatus === 'CANCELLED', mode + '：取消状态确实保存到运行记录');
+    t(cancelOut.elapsed < 3000, mode + '：取消立即中断了正在等待的模型请求（耗时 ' + cancelOut.elapsed + 'ms，慢服务是 8 秒）');
+    }
   } catch (err) {
     t(false, '取消/重复 runId 检查失败：' + err.message);
   }
@@ -418,6 +423,245 @@ app.whenReady().then(async () => {
   } catch (err) {
     t(false, '回放一致性检查失败：' + err.message);
   }
+  // 用户经历来源：真实主进程与 IPC，模型用固定 HTTP 回复，隔离目录不碰用户档案。
+  try {
+    const http = require('http');
+    const evidenceServer = http.createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.end('data: ' + JSON.stringify({ choices: [{ delta: { content: JSON.stringify({ rewrites: [
+        { id: 'p0-b0', text: '使用 Java 开发订单接口，支撑 100QPS' },
+        { id: 'p0-b1', text: '使用 Docker 调试接口，处理 200 条请求' }
+      ] }) } }], usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 } }) + '\n\ndata: [DONE]\n\n');
+    });
+    await new Promise((resolve) => evidenceServer.listen(0, '127.0.0.1', resolve));
+    try {
+      const evidenceOut = await win.webContents.executeJavaScript(`(async () => {
+        const prof = { skills: 'Java、Docker', projects: [
+          { name: '订单接口', tech: 'Java', description: ['开发订单接口，支撑 100QPS', '调试接口，处理 200 条请求'].join('\\n') },
+          { name: '部署练习', tech: 'Docker', description: '使用 Docker 部署学习项目' }
+        ], internships: [] };
+        await window.api.settings.save('agent', { provider: 'cloud', endpoint: 'http://127.0.0.1:${evidenceServer.address().port}/v1', model: 'evidence-fixture', apiKey: 'sk-fixture' });
+        const reply = await window.api.agent.run(prof, 'Java Docker 后端工程师', { mode: 'pipeline', runId: 'run_evidence_ipc' });
+        if (!reply.ok) return { error: reply.error };
+        const r = reply.data;
+        const applied = await window.api.resume.applyRewrites(prof, r.accepted);
+        const changed = JSON.parse(JSON.stringify(prof)); changed.projects[0].tech = 'Go';
+        const stale = await window.api.resume.applyRewrites(changed, r.accepted);
+        const stripped = r.accepted.map(({ evidence, ...candidate }) => candidate);
+        const missing = await window.api.resume.applyRewrites(changed, stripped);
+        const empty = await window.api.resume.applyRewrites(prof, r.accepted.map((candidate) => ({ ...candidate, evidence: [] })));
+        const rec = await window.api.agent.getRun('run_evidence_ipc');
+        return { result: r, appliedOk: applied.ok, appliedText: applied.data && applied.data.projects[0].description,
+          staleOk: stale.ok, staleError: stale.error, missingOk: missing.ok, missingError: missing.error,
+          emptyOk: empty.ok, emptyError: empty.error, sourceLedger: rec.data && rec.data.result && rec.data.result.evidenceSources };
+      })()`);
+      t(!evidenceOut.error && evidenceOut.result.ok, '经历来源检索可通过真实 agent:run IPC 完成（实得：' + JSON.stringify({ error: evidenceOut.error || evidenceOut.result.error, rejected: evidenceOut.result.rejected }) + '）');
+      t(evidenceOut.result.accepted.length === 1 && evidenceOut.result.accepted[0].evidence.some((s) => s.sourceId === 'p0-tech'), 'IPC 接受项带原始条目与同项目技术来源');
+      t(evidenceOut.result.rejected.some((r) => /本条经历证据/.test(r.reason)), 'IPC 拒收把其他项目 Docker 移植到当前项目');
+      t(evidenceOut.appliedOk && evidenceOut.appliedText.includes('Java'), '来源可核对的候选通过真实应用 IPC 写回');
+      t(evidenceOut.staleOk === false && /原始经历已变化/.test(evidenceOut.staleError), '原始技术字段变化后真实应用 IPC 拒绝旧候选');
+      t(evidenceOut.missingOk === false && /缺少经历来源/.test(evidenceOut.missingError), '真实应用 IPC 拒绝删除来源字段的过期候选');
+      t(evidenceOut.emptyOk === false && /缺少经历来源/.test(evidenceOut.emptyError), '真实应用 IPC 拒绝空来源数组');
+      t(evidenceOut.sourceLedger && evidenceOut.sourceLedger.some((entry) => entry.sources.some((s) => s.sourceId === 'p0-tech')), '真实运行记录保留来源摘要');
+      const commitOut = await win.webContents.executeJavaScript(`(async () => {
+        const me = await window.api.auth.login({ email: 'smoke@test.local', password: 'pass123456' });
+        const prof = (await window.api.profile.save(me.data.id, { name: '原始档案', skills: 'Java、Docker', projects: [
+          { name: '订单接口', tech: 'Java', description: ['开发订单接口，支撑 100QPS', '调试接口，处理 200 条请求'].join('\\n') },
+          { name: '部署练习', tech: 'Docker', description: '使用 Docker 部署学习项目' }
+        ], internships: [] })).data;
+        const accepted = ${JSON.stringify(evidenceOut.result.accepted)};
+        const count = (await window.api.snapshots.list(me.data.id)).data.length;
+        const invalid = await window.api.resume.commitRewrites(me.data.id, prof, accepted.map(c => ({ ...c, evidence: [] })));
+        const afterInvalid = (await window.api.snapshots.list(me.data.id)).data.length;
+        const committed = await window.api.resume.commitRewrites(me.data.id, prof, accepted);
+        const snapshots = (await window.api.snapshots.list(me.data.id)).data;
+        const snapshot = await window.api.snapshots.get(me.data.id, snapshots[0].id);
+        await new Promise(r => setTimeout(r, 5));
+        await window.api.profile.save(me.data.id, { name: '用户后来保存' });
+        const stale = await window.api.resume.commitRewrites(me.data.id, committed.data, accepted);
+        const current = await window.api.profile.get(me.data.id);
+        const other = await window.api.auth.register({ email: 'commit-review-b@test.local', password: 'pass123456', name: '提交账号乙' });
+        await window.api.profile.save(other.data.id, { name: '乙的档案' });
+        const wrong = await window.api.resume.commitRewrites(me.data.id, prof, accepted);
+        const wrongSave = await window.api.profile.save(me.data.id, prof);
+        const wrongSnapshot = await window.api.snapshots.save(me.data.id, '错误账号', prof);
+        const b = await window.api.profile.get(other.data.id);
+        const bSnapshots = await window.api.snapshots.list(other.data.id);
+        await window.api.auth.login({ email: 'smoke@test.local', password: 'pass123456' });
+        return { invalid, count, afterInvalid, committed, snapshots, snapshot, stale, current, wrong, wrongSave, wrongSnapshot, b, bSnapshots };
+      })()`);
+      t(!commitOut.invalid.ok && commitOut.afterInvalid === commitOut.count, '非法改写提交不保存档案，也不产生快照');
+      t(commitOut.committed.ok && commitOut.committed.data.projects[0].description.includes('使用 Java'), '原子提交完成来源校验并保存改写');
+      t(commitOut.snapshots.length === commitOut.count + 1 && commitOut.snapshot.data.name === '原始档案', '原子提交保存一份改写前档案快照');
+      t(!commitOut.stale.ok && /另行保存/.test(commitOut.stale.error) && commitOut.current.data.name === '用户后来保存', '旧版本提交被拒，保留另行保存的档案');
+      t(!commitOut.wrong.ok && !commitOut.wrongSave.ok && !commitOut.wrongSnapshot.ok, '切换账号后拒绝旧账号的改写、存档及快照请求');
+      t(commitOut.b.data.name === '乙的档案' && commitOut.bSnapshots.data.length === 0, '旧账号提交不污染乙的档案和快照');
+    } finally { await new Promise((resolve) => evidenceServer.close(resolve)); }
+  } catch (err) { t(false, '经历来源 IPC 检查失败：' + err.message); }
+  // 真实内嵌 IPC 桥和渲染队列；推理替身不下载权重。
+  try {
+    const embedded = await win.webContents.executeJavaScript(`(async () => {
+      const original = window.EmbeddedLlm;
+      const fixture = { started: 0, aborted: 0, pending: false };
+      window.EmbeddedLlm = { ...original, webgpuAvailable: async () => true, isEngineReady: () => true,
+        embeddedChat: async (_messages, { signal }) => {
+          fixture.started++;
+          if (fixture.pending) await new Promise((resolve, reject) => {
+            signal.addEventListener('abort', () => { fixture.aborted++; reject(new Error('推理被中断')); }, { once: true });
+          });
+          return { content: JSON.stringify({ rewrites: [{ id: 'p0-b0', text: '使用 Java 开发订单接口，支撑 100QPS' }] }), usage: { total_tokens: 31 } };
+        }
+      };
+      try {
+        window.api.embedded.reportStatus({ webgpu: true, ready: true });
+        await window.api.settings.save('agent', { provider: 'embedded', model: 'qwen2.5-0.5b' });
+        const profile = { skills: 'Java', projects: [{ name: '订单接口', tech: 'Java', description: '开发订单接口，支撑 100QPS' }], internships: [] };
+        const normal = await window.api.agent.run(profile, 'Java 后端', { mode: 'pipeline', runId: 'ipc-embedded-usage' });
+        fixture.pending = true;
+        const running = window.api.agent.run(profile, 'Java 后端', { mode: 'pipeline', runId: 'ipc-embedded-cancel' });
+        for (let n=0; n<100 && fixture.started < 2; n++) await new Promise(r => setTimeout(r, 20));
+        const startedAt = Date.now();
+        const cancel = await window.api.agent.cancel('ipc-embedded-cancel');
+        const cancelled = await running;
+        for (let n=0; n<100 && !fixture.aborted; n++) await new Promise(r => setTimeout(r, 20));
+        fixture.pending = false;
+        const next = await window.api.agent.run(profile, 'Java 后端', { mode: 'pipeline', runId: 'ipc-embedded-after-cancel' });
+        const record = await window.api.agent.getRun('ipc-embedded-usage');
+        return { normal, cancel, cancelled, next, record, aborted: fixture.aborted, elapsed: Date.now()-startedAt };
+      } finally {
+        window.EmbeddedLlm = original;
+        window.api.embedded.reportStatus({ webgpu: false, ready: false });
+      }
+    })()`);
+    t(embedded.normal.data?.ok && embedded.normal.data.run.usage.tokens === 31, '内嵌模型用量通过真实 IPC 计入运行结果');
+    t(embedded.record.data?.usage.tokens === 31, '内嵌模型实际 token 保存在运行记录');
+    t(embedded.cancel.ok && embedded.cancelled.data?.run.status === 'CANCELLED', '内嵌模型运行通过真实 IPC 取消');
+    t(embedded.aborted === 1 && embedded.elapsed < 3000, '取消传到渲染队列的 signal 并中断推理');
+    t(embedded.next.data?.ok && embedded.next.data.run.usage.tokens === 31, '取消后渲染队列释放，下一次推理正常完成');
+  } catch (err) { t(false, '内嵌 IPC 检查失败：' + err.message); }
+  // 流水线真实 SSE 用量、token 预算及应用前数字关系核验。
+  {
+    let usageRequests = 0, requestedUsage = false;
+    const meteredServer = http.createServer((req, res) => {
+      let body = '';
+      req.on('data', piece => { body += piece; });
+      req.on('end', () => {
+        const input = JSON.parse(body);
+        usageRequests++;
+        requestedUsage = input.stream_options?.include_usage === true;
+        const reversed = input.model === 'reversed-metric';
+        const total = input.model === 'token-budget' ? 120001 : 37;
+        const reply = JSON.stringify({ rewrites: [{ id: 'p0-b0', text: reversed
+          ? '使用 Java 开发查询接口，响应从120ms降至800ms'
+          : '使用 Java 开发查询接口，响应从800ms降至120ms' }] });
+        res.writeHead(200, { 'content-type': 'text/event-stream' });
+        res.write('data: ' + JSON.stringify({ choices: [{ delta: { content: reply } }] }) + '\n\n');
+        res.end('data: ' + JSON.stringify({ choices: [], usage: { total_tokens: total } }));
+      });
+    });
+    await new Promise(r => meteredServer.listen(0, '127.0.0.1', r));
+    try {
+      const metricOut = await win.webContents.executeJavaScript(`(async () => {
+        const profile = { skills: 'Java', projects: [{ name: '查询服务', tech: 'Java', description: '开发查询接口，响应从800ms降至120ms' }], internships: [] };
+        const original = JSON.stringify(profile);
+        await window.api.settings.save('agent', { provider: 'cloud', endpoint: 'http://127.0.0.1:${meteredServer.address().port}/v1', model: 'actual-usage', apiKey: 'test' });
+        const normal = await window.api.agent.run(profile, 'Java 后端开发', { mode: 'pipeline', runId: 'ipc-pipeline-usage' });
+        if (!normal.ok || !normal.data.accepted.length) return { error: normal.error || normal.data.error };
+        const record = await window.api.agent.getRun('ipc-pipeline-usage');
+        const tampered = { ...normal.data.accepted[0], text: '使用 Java 开发查询接口，响应从120ms降至800ms' };
+        const applied = await window.api.resume.applyRewrites(profile, [tampered]);
+        await window.api.settings.save('agent', { provider: 'cloud', endpoint: 'http://127.0.0.1:${meteredServer.address().port}/v1', model: 'reversed-metric', apiKey: 'test' });
+        const reversed = await window.api.agent.run(profile, 'Java 后端开发', { mode: 'pipeline', runId: 'ipc-reversed-metric' });
+        await window.api.settings.save('agent', { provider: 'cloud', endpoint: 'http://127.0.0.1:${meteredServer.address().port}/v1', model: 'token-budget', apiKey: 'test' });
+        const exhausted = await window.api.agent.run(profile, 'Java 后端开发', { mode: 'pipeline', runId: 'ipc-token-budget' });
+        const budgetRecord = await window.api.agent.getRun('ipc-token-budget');
+        return { normal: normal.data, record: record.data, applied, unchanged: JSON.stringify(profile) === original,
+          reversed: reversed.data, exhausted: exhausted.data, budgetRecord: budgetRecord.data };
+      })()`);
+      t(!metricOut.error && metricOut.normal.ok && metricOut.normal.run.usage.tokens === 37, '真实流水线 SSE 尾帧用量计入结果');
+      t(metricOut.record?.usage.tokens === 37 && metricOut.record.trace.some(entry => entry.tool === 'llm_rewrite' && entry.tokens === 37), '真实 IPC 运行记录与模型 trace 保留实际 token');
+      t(requestedUsage, '真实流水线请求 SSE 用量报告');
+      t(metricOut.applied?.ok === false && /数字前后关系/.test(metricOut.applied.error) && metricOut.unchanged, '带有效来源的候选被篡改数字关系后，应用 IPC 拒收且档案不变');
+      t(metricOut.reversed?.accepted.length === 0 && metricOut.reversed.rejected.some(r => /数字前后关系/.test(r.reason)), '真实生成链路拒收 800ms→120ms 反转');
+      t(metricOut.exhausted?.run.status === 'FAILED' && !metricOut.exhausted.cancelled && /token 预算/.test(metricOut.exhausted.error), '真实 IPC 超 token 预算返回失败并区别于取消');
+      t(metricOut.budgetRecord?.usage.tokens === 120001 && metricOut.exhausted.accepted.length === 0, '超预算实际消耗落盘，超预算候选不通过');
+      t(metricOut.exhausted?.rounds === 1 && usageRequests === 4, '预算耗尽后不发起第二轮请求（正常 1＋反转重生成 2＋超预算 1）');
+    } finally { await new Promise(r => meteredServer.close(r)); }
+  }
+
+  // 账号切换：两个真实账号与挂起的 HTTP 模型请求，验证登出、直接登录及无效恢复。
+  try {
+    const http = require('http');
+    let requests = 0, closed = 0;
+    const pendingResponses = new Set();
+    const accountServer = http.createServer((req, res) => {
+      requests++;
+      pendingResponses.add(res);
+      req.resume();
+      res.on('close', () => { closed++; pendingResponses.delete(res); });
+    });
+    await new Promise((resolve) => accountServer.listen(0, '127.0.0.1', resolve));
+    try {
+      await win.webContents.executeJavaScript(`(async () => {
+        const a = await window.api.auth.register({ email: 'account-review-a@test.local', password: 'pass123456', name: '账号切换甲' });
+        const b = await window.api.auth.register({ email: 'account-review-b@test.local', password: 'pass123456', name: '账号切换乙' });
+        if (!a.ok || !b.ok) throw new Error(a.error || b.error);
+        return true;
+      })()`);
+      for (const mode of ['pipeline', 'agentic']) for (const action of ['logout', 'login', 'invalidSession']) {
+        const beforeRequests = requests, beforeClosed = closed;
+        const runId = 'run_account_' + mode + '_' + action;
+        await win.webContents.executeJavaScript(`(async () => {
+          const a = await window.api.auth.login({ email: 'account-review-a@test.local', password: 'pass123456' });
+          if (!a.ok) throw new Error(a.error);
+          window.__accountReviewA = a.data;
+          await window.api.settings.save('agent', { provider: 'cloud', endpoint: 'http://127.0.0.1:${accountServer.address().port}/v1', model: 'account-fixture', apiKey: 'sk-account-fixture' });
+          window.__accountReviewEvents = [];
+          window.__accountReviewStops = [window.api.agent.onProgress((e) => window.__accountReviewEvents.push(e)),
+            window.api.agent.onStream((e) => window.__accountReviewEvents.push(e))];
+          const profile = { skills: 'Java', projects: [{ name: '甲账号订单', tech: 'Java', description: '开发甲账号订单接口，支撑 100QPS' }], internships: [] };
+          window.__accountReviewRun = window.api.agent.run(profile, 'Java 后端', { mode: '${mode}', runId: '${runId}' });
+          return true;
+        })()`);
+        for (let n = 0; n < 100 && requests === beforeRequests; n++) await sleep(25);
+        if (requests === beforeRequests) throw new Error(mode + '/' + action + ' 未发出模型请求');
+        const switched = await win.webContents.executeJavaScript(`(async () => {
+          let actionOk = true;
+          if ('${action}' === 'logout') actionOk = (await window.api.auth.logout(window.__accountReviewA.token)).ok;
+          if ('${action}' === 'invalidSession') {
+            const invalid = await window.api.auth.session('invalid-account-review-token');
+            const profile = await window.api.profile.get(window.__accountReviewA.id);
+            actionOk = invalid.ok && invalid.data === null && !profile.ok;
+          }
+          const b = await window.api.auth.login({ email: 'account-review-b@test.local', password: 'pass123456' });
+          if (!b.ok) throw new Error(b.error);
+          window.__accountReviewEvents = [];
+          const reply = await window.__accountReviewRun;
+          await new Promise((resolve) => setTimeout(resolve, 150));
+          const events = window.__accountReviewEvents.length;
+          window.__accountReviewStops.forEach((stop) => stop());
+          const bRuns = await window.api.agent.runs(50);
+          await window.api.auth.login({ email: 'account-review-a@test.local', password: 'pass123456' });
+          const rec = await window.api.agent.getRun('${runId}');
+          return { actionOk, replyOk: reply.ok, replyError: reply.error, events,
+            leaksResult: JSON.stringify(reply).includes('甲账号订单'), bRuns: bRuns.data.length,
+            oldStatus: rec.data && rec.data.status };
+        })()`);
+        const label = mode + '/' + action;
+        t(switched.actionOk, label + '：退出或会话切换操作正常');
+        t(switched.replyOk === false && /登录账号已变化/.test(switched.replyError) && !switched.leaksResult,
+          label + '：旧运行最终响应不向新账号返回原始数据');
+        t(switched.oldStatus === 'CANCELLED', label + '：旧运行取消状态保存到原账号');
+        t(switched.events === 0 && switched.bRuns === 0, label + '：新账号收不到旧运行事件和记录');
+        for (let n = 0; n < 100 && closed === beforeClosed; n++) await sleep(25);
+        t(closed > beforeClosed, label + '：账号切换中断挂起的模型 HTTP 请求');
+      }
+      await win.webContents.executeJavaScript(`window.api.auth.login({ email: 'smoke@test.local', password: 'pass123456' })`);
+    } finally {
+      pendingResponses.forEach((res) => res.destroy());
+      await new Promise((resolve) => accountServer.close(resolve));
+    }
+  } catch (err) { t(false, '账号切换 IPC 检查失败：' + err.message); }
   // 安全加固：CSP 收紧 + 导航守卫。这两条是「万一将来漏了一处注入」时的最后一道防线，
   // 所以不能只做静态检查，要真的插一段内联脚本、真的跳一次远端，看结果。
   try {

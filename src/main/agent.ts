@@ -12,6 +12,10 @@ import * as engine from './resume-engine';
 import { AI_CLICHES, EMPTY_ADJECTIVES, ROLE_SKILLS } from './lexicon';
 import { loadPrompt, promptVersion, promptVersions } from './prompts';
 import { retrieveKnowledge } from './retrieval';
+import {
+  createProfileEvidence, evidencePayload, evidenceReference, sourcesForRewrite, resolveEvidence,
+  type ProfileEvidence, type EvidenceMode
+} from './resume-evidence';
 import type {
   Profile, Resume, Domain, AgentStep, AcceptedRewrite, RejectedRewrite,
   PipelineResult, AgenticResult, LlmClient, ChatMessage,
@@ -21,14 +25,20 @@ import type {
 // 这一层只负责「简历领域」的适配（工具实现、完成度口径、收尾复测）。
 import {
   runAgentRuntime,
-  buildInputSnapshot
+  buildInputSnapshot,
+  awaitWithSignal,
+  DEFAULT_BUDGET,
+  emptyUsage,
+  redactValue
 } from '../../packages/agent-core/dist/index';
 import type {
   RuntimeAdapter,
   ToolSpec as CoreToolSpec,
   JsonSchemaLite as CoreJsonSchema,
   RunStore,
-  CompletionCheck
+  CompletionCheck,
+  RunRecord,
+  TraceEntry
 } from '../../packages/agent-core/dist/index';
 
 // 评测与 CLI 需要记录「这轮跑的是哪版提示词」，所以从这里转出去
@@ -118,6 +128,13 @@ export function applyRewrites(profile: Partial<Profile>, accepted: AcceptedRewri
 // 界面上的复测分数是按引擎结果算的、存进档案的却是另一套结果，用户在简历里看到的就是乱的）。
 // description 统一归一化成字符串：导入器会产出 string[]，模板与后续处理都按字符串走。
 export function applyRewritesToProfile(profile: Partial<Profile>, accepted: AcceptedRewrite[]): Partial<Profile> {
+  for (const rewrite of accepted) {
+    const evidence = resolveEvidence(profile, rewrite.id, rewrite.evidence || []);
+    const anchor = evidence.sources.find((s) => s.id === (rewrite.id === 'summary-b0' ? 'summary' : rewrite.id));
+    if (!anchor || anchor.text !== rewrite.old) throw new Error('原始条目已变化，请重新优化后再应用');
+    const checked = validateRewrites(buildTaskItems(profile), [rewrite], profile, undefined, evidence);
+    if (checked.rejected.length) throw new Error(checked.rejected[0]!.reason);
+  }
   const map = applyRewrites(profile, accepted);
   const out = JSON.parse(JSON.stringify(profile || {})) as Profile & { projects?: ExperienceEntry[]; internships?: ExperienceEntry[] };
   if (map.summary != null) out.summary = map.summary as string;
@@ -136,13 +153,111 @@ interface ValidationOutcome { accepted: AcceptedRewrite[]; rejected: RejectedRew
 
 // 把文本里的数字连同紧随其后的单位抽成 token（「3 万」「800ms」「50%」「2.5 倍」）。
 // 数字保全校验按 token 比对，而不是「有没有数字」——后者挡不住 3 万 → 30 万这种改法。
-const NUM_TOKEN_RE = /\d+(?:[.,]\d+)?\s*(?:%|‰|万|亿|千|百|k|K|w|W|ms|MS|s|S|秒|分钟|小时|天|周|月|年|人|次|个|条|倍|元|美元|GB|MB|KB|TB|QPS|qps|G|M)?/g;
+const NUM_TOKEN_RE = /[+\-−]?\d+(?:[.,]\d+)?\s*(?:%|‰|万|亿|千|百|k|K|w|W|ms|MS|s|S|秒|分钟|小时|天|周|月|年|人|次|个|条|倍|元|美元|GB|MB|KB|TB|QPS|qps|G|M)?/g;
+
+// 岗位匹配中的「缓存→Redis」「数据库设计→MySQL」只能用于相关度，不能证明实际使用了具体产品。
+const CONCRETE_TECHNOLOGIES: Array<readonly [string, string[]]> = [
+  ['redis', ['redis']], ['mysql', ['mysql']], ['postgresql', ['postgres', 'postgresql']],
+  ['sqlite', ['sqlite']], ['docker', ['docker']], ['kubernetes', ['k8s', 'kubernetes']],
+  ['kafka', ['kafka']], ['rabbitmq', ['rabbitmq']], ['vllm', ['vllm']],
+  ['vue', ['vue', 'vue.js', 'vue3']], ['react', ['react', 'react.js']],
+  ['excel', ['excel']], ['java', ['java']], ['python', ['python']],
+  ['javascript', ['javascript', 'js', 'es6']], ['typescript', ['typescript', 'ts']],
+  ['pytorch', ['pytorch']], ['tensorflow', ['tensorflow']], ['spring', ['spring', 'spring boot', 'springboot', 'spring mvc', 'ssm']]
+];
 
 export function numberTokens(text: string): string[] {
   return (String(text || '').match(NUM_TOKEN_RE) || []).map((s) => s.replace(/\s+/g, ''));
 }
 
-export function validateRewrites(items: TaskItem[], rewrites: Array<{ id?: unknown; text?: unknown }>): ValidationOutcome {
+interface NumberTransition { before: string; after: string; direction: 'up' | 'down' | null; metric: string | null }
+
+function transitionMetric(prefix: string): string | null {
+  const groups = [
+    ['p99', /p99/gi], ['p95', /p95/gi], ['吞吐', /吞吐(?:量)?|qps|throughput/gi],
+    ['延迟', /响应(?:时间|耗时|延迟)?|延迟|时延|latency/gi], ['耗时', /耗时|用时|处理时间/gi],
+    ['命中率', /命中率|hit\s*rate/gi], ['差错率', /差错率|错误率|error\s*rate/gi],
+    ['准确率', /准确率|accuracy/gi], ['转化率', /转化率/gi], ['召回率', /召回率|recall/gi]
+  ] as const;
+  let metric: string | null = null, last = -1;
+  for (const [name, regex] of groups) for (const match of prefix.matchAll(regex)) {
+    if (match.index! > last) { metric = name; last = match.index!; }
+  }
+  return metric;
+}
+
+// 只识别显式前后关系，不把同一句里碰巧出现的两个数字连成变化指标。
+function numberTransitions(text: string): NumberTransition[] {
+  const nums = Array.from(text.matchAll(NUM_TOKEN_RE));
+  const transitions: NumberTransition[] = [];
+  const beforeLabel = /(?:优化前|改进前|此前|之前|原先|原来|原为|before)\s*[:：]?\s*$/i;
+  const afterLabel = /(?:优化后|改进后|之后|现在|现为|after)\s*[:：]?\s*$/i;
+  for (let i = 1; i < nums.length; i++) {
+    const a = nums[i - 1]!, b = nums[i]!;
+    const gap = text.slice(a.index! + a[0].length, b.index!);
+    const prefix = text.slice(Math.max(0, a.index! - 24), a.index!);
+    const metric = transitionMetric(prefix.split(/[，,；;。\n]/).pop() || '');
+    const valueA = a[0].replace(/\s+/g, '').toLowerCase();
+    const valueB = b[0].replace(/\s+/g, '').toLowerCase();
+    if (/^\s*(?:降(?:低)?|减(?:少)?|升(?:高)?|提(?:升|高)|增(?:长|加)?|缩(?:短|减|小)|压缩|扩大|优化|变)?(?:到|至|为|成)\s*$/i.test(gap) ||
+        /^\s*(?:to|→|⇒|[-=]>)\s*$/i.test(gap)) {
+      const direction = /降|减|缩|压缩/.test(gap) ? 'down' : /升|提|增|扩大/.test(gap) ? 'up' : null;
+      transitions.push({ before: valueA, after: valueB, direction, metric });
+    } else if (beforeLabel.test(prefix) && afterLabel.test(gap) && /^[\s，,；;（(]*(?:优化后|改进后|之后|现在|现为|after)/i.test(gap)) {
+      transitions.push({ before: valueA, after: valueB, direction: null, metric });
+    } else if (afterLabel.test(prefix) && beforeLabel.test(gap) && /^[\s，,；;（(]*(?:优化前|改进前|此前|之前|原先|原来|原为|before)/i.test(gap)) {
+      transitions.push({ before: valueB, after: valueA, direction: null, metric });
+    }
+  }
+  return transitions.map((transition) => {
+    const before = transition.before.replace('−', '-').match(/^([+\-]?\d+(?:\.\d+)?)(.*)$/);
+    const after = transition.after.replace('−', '-').match(/^([+\-]?\d+(?:\.\d+)?)(.*)$/);
+    const delta = before && after && before[2] === after[2] ? Number(after[1]) - Number(before[1]) : 0;
+    return { ...transition, direction: transition.direction ?? (delta > 0 ? 'up' : delta < 0 ? 'down' : null) };
+  });
+}
+
+function sameTransition(a: NumberTransition, b: NumberTransition): boolean {
+  return a.before === b.before && a.after === b.after &&
+    a.metric === b.metric &&
+    (a.direction == null || b.direction == null || a.direction === b.direction);
+}
+
+function reportedTokens(usage: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number }): number | null {
+  const valid = (n: unknown): n is number => typeof n === 'number' && Number.isFinite(n) && n >= 0;
+  if (valid(usage.total_tokens)) return usage.total_tokens;
+  const parts = [usage.prompt_tokens, usage.completion_tokens].filter(valid);
+  return parts.length ? parts.reduce((a, b) => a + b, 0) : null;
+}
+
+/** 只把检索来源中明确出现、且 JD 要求的具体技术映射到同一条经历。 */
+export function profileSkillHints(items: TaskItem[], jd: string, evidence: ProfileEvidence): Array<{
+  id: string; skills: Array<{ name: string; sourceId: string }>;
+}> {
+  return items.flatMap((item) => item.lines.map((_line, j) => {
+    const id = item.id === 'summary' ? 'summary' : item.id + '-b' + j;
+    const support = sourcesForRewrite(evidence, id);
+    const skills = CONCRETE_TECHNOLOGIES.flatMap(([name, aliases]) => {
+      if (!aliases.some((alias) => engine.aliasMatcher(alias)(jd.toLowerCase()))) return [];
+      const source = support.find((s) => evidence.retrieved.some((hit) => hit.id === s.id) &&
+        aliases.some((alias) => engine.aliasMatcher(alias)(s.text.toLowerCase())));
+      return source ? [{ name, sourceId: source.id }] : [];
+    });
+    return { id, skills };
+  })).filter((hint) => hint.skills.length);
+}
+
+export function validateRewrites(
+  items: TaskItem[], rewrites: Array<{ id?: unknown; text?: unknown }>, profile?: Partial<Profile>, jdText?: string,
+  evidence?: ProfileEvidence
+): ValidationOutcome {
+  // 使用原始档案与同一份技能别名表，不依赖模型先调用 analyze_jd。
+  const source = profile ? JSON.stringify(resumeLike(profile)).toLowerCase() : null;
+  const jdLower = jdText?.toLowerCase();
+  const unsupported = source == null ? [] : Array.from(LABEL_ALIASES).filter(([, aliases]) =>
+    (!jdLower || aliases.some((alias) => engine.aliasMatcher(alias)(jdLower))) &&
+    !aliases.some((alias) => engine.aliasMatcher(alias)(source))
+  );
   const byId = new Map<string, { it: TaskItem; j: number; text: string }>();
   items.forEach((it) => {
     if (it.id === 'summary') {
@@ -174,8 +289,7 @@ export function validateRewrites(items: TaskItem[], rewrites: Array<{ id?: unkno
     // 旧实现只判断「原文有数字、改写里还有没有数字」——于是 3 万 → 30 万、
     // 800ms → 1200ms、50% → 5% 全部放行，而这恰是「为了让简历好看把数字改大」
     // 这类失真最典型的形态，等于把项目最核心的承诺（不篡改数字）让掉了。
-    // 只判「丢没丢」，不判「多没多」：改写补充原文没有的量化数据是允许的
-    // （用户自己会看到并对内容负责），凭空改小/改大原文的数字不行。
+    // 原文数字必须保全；运行链路的来源校验还会拦截没有档案证据的新增数字。
     const oldNums = numberTokens(target.text);
     if (oldNums.length) {
       const newNums = numberTokens(text);
@@ -184,6 +298,26 @@ export function validateRewrites(items: TaskItem[], rewrites: Array<{ id?: unkno
         rejected.push({ id, reason: '数字被改动或丢失：' + lost.slice(0, 4).join('、') });
         return;
       }
+    }
+    const support = evidence ? sourcesForRewrite(evidence, id) : [];
+    const supportedNumbers = support.length ? support.flatMap((s) => numberTokens(s.text)) : oldNums;
+    const extraNumbers = numberTokens(text).filter((n) => !supportedNumbers.includes(n));
+    if (extraNumbers.length) {
+      rejected.push({ id, reason: '新增数字缺少经历证据：' + Array.from(new Set(extraNumbers)).slice(0, 4).join('、') });
+      return;
+    }
+    const originalTransitions = numberTransitions(target.text);
+    const rewrittenTransitions = numberTransitions(text);
+    const lostTransition = originalTransitions.find((old) => !rewrittenTransitions.some((next) => sameTransition(old, next)));
+    if (lostTransition) {
+      rejected.push({ id, reason: '数字前后关系被改动或丢失：' + lostTransition.before + '→' + lostTransition.after });
+      return;
+    }
+    const supportedTransitions = support.length ? support.flatMap((s) => numberTransitions(s.text)) : originalTransitions;
+    const extraTransition = rewrittenTransitions.find((next) => !supportedTransitions.some((old) => sameTransition(old, next)));
+    if (extraTransition) {
+      rejected.push({ id, reason: '新增数字前后关系缺少经历证据：' + extraTransition.before + '→' + extraTransition.after });
+      return;
     }
 
     // 体检不退步：单条去 AI 味评分必须不低于原文
@@ -194,7 +328,46 @@ export function validateRewrites(items: TaskItem[], rewrites: Array<{ id?: unkno
       return;
     }
 
-    accepted.push({ id, old: target.text, text });
+    const fabricated = unsupported.find(([, aliases]) =>
+      aliases.some((alias) => engine.aliasMatcher(alias)(text.toLowerCase()))
+    );
+    if (fabricated) {
+      rejected.push({ id, reason: '疑似编造技能「' + fabricated[0] + '」：你的档案里没有（确实会的话请先把技能加进档案）' });
+      return;
+    }
+    let refs: AcceptedRewrite['evidence'];
+    if (evidence) {
+      const targetId = id === 'summary-b0' ? 'summary' : id;
+      if (!support.length) { rejected.push({ id, reason: '没有对应的用户原始经历证据' }); return; }
+      const supportedText = support.map((s) => s.text.toLowerCase()).join('\n');
+      const evidenceAliases = [...CONCRETE_TECHNOLOGIES, ...Array.from(LABEL_ALIASES).map(([label, aliases]) =>
+        [label, label === 'vllm' ? ['vllm'] : aliases] as const)];
+      const newSkill = evidenceAliases.find(([, aliases]) =>
+        aliases.some((alias) => engine.aliasMatcher(alias)(text.toLowerCase())) &&
+        !aliases.some((alias) => engine.aliasMatcher(alias)(supportedText)));
+      if (newSkill) {
+        rejected.push({ id, reason: '缺少本条经历证据：技能「' + newSkill[0] + '」未在对应原文或本项目检索来源中出现；个人技能和其他项目不能代替本项目经历' });
+        return;
+      }
+      const anchor = support[0]!;
+      const used = new Map([[anchor.id, anchor]]);
+      evidenceAliases.forEach(([, aliases]) => {
+        if (!aliases.some((alias) => engine.aliasMatcher(alias)(text.toLowerCase())) ||
+            aliases.some((alias) => engine.aliasMatcher(alias)(anchor.text.toLowerCase()))) return;
+        const source = support.find((s) => aliases.some((alias) => engine.aliasMatcher(alias)(s.text.toLowerCase())));
+        if (source) used.set(source.id, source);
+      });
+      numberTokens(text).filter((n) => !oldNums.includes(n)).forEach((n) => {
+        const source = support.find((s) => numberTokens(s.text).includes(n));
+        if (source) used.set(source.id, source);
+      });
+      rewrittenTransitions.filter((next) => !originalTransitions.some((old) => sameTransition(old, next))).forEach((next) => {
+        const source = support.find((s) => numberTransitions(s.text).some((old) => sameTransition(old, next)));
+        if (source) used.set(source.id, source);
+      });
+      refs = Array.from(used.values()).map(evidenceReference);
+    }
+    accepted.push({ id: id === 'summary-b0' ? 'summary' : id, old: target.text, text, ...(refs ? { evidence: refs } : {}) });
   });
 
   return { accepted, rejected };
@@ -283,7 +456,8 @@ export function buildRewriteMessages(
   jdAnalysis: MatchJdResult,
   items: TaskItem[],
   feedback: string,
-  omittedCount: number
+  omittedCount: number,
+  evidence?: ProfileEvidence
 ): ChatMessage[] {
   const lines: string[] = [];
   lines.push('【目标岗位 JD】');
@@ -305,6 +479,15 @@ export function buildRewriteMessages(
   });
   if (omittedCount > 0) {
     lines.push('（另有 ' + omittedCount + ' 段经历与该 JD 相关度低，本轮未送入，不要为其生成改写）');
+  }
+  if (evidence) {
+    lines.push('');
+    lines.push('【从用户原始档案检索的经历证据】');
+    lines.push('<<<PROFILE_EVIDENCE');
+    lines.push(JSON.stringify(evidencePayload(evidence)));
+    lines.push('PROFILE_EVIDENCE>>>');
+    lines.push('【有用户经历证据的 JD 技能】（id 为改写目标，sourceId 为事实来源）');
+    lines.push(JSON.stringify(profileSkillHints(items, jdText, evidence)));
   }
   lines.push('');
   // 改写纪律与输出格式来自 prompts/rewrite-rules-vN.txt：
@@ -423,6 +606,10 @@ function brief(tool: string, out: unknown): string {
     const r = out as { mode?: string; results?: unknown[]; note?: string };
     return String(r.mode || 'retrieval') + ' 返回 ' + ((r.results && r.results.length) || 0) + ' 条';
   }
+  if (tool === 'retrieve_profile_evidence') {
+    const r = out as { results?: unknown[] };
+    return '用户档案来源 ' + (r.results?.length || 0) + ' 条';
+  }
   return '完成';
 }
 
@@ -436,6 +623,15 @@ export interface AgentRunOptions {
   maxSteps?: number;    // agentic：工具调用步数上限
   onStep?: (s: AgentStep) => void;
   onChunk?: (piece: string, round: number) => void;
+  signal?: AbortSignal;
+  runId?: string;
+  taskId?: string;
+  runStore?: RunStore;
+  storeTraceArgs?: boolean;
+  maxDurationMs?: number;
+  maxTokens?: number;
+  /** none 仅保留目标原文作为事实依据；bm25 额外检索同一用户档案。 */
+  evidenceMode?: EvidenceMode;
   // 零下载通道：不调用任何模型，改写由确定性规则引擎产出，
   // 其余步骤（JD 分析 / 体检 / 校验门 / 复测 / 应用）完全一致
   rulesOnly?: boolean;
@@ -472,118 +668,203 @@ export async function runAgent(profile: Partial<Profile>, jdText: string, opts: 
   const maxRounds = rulesOnly ? 1 : Math.max(1, o.maxRounds || 2);
   const onStep = typeof o.onStep === 'function' ? o.onStep : null;
   const steps: AgentStep[] = [];
+  const trace: TraceEntry[] = [];
+  const jd = engine._clean(jdText);
+  if (!jd) throw new Error('请先提供职位描述（JD）');
+  const items = buildTaskItems(profile);
+  if (!items.length) throw new Error('档案中没有可改写的经历条目');
+  const evidence = createProfileEvidence(profile, jd, rulesOnly ? 'none' : o.evidenceMode || 'bm25');
+  const startedAt = Date.now();
+  const runId = o.runId || ('run_' + startedAt.toString(36) + '_' + Math.random().toString(36).slice(2, 8));
+  const controller = new AbortController();
+  const forwardAbort = (): void => controller.abort();
+  if (o.signal?.aborted) controller.abort();
+  else o.signal?.addEventListener('abort', forwardAbort, { once: true });
+  const budget = { ...DEFAULT_BUDGET, maxDurationMs: o.maxDurationMs ?? DEFAULT_BUDGET.maxDurationMs,
+    maxTokens: o.maxTokens ?? DEFAULT_BUDGET.maxTokens };
+  const usage = emptyUsage();
+  let timedOut = false;
+  let tokenBudgetExceeded = false;
+  const tokenBudgetMessage = (): string => 'token 预算已用尽（' + usage.tokens + '/' + budget.maxTokens + '）';
+  const deadline = setTimeout(() => { timedOut = true; controller.abort(); }, budget.maxDurationMs);
+  const checkStopped = (): void => {
+    if (Date.now() - startedAt >= budget.maxDurationMs) timedOut = true;
+    if (!o.signal?.aborted && !timedOut && !rulesOnly && usage.tokens >= budget.maxTokens) {
+      tokenBudgetExceeded = true;
+      const err = new Error(tokenBudgetMessage());
+      err.name = 'BudgetError';
+      throw err;
+    }
+    if (o.signal?.aborted || controller.signal.aborted || timedOut) {
+      const err = new Error(timedOut && !o.signal?.aborted ? '运行超时' : '运行已取消');
+      err.name = timedOut && !o.signal?.aborted ? 'TimeoutError' : 'AbortError';
+      throw err;
+    }
+  };
 
-  async function timedStep<T>(tool: string, label: string, fn: () => Promise<T>): Promise<T> {
+  async function timedStep<T>(tool: string, label: string, fn: () => Promise<T>, tokens?: () => number | null): Promise<T> {
+    checkStopped();
     const t0 = Date.now();
     try {
-      const out = await fn();
+      const out = await awaitWithSignal(fn, controller.signal);
       const s: AgentStep = { tool, label, ok: true, ms: Date.now() - t0, detail: brief(tool, out) };
       steps.push(s);
+      trace.push({ runId, stepId: steps.length, tool, inputSummary: '',
+        outputSummary: JSON.stringify(redactValue(out)).slice(0, 200), latencyMs: s.ms,
+        retryCount: 0, tokens: tokens?.() ?? null, errorType: null, startedAt: t0 });
       if (onStep) onStep(s);
       return out;
     } catch (err) {
-      const s: AgentStep = { tool, label, ok: false, ms: Date.now() - t0, detail: err instanceof Error ? err.message : String(err) };
+      const s: AgentStep = { tool, label, ok: false, ms: Date.now() - t0,
+        detail: tokenBudgetExceeded ? tokenBudgetMessage() : err instanceof Error ? err.message : String(err) };
       steps.push(s);
+      trace.push({ runId, stepId: steps.length, tool, inputSummary: '',
+        outputSummary: JSON.stringify(redactValue(s.detail)), latencyMs: s.ms,
+        retryCount: 0, tokens: tokens?.() ?? null, errorType: timedOut ? 'timeout' : tokenBudgetExceeded ? 'budget' : 'runtime', startedAt: t0 });
       if (onStep) onStep(s);
       throw err;
     }
   }
 
-  const jd = engine._clean(jdText);
-  if (!jd) throw new Error('请先提供职位描述（JD）');
-
-  const items = buildTaskItems(profile);
-  if (!items.length) throw new Error('档案中没有可改写的经历条目');
-
-  // ---- 第 1 步：分析 JD ----
-  const jdBefore = await timedStep('analyze_jd', '分析 JD 技能要求', () =>
-    Promise.resolve(engine.matchJd(resumeLike(profile), jd)));
-
-  // ---- 第 1.5 步：上下文预算裁剪 ----
+  const jdBefore = engine.matchJd(resumeLike(profile), jd);
   const ctx = selectItemsForPrompt(items, jdBefore);
-  const ctxStep: AgentStep = {
-    tool: 'context',
-    label: '上下文预算裁剪',
-    ok: true, ms: 0,
-    detail: '送入 ' + ctx.selected.length + ' 条' +
-      (ctx.omitted ? '，省略 ' + ctx.omitted + ' 条低相关' : '') +
-      (ctx.truncated ? '，截断 ' + ctx.truncated + ' 条超长' : '')
-  };
-  steps.push(ctxStep);
-  if (onStep) onStep(ctxStep);
-
-  // ---- 第 2 步：体检原始条目 ----
   const rawText = items.map((it) => it.lines.join('\n')).join('\n');
-  const auditBefore = await timedStep('audit_text', '体检原始条目', () =>
-    Promise.resolve(engine.auditAiFlavor(rawText)));
-
-  // ---- 第 3 步：改写 + 校验门 + 重生成回路（规则通道为单轮、无模型）----
+  const auditBefore = engine.auditAiFlavor(rawText);
   let accepted: AcceptedRewrite[] = [];
   let rejected: RejectedRewrite[] = [];
   let rounds = 0;
   let llmError: string | null = null;
-
-  for (let round = 1; round <= maxRounds; round++) {
-    rounds = round;
-    const feedback = round > 1 ? buildFeedback(rejected) : '';
-
-    let parsed: { rewrites?: unknown } | null;
-    if (rulesOnly) {
-      // 零下载通道：确定性规则产出候选，同样要过下面的校验门
-      parsed = await timedStep('rule_rewrite', '规则改写条目（第 ' + round + ' 轮 · 无模型）', () =>
-        Promise.resolve({ rewrites: buildRuleRewrites(items, jdBefore.domain) }));
-    } else {
-      const messages = buildRewriteMessages(profile, jd, jdBefore, ctx.selected, feedback, ctx.omitted);
-      let content: string;
-      try {
-        content = await timedStep('llm_rewrite', 'LLM 改写条目（第 ' + round + ' 轮）', () =>
-          llmClient.chat(messages, o.onChunk ? { onChunk: (piece) => o.onChunk!(piece, round) } : undefined) as Promise<string>);
-      } catch (err) {
-        llmError = err instanceof Error ? err.message : String(err);
-        break;
-      }
-      parsed = parseJsonLoose(content);
-    }
-
-    if (!parsed || !Array.isArray(parsed.rewrites)) {
-      rejected = [{ id: '-', reason: (rulesOnly ? '规则' : 'LLM') + '输出不是合法 JSON' }];
-      continue;
-    }
-
-    const v = await timedStep('validate_rewrites', '确定性校验（第 ' + round + ' 轮）', () =>
-      Promise.resolve(validateRewrites(items, parsed.rewrites as Array<{ id?: unknown; text?: unknown }>)));
-    accepted = accepted.concat(v.accepted);
-    rejected = v.rejected;
-
-    if (!rejected.length) break;
-
-    const byId = new Map<string, AcceptedRewrite>();
-    accepted.forEach((a) => byId.set(a.id, a));
-    accepted = Array.from(byId.values());
-  }
-
-  // ---- 第 4 步：复测 ----
+  let cancelled = false;
   let auditAfterScore = auditBefore.score;
   let jdAfterScore = jdBefore.score;
-  // 复测后的「仍缺失技能」必须取自改写后的 matchJd 结果：
-  // 沿用改写前的 missing 会提示用户去补一项刚刚已经补上的技能
   let jdMissingAfter = jdBefore.missing.map((m) => m.label);
-  if (accepted.length) {
+
+  async function recheck(): Promise<void> {
+    if (!accepted.length) return;
     const bulletMap = applyRewrites(profile, accepted);
     const afterText = items.map((it) =>
       (it.id === 'summary' ? [bulletMap.summary as string] : bulletMap[it.id] as string[]).join('\n')
     ).join('\n');
-    auditAfterScore = (await timedStep('audit_text', '复体检（改写后）', () =>
-      Promise.resolve(engine.auditAiFlavor(afterText)))).score;
-    const afterMatch = await timedStep('analyze_jd', '复测 JD 覆盖（改写后）', () =>
-      Promise.resolve(engine.matchJd(resumeLike(profile, bulletMap), jd)));
+    const afterAudit = engine.auditAiFlavor(afterText);
+    const afterMatch = engine.matchJd(resumeLike(profile, bulletMap), jd);
+    // 取消后只复测已有候选，保留可用结果。
+    auditAfterScore = afterAudit.score;
     jdAfterScore = afterMatch.score;
     jdMissingAfter = afterMatch.missing.map((m) => m.label);
+    if (!cancelled && !llmError) {
+      await timedStep('audit_text', '复体检（改写后）', () => Promise.resolve(afterAudit));
+      await timedStep('analyze_jd', '复测 JD 覆盖（改写后）', () => Promise.resolve(afterMatch));
+      checkStopped();
+    }
+  }
+
+  try {
+    // ---- 第 1 步：分析 JD ----
+    await timedStep('analyze_jd', '分析 JD 技能要求', () => Promise.resolve(jdBefore));
+    await timedStep('retrieve_profile_evidence', '检索用户原始经历来源', () => Promise.resolve(evidencePayload(evidence)));
+    // ---- 第 1.5 步：上下文预算裁剪 ----
+    const ctxStep: AgentStep = {
+      tool: 'context',
+      label: '上下文预算裁剪',
+      ok: true, ms: 0,
+      detail: '送入 ' + ctx.selected.length + ' 条' +
+        (ctx.omitted ? '，省略 ' + ctx.omitted + ' 条低相关' : '') +
+        (ctx.truncated ? '，截断 ' + ctx.truncated + ' 条超长' : '')
+    };
+    steps.push(ctxStep);
+    if (onStep) onStep(ctxStep);
+
+    // ---- 第 2 步：体检原始条目 ----
+    await timedStep('audit_text', '体检原始条目', () => Promise.resolve(auditBefore));
+
+    // ---- 第 3 步：改写 + 校验门 + 重生成回路（规则通道为单轮、无模型）----
+    for (let round = 1; round <= maxRounds; round++) {
+      checkStopped();
+      rounds = round;
+      const feedback = round > 1 ? buildFeedback(rejected) : '';
+
+      let parsed: { rewrites?: unknown } | null;
+      if (rulesOnly) {
+        // 零下载通道：确定性规则产出候选，同样要过下面的校验门
+        parsed = await timedStep('rule_rewrite', '规则改写条目（第 ' + round + ' 轮 · 无模型）', () =>
+          Promise.resolve({ rewrites: buildRuleRewrites(items, jdBefore.domain) }));
+      } else {
+        const messages = buildRewriteMessages(profile, jd, jdBefore, ctx.selected, feedback, ctx.omitted, evidence);
+        const previousTokens = usage.tokens;
+        let requestTokens: number | null = null;
+        const content = await timedStep('llm_rewrite', 'LLM 改写条目（第 ' + round + ' 轮）', () =>
+          llmClient.chat(messages, { signal: controller.signal,
+            onChunk: o.onChunk ? (piece) => { if (!controller.signal.aborted) o.onChunk!(piece, round); } : undefined,
+            onUsage: (reported) => {
+              if (controller.signal.aborted) return;
+              const total = reportedTokens(reported);
+              if (total != null) {
+                requestTokens = total;
+                // 流式用量是当前请求的累计值，多次上报不能重复相加。
+                usage.tokens = previousTokens + total;
+                if (usage.tokens >= budget.maxTokens) {
+                  tokenBudgetExceeded = true;
+                  controller.abort();
+                }
+              }
+            } }) as Promise<string>, () => requestTokens);
+        checkStopped();
+        parsed = parseJsonLoose(content);
+      }
+
+      if (!parsed || !Array.isArray(parsed.rewrites)) {
+        rejected = [{ id: '-', reason: (rulesOnly ? '规则' : 'LLM') + '输出不是合法 JSON' }];
+        continue;
+      }
+
+      const v = await timedStep('validate_rewrites', '确定性校验（第 ' + round + ' 轮）', () =>
+        Promise.resolve(validateRewrites(items, parsed.rewrites as Array<{ id?: unknown; text?: unknown }>, profile, jd, evidence)));
+      accepted = accepted.concat(v.accepted);
+      rejected = v.rejected;
+      const byId = new Map<string, AcceptedRewrite>();
+      accepted.forEach((a) => byId.set(a.id, a));
+      accepted = Array.from(byId.values());
+      checkStopped();
+      if (!rejected.length) break;
+    }
+    await recheck();
+  } catch (err) {
+    cancelled = !!o.signal?.aborted || (!timedOut && !tokenBudgetExceeded && controller.signal.aborted);
+    llmError = cancelled ? '运行已取消（已完成的 ' + accepted.length + ' 条改写保留）'
+      : timedOut ? '运行超时' : tokenBudgetExceeded ? tokenBudgetMessage() : (err instanceof Error ? err.message : String(err));
+    const s: AgentStep = { tool: 'agent', label: cancelled ? '已取消' : tokenBudgetExceeded ? '预算耗尽' : '运行失败', ok: false,
+      ms: Date.now() - startedAt, detail: llmError };
+    steps.push(s);
+    if (onStep) onStep(s);
+    await recheck();
+  } finally {
+    clearTimeout(deadline);
+    o.signal?.removeEventListener('abort', forwardAbort);
   }
 
   const ok = accepted.length > 0 && !llmError;
+  usage.steps = steps.length;
+  usage.toolCalls = trace.length;
+  usage.ms = Date.now() - startedAt;
+  const run: RunRecord = {
+    runId, taskId: o.taskId || 'resume-optimize', status: cancelled ? 'CANCELLED' : ok ? 'COMPLETED' : 'FAILED',
+    currentStep: cancelled ? 'cancelled' : ok ? 'completed' : tokenBudgetExceeded ? 'budget' : 'failed', createdAt: startedAt,
+    startedAt, finishedAt: Date.now(), error: llmError, cancelReason: cancelled ? '用户取消' : null,
+    budget, usage, trace,
+    inputSnapshot: buildInputSnapshot({ itemCount: items.length,
+      sections: { projects: (profile.projects || []).length, internships: (profile.internships || []).length },
+      jd, profileDigestSource: JSON.stringify(profile) }),
+    result: { accepted: accepted.length, rejected: rejected.length,
+      evidenceSources: accepted.map((a) => ({ id: a.id, sources: (a.evidence || []).map((s) => ({ sourceId: s.sourceId, digest: s.digest })) })),
+      auditBefore: auditBefore.score,
+      auditAfter: auditAfterScore, jdBefore: jdBefore.score, jdAfter: jdAfterScore },
+    promptVersion: promptVersion(rulesOnly ? 'rewriteRules' : 'rewriteSystem')
+  };
+  o.runStore?.append(run);
   return {
     ok,
+    cancelled,
+    run,
     mode: rulesOnly ? 'rules' : 'pipeline',
     error: llmError,
     rounds,
@@ -614,9 +895,11 @@ export interface AgentCtx {
   audited?: boolean; // 是否调用过 audit_text（收工检查用：不能让「没体检」也算完成）
   /** 每个条目被提交过几次改写：判断「被拒之后有没有再试」（收工校验的 advisory 项要用） */
   attempts: Map<string, number>;
+  evidence?: ProfileEvidence;
 }
 
 export function buildAgentTools(ctx: AgentCtx): ToolSpec[] {
+  if (!ctx.evidence) ctx.evidence = createProfileEvidence(ctx.profile, ctx.jd);
   return [
     {
       name: 'analyze_jd',
@@ -625,6 +908,26 @@ export function buildAgentTools(ctx: AgentCtx): ToolSpec[] {
       run: () => {
         ctx.jdAnalysis = engine.matchJd(resumeLike(ctx.profile), ctx.jd);
         return ctx.jdAnalysis;
+      }
+    },
+    {
+      name: 'retrieve_profile_evidence',
+      description: '从当前用户原始档案检索事实来源，返回来源 id、字段位置、原文片段与摘要。项目改写只能引用同项目来源；没有来源时不要补写事实。',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', minLength: 1, description: '与目标 JD 或当前经历有关的技能和事项' },
+          topK: { type: 'number', description: '返回来源条数，1-10，默认 6' }
+        },
+        required: ['query']
+      },
+      run: (args) => {
+        const found = createProfileEvidence(ctx.profile, String(args.query || ''), ctx.evidence!.mode,
+          typeof args.topK === 'number' ? args.topK : 6);
+        const byId = new Map(ctx.evidence!.retrieved.map((s) => [s.id, s]));
+        found.retrieved.forEach((s) => byId.set(s.id, s));
+        ctx.evidence!.retrieved = Array.from(byId.values());
+        return evidencePayload(found);
       }
     },
     {
@@ -686,30 +989,14 @@ export function buildAgentTools(ctx: AgentCtx): ToolSpec[] {
           const key = raw === 'summary' ? 'summary' : raw;
           if (key) ctx.attempts.set(key, (ctx.attempts.get(key) || 0) + 1);
         });
-        const v = validateRewrites(ctx.items, list);
-        // 防幻觉（证据约束）：改写里出现「JD 明确要求、但档案里完全没有」的技能时拒收。
-        // 这是「为了匹配 JD 而编造技能」的典型形态，也是最严重的失真。
-        // 拒收而不是静默通过，等于把它交回人工确认：用户确实会的话，把技能写进档案再跑一次即可。
-        const missing = ctx.jdAnalysis ? ctx.jdAnalysis.missing.map((m) => m.label).filter(Boolean) : [];
-        const profileText = JSON.stringify(ctx.profile || {});
-        const fabricated: RejectedRewrite[] = [];
-        const acceptedNow = v.accepted.filter((a) => {
-          const bad = missing.find((skill) => a.text.includes(skill) && !profileText.includes(skill));
-          if (bad) {
-            fabricated.push({
-              id: a.id,
-              reason: '疑似编造技能「' + bad + '」：JD 要求但你的档案里没有（确实会的话请先把技能加进档案）'
-            });
-            return false;
-          }
-          return true;
-        });
-        acceptedNow.forEach((a) => ctx.accepted.set(a.id, a));
-        v.rejected.concat(fabricated).forEach((r) => ctx.rejected.push(r));
+        const v = validateRewrites(ctx.items, list, ctx.profile, ctx.jd, ctx.evidence);
+        v.accepted.forEach((a) => ctx.accepted.set(a.id, a));
+        v.rejected.forEach((r) => ctx.rejected.push(r));
         return {
-          accepted: acceptedNow.length,
-          rejected: v.rejected.concat(fabricated).map((r) => ({ id: r.id, reason: r.reason })),
-          hint: (v.rejected.length || fabricated.length)
+          accepted: v.accepted.length,
+          evidence: v.accepted.map((a) => ({ id: a.id, sources: a.evidence })),
+          rejected: v.rejected.map((r) => ({ id: r.id, reason: r.reason })),
+          hint: v.rejected.length
             ? '被拒收的条目请按 reason 修正后重新调用本工具'
             : '全部通过，可以提交结果'
         };
@@ -765,7 +1052,7 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
 
   const ctx: AgentCtx = {
     profile, jd, items, accepted: new Map(), rejected: [], jdAnalysis: null,
-    attempts: new Map()
+    attempts: new Map(), evidence: createProfileEvidence(profile, jd, o.evidenceMode || 'bm25')
   };
   const tools = buildAgentTools(ctx);
   const steps: AgentStep[] = [];
@@ -787,18 +1074,21 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
 
   const messages: ChatMessage[] = [
     { role: 'system', content: sysPrompt },
-    { role: 'user', content: userPrompt + '\n\n【目标 JD】\n<<<JD\n' + jd + '\nJD>>>' }
+    { role: 'user', content: userPrompt + '\n\n【目标 JD】\n<<<JD\n' + jd + '\nJD>>>\n\n<<<PROFILE_EVIDENCE\n' +
+      JSON.stringify(evidencePayload(ctx.evidence!)) + '\nPROFILE_EVIDENCE>>>\n【有用户经历证据的 JD 技能】\n' +
+      JSON.stringify(profileSkillHints(items, jd, ctx.evidence!)) }
   ];
 
   // 工具策略表：把「权限 / 超时 / 重试 / 幂等」显式写出来，而不是散在实现里。
-  // rewrite_bullets 标幂等：同样入参重复提交只是把同一批改写再写一遍（按 id 覆盖），
-  // 所以可以安全重试；而真正写入档案的动作在用户点「应用」时才发生（人工审批），
+  // rewrite_bullets 可安全重试（按 id 覆盖），但结果依赖已检索证据，不能缓存旧校验结果。
+  // 真正写入档案的动作在用户点「应用」时才发生（人工审批），
   // Agent 本身没有无约束写权限。
-  const POLICY: Record<string, { permission: 'readonly' | 'write'; timeoutMs: number; maxRetries: number; idempotent: boolean }> = {
+  const POLICY: Record<string, { permission: 'readonly' | 'write'; timeoutMs: number; maxRetries: number; idempotent: boolean; cacheResult?: boolean }> = {
     analyze_jd: { permission: 'readonly', timeoutMs: 20_000, maxRetries: 1, idempotent: true },
+    retrieve_profile_evidence: { permission: 'readonly', timeoutMs: 10_000, maxRetries: 0, idempotent: true },
     retrieve_knowledge: { permission: 'readonly', timeoutMs: 65_000, maxRetries: 0, idempotent: true },
     audit_text: { permission: 'readonly', timeoutMs: 10_000, maxRetries: 1, idempotent: true },
-    rewrite_bullets: { permission: 'write', timeoutMs: 15_000, maxRetries: 1, idempotent: true },
+    rewrite_bullets: { permission: 'write', timeoutMs: 15_000, maxRetries: 1, idempotent: true, cacheResult: false },
     submit_result: { permission: 'readonly', timeoutMs: 5_000, maxRetries: 0, idempotent: true }
   };
 
@@ -812,6 +1102,7 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
       timeoutMs: policy.timeoutMs,
       maxRetries: policy.maxRetries,
       idempotent: policy.idempotent,
+      cacheResult: policy.cacheResult,
       execute: async (args: Record<string, unknown>) => Promise.resolve(t.run(args, ctx))
     };
   });
@@ -894,7 +1185,7 @@ export async function agenticLoop(profile: Partial<Profile>, jdText: string, opt
   const outcome = await runAgentRuntime({
     adapter,
     tools: coreTools,
-    budget: { maxSteps, maxDurationMs: (o as { maxDurationMs?: number }).maxDurationMs || 180_000 },
+    budget: { maxSteps, maxDurationMs: o.maxDurationMs || 180_000, maxTokens: o.maxTokens ?? DEFAULT_BUDGET.maxTokens },
     signal: (o as { signal?: AbortSignal }).signal,
     runId: (o as { runId?: string }).runId,
     taskId: (o as { taskId?: string }).taskId || 'resume-optimize',
@@ -987,6 +1278,7 @@ function evaluateAgenticCompletion(ctx: AgentCtx): CompletionCheck[] {
 /** 收工复测：体检分与 JD 覆盖率的前后对比（与 runAgent 同口径：缺失技能取复测后的 matchJd） */
 function finalizeAgentic(ctx: AgentCtx): {
   auditBefore: number; auditAfter: number; jdBefore: number; jdAfter: number; jdMissingAfter: string[];
+  evidenceSources: Array<{ id: string; sources: Array<{ sourceId: string; digest: string }> }>;
 } {
   const accepted = Array.from(ctx.accepted.values());
   const auditBefore = engine.auditAiFlavor(ctx.items.map((it) => it.lines.join('\n')).join('\n')).score;
@@ -1004,6 +1296,7 @@ function finalizeAgentic(ctx: AgentCtx): {
     jdAfter = afterMatch.score;
     jdMissingAfter = afterMatch.missing.map((m) => m.label);
   }
-  return { auditBefore, auditAfter, jdBefore, jdAfter, jdMissingAfter };
+  return { auditBefore, auditAfter, jdBefore, jdAfter, jdMissingAfter,
+    evidenceSources: accepted.map((a) => ({ id: a.id, sources: (a.evidence || []).map((s) => ({ sourceId: s.sourceId, digest: s.digest })) })) };
 }
 

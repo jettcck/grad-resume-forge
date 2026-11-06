@@ -24,6 +24,23 @@ const state = {
   jdText: '',
   jdMatch: null
 };
+let accountGeneration = 0;
+
+function resetAccountState() {
+  accountGeneration++;
+  state.profile = null;
+  state.applications = [];
+  state.jobs = [];
+  state.lastResume = null;
+  state.profileDirty = false;
+  state.jdText = '';
+  state.jdMatch = null;
+  _agentStatus = null;
+  _agentMode = null;
+  _agentModeUserSet = false;
+  _agentPrefsLoaded = false;
+  document.querySelectorAll('.modal-overlay').forEach(node => node.remove());
+}
 
 // 方向中文名（模块级：JD 匹配与面试准备都要用，别放进单个函数里）
 const DOMAIN_LABELS = {
@@ -208,6 +225,8 @@ function shakeCard() {
 }
 
 async function enterApp(user) {
+  resetAccountState();
+  const generation = accountGeneration;
   state.user = user;
   state.token = user.token || localStorage.getItem(TOKEN_KEY) || null;
   authView.style.display = 'none';
@@ -220,9 +239,13 @@ async function enterApp(user) {
   // 档案 / 投递加载失败时降级为空数据 + 提示，而不是卡死在空白界面
   try {
     const saved = await call(window.api.profile.get(user.id));
+    if (generation !== accountGeneration) return;
     state.profile = saved || blankProfile();
-    state.applications = await call(window.api.applications.list(user.id));
+    const applications = await call(window.api.applications.list(user.id));
+    if (generation !== accountGeneration) return;
+    state.applications = applications;
   } catch (err) {
+    if (generation !== accountGeneration) return;
     toast('数据加载失败：' + err.message, 'err');
     state.profile = blankProfile();
     state.applications = [];
@@ -255,8 +278,7 @@ document.getElementById('btn-logout').addEventListener('click', async () => {
   localStorage.removeItem(TOKEN_KEY);
   state.user = null;
   state.token = null;
-  state.profile = null;
-  state.applications = [];
+  resetAccountState();
   appView.style.display = 'none';
   authView.style.display = 'grid';
   authForm.reset();
@@ -1118,11 +1140,14 @@ function renderProfile() {
             el('button', {
               class: 'btn btn-ghost btn-sm', type: 'button',
               onclick: async () => {
+                const generation = accountGeneration;
                 try {
-                  state.profile = await call(window.api.snapshots.restore(state.user.id, s.id));
+                  const next = await call(window.api.snapshots.restore(state.user.id, s.id));
+                  if (generation !== accountGeneration) return;
+                  state.profile = next;
                   toast('已回炉到快照版本', 'ok');
                   renderProfile();
-                } catch (err) { toast(err.message, 'err'); }
+                } catch (err) { if (generation === accountGeneration) toast(err.message, 'err'); }
               }
             }, ['回炉']),
             el('button', {
@@ -1148,7 +1173,7 @@ function renderProfile() {
   const saveBar = el('div', { class: 'save-bar' }, [
     el('div', { class: 'sb-stat' }, ['档案完成度 ' + stats.score + '% · Ctrl+S 保存']),
     el('button', { class: 'btn btn-ghost btn-sm', type: 'button', onclick: onSaveProfile }, ['保存信息']),
-    el('button', { class: 'btn btn-primary btn-sm', type: 'button', onclick: async () => { await onSaveProfile(true); navigate('resume'); } }, ['保存并生成简历 →'])
+    el('button', { class: 'btn btn-primary btn-sm', type: 'button', onclick: async () => { if (await onSaveProfile(true)) navigate('resume'); } }, ['保存并生成简历 →'])
   ]);
   saveBarRef = saveBar;
 
@@ -1295,6 +1320,8 @@ function isProfileEmpty(p) {
 
 // 载入示例：非空档案先确认，并自动快照备份（回炉快照可撤销），避免覆盖后无法还原
 async function loadDemoProfile(kind) {
+  if (!state.user || !state.profile) return;
+  const generation = accountGeneration, ownerId = state.user.id;
   const demo = DEMO_PROFILES[kind] || DEMO_PROFILES.cs;
   const hasData = !isProfileEmpty(state.profile);
 
@@ -1303,24 +1330,27 @@ async function loadDemoProfile(kind) {
     const ok = await modalConfirm('载入示例会替换当前档案',
       '你当前填的档案会被这份示例顶掉。载入前我们会自动备份一份到右侧「<b>回炉快照</b>」，误载后仍可一键还原。确定继续吗？',
       '载入示例并备份');
-    if (!ok) return;
+    if (!ok || generation !== accountGeneration) return;
   }
 
   // 备份当前档案（非空才备份，作为撤销后的后悔药）
   if (hasData) {
     try {
-      await call(window.api.snapshots.save(state.user.id, '载入示例前 · ' + fmtSnapshotTime(Date.now()), state.profile));
+      await call(window.api.snapshots.save(ownerId, '载入示例前 · ' + fmtSnapshotTime(Date.now()), state.profile));
     } catch (_) { /* 备份失败不阻断载入，但提示可手动从快照恢复 */ }
   }
 
   try {
-    state.profile = await call(window.api.profile.save(state.user.id, JSON.parse(JSON.stringify(demo))));
+    if (generation !== accountGeneration) return;
+    const next = await call(window.api.profile.save(ownerId, JSON.parse(JSON.stringify(demo))));
+    if (generation !== accountGeneration) return;
+    state.profile = next;
     toast(hasData
       ? '示例已载入；误操作可去右侧「回炉快照」一键还原'
       : '示例档案已载入，去「简历预览」看看效果 →', 'ok');
     renderProfile();
   } catch (err) {
-    toast('载入失败：' + err.message, 'err');
+    if (generation === accountGeneration) toast('载入失败：' + err.message, 'err');
   }
 }
 
@@ -1333,14 +1363,15 @@ function fmtSnapshotTime(ts) {
 
 // ---------------- 一键导入旧简历 ----------------
 async function onImportResume() {
+  const generation = accountGeneration;
   let result;
   try {
     result = await call(window.api.resume.importResume());
   } catch (err) {
-    toast(err.message, 'err');
+    if (generation === accountGeneration) toast(err.message, 'err');
     return;
   }
-  if (!result) return; // 用户在文件选择框点了取消
+  if (!result || generation !== accountGeneration) return; // 用户取消或切换了账号
 
   const parsed = result.parsed || {};
   const counts = [
@@ -1508,6 +1539,8 @@ function collectProfile() {
 }
 
 async function onSaveProfile(silent) {
+  if (!state.user) return false;
+  const generation = accountGeneration, ownerId = state.user.id;
   const profile = collectProfile();
   // 保存按钮 loading 态：防连点 + 给「正在保存」反馈
   const saveBtn = document.querySelector('.save-bar .btn-primary');
@@ -1518,11 +1551,15 @@ async function onSaveProfile(silent) {
   };
   busy(true);
   try {
-    state.profile = await call(window.api.profile.save(state.user.id, profile));
+    const next = await call(window.api.profile.save(ownerId, profile));
+    if (generation !== accountGeneration) return false;
+    state.profile = next;
     state.profileDirty = false;
     clearSaveBarDirty();
     if (!silent) toast('信息已保存到本地', 'ok');
+    return true;
   } catch (err) {
+    if (generation !== accountGeneration) return false;
     toast(err.message, 'err');
     throw err;
   } finally {
@@ -1783,8 +1820,10 @@ const AGENT_MODES = ['rules', 'pipeline', 'agentic'];
 // 重启后自动默认会因为探测到可用模型而切回需要模型的通道，用户没注意就会把内容发给模型。
 // 这属于「用户表达过的意图必须被尊重」，和「零门槛」是同一件事。
 async function persistAgentMode(m) {
+  const generation = accountGeneration;
   try {
     const cfg = await call(window.api.settings.get('agent'));
+    if (generation !== accountGeneration) return;
     await call(window.api.settings.save('agent', Object.assign({}, cfg || {}, { mode: m })));
   } catch (_) { /* 偏好存不下来不影响本次选择 */ }
 }
@@ -1792,8 +1831,10 @@ async function persistAgentMode(m) {
 async function restoreAgentMode() {
   if (_agentPrefsLoaded) return;
   _agentPrefsLoaded = true;
+  const generation = accountGeneration;
   try {
     const cfg = await call(window.api.settings.get('agent'));
+    if (generation !== accountGeneration) return;
     if (cfg && AGENT_MODES.indexOf(cfg.mode) >= 0 && !_agentModeUserSet) {
       _agentMode = cfg.mode;
       _agentModeUserSet = true; // 记忆中的选择同样不该被自动默认覆盖
@@ -1802,13 +1843,18 @@ async function restoreAgentMode() {
 }
 
 async function refreshAgentStatus() {
+  const generation = accountGeneration;
   const pref = restoreAgentMode(); // 与状态探测并行，稍后 await，保证首次渲染时通道已就位
   try {
-    _agentStatus = await call(window.api.agent.status());
+    const status = await call(window.api.agent.status());
+    if (generation !== accountGeneration) return;
+    _agentStatus = status;
   } catch (_) {
+    if (generation !== accountGeneration) return;
     _agentStatus = { available: false, models: [], config: {} };
   }
   await pref;
+  if (generation !== accountGeneration) return;
   // 只在仍停留在简历页时刷新（避免离开页面后无谓重渲染）
   const route = document.getElementById('route-resume');
   if (route && route.style.display !== 'none') renderResumePage();
@@ -1923,6 +1969,7 @@ const CLOUD_PRESETS = [
 function openAgentConfig() {
   const stored = (_agentStatus && _agentStatus.config) || {};
   const isCloudStored = stored.provider === 'cloud';
+  const hasKey = isCloudStored && !!(stored.hasKey || stored.apiKey);
   // 零门槛默认：没配过就选「应用内模型」——首次经国内镜像下载约 281MB，之后离线；
   // Ollama / 云端 API 是进阶选项，不设为默认（这正是"零门槛"的落点）
   let provider = isCloudStored ? 'cloud' : 'embedded';
@@ -2055,7 +2102,6 @@ function openAgentConfig() {
       const md = textInput('模型名称', isCloudStored ? stored.model : '', 'deepseek-chat');
       modelInput = md.input;
       // 已保存的密钥不回显（防肩窥/截屏泄漏）；留空保存 = 保留原密钥
-      const hasKey = isCloudStored && (stored.hasKey || stored.apiKey); // 主进程只回传「是否已保存」，不回显密钥本身
       const sessionOnlyStored = isCloudStored && stored.sessionOnly === true;
       const key = textInput(
         sessionOnlyStored
@@ -2121,7 +2167,7 @@ function openAgentConfig() {
         // 勾了「只本次运行使用」：告诉主进程别写盘（密钥只在主进程内存里活到退出）
         value.apiKeySessionOnly = !!(sessionOnlyInput && sessionOnlyInput.checked);
         // 留空 = 保留已保存的密钥：密钥不回显到渲染层，由主进程在保存时补回原值
-        if (!value.endpoint || !value.model || (!value.apiKey && !hasKey && !value.apiKeySessionOnly)) {
+        if (!value.endpoint || !value.model || (!value.apiKey && !hasKey)) {
           toast('云端模式需填写 API 地址、模型名称与 API 密钥', 'err');
           return;
         }
@@ -2161,6 +2207,7 @@ function openAgentConfig() {
 }
 
 async function openAgentRun() {
+  const generation = accountGeneration;
   // 零配置（规则）通道不需要任何模型，直接开跑
   if (_agentMode !== 'rules' && (!_agentStatus || !_agentStatus.available)) {
     const prov = _agentStatus && _agentStatus.config && _agentStatus.config.provider;
@@ -2185,6 +2232,7 @@ async function openAgentRun() {
       submitText: '开始优化'
     });
     if (!jd) return;
+    if (generation !== accountGeneration) return;
     state.jdText = jd;
   }
 
@@ -2230,6 +2278,7 @@ async function openAgentRun() {
   // 收集步骤轨迹：结果视图会重建 box，轨迹要保留下来（它是「这轮真的跑了什么」的证据）
   const collectedSteps = [];
   const unsub = window.api.agent.onProgress((s) => {
+    if (generation !== accountGeneration || (s.runId && s.runId !== runId)) return;
     collectedSteps.push(s);
     stepsBox.appendChild(el('div', { class: 'agent-step' + (s.ok ? '' : ' bad') }, [
       el('span', { class: 'st-ico' }, [s.ok ? '✓' : '✕']),
@@ -2243,6 +2292,7 @@ async function openAgentRun() {
   let lastStreamRound = 0;
   const unsubStream = window.api.agent.onStream((ev) => {
     if (!ev || typeof ev.piece !== 'string') return;
+    if (generation !== accountGeneration || (ev.runId && ev.runId !== runId)) return;
     if (ev.round !== lastStreamRound) {
       lastStreamRound = ev.round;
       streamBox.textContent = '';
@@ -2265,6 +2315,7 @@ async function openAgentRun() {
     unsub();
     unsubStream();
   }
+  if (generation !== accountGeneration) { overlay.remove(); return; }
 
   if (window.Sound) window.Sound.play(result && result.ok ? 'done' : 'err'); // Agent 收工音
   // 用 result.steps（权威、与结果同一次返回）而不是运行期收集的事件：
@@ -2281,7 +2332,7 @@ function renderAgentResult(overlay, box, result, error, steps) {
   // 过了校验门的改写仍然应该给用户看并允许应用 —— 否则修一个诚实性问题反而变成让用户白跑。
   const usableCount = result && result.accepted ? result.accepted.length : 0;
   if (error || !result || (!result.ok && usableCount === 0)) {
-    box.append(
+    box.append(...[
       el('h3', { class: 'modal-title' }, ['Agent 优化未成功']),
       el('p', { style: 'font-size:13px;color:var(--danger);line-height:1.7;' },
         [error || (result && result.error) || '所有改写均未通过确定性校验，档案保持原样。']),
@@ -2292,7 +2343,7 @@ function renderAgentResult(overlay, box, result, error, steps) {
       el('div', { class: 'modal-actions' }, [
         el('button', { class: 'btn btn-primary btn-sm', type: 'button', onclick: () => overlay.remove() }, ['知道了'])
       ])
-    );
+    ].filter(Boolean));
     return;
   }
 
@@ -2343,12 +2394,24 @@ function renderAgentResult(overlay, box, result, error, steps) {
       el('div', { class: 'rw-body' }, [
         el('div', { class: 'rw-old' }, [r.old]),
         el('div', { class: 'rw-arrow' }, ['↳']),
-        el('div', { class: 'rw-new' }, [r.text])
-      ])
+        el('div', { class: 'rw-new' }, [r.text]),
+        r.evidence && r.evidence.length
+          ? el('details', { class: 'rw-evidence', style: 'margin-top:8px;font-size:12px;line-height:1.6;color:var(--ink-2);' }, [
+              el('summary', {}, ['原始经历来源 · ' + r.evidence.length + ' 处']),
+              ...r.evidence.map((source) => el('div', { style: 'margin-top:6px;' }, [
+                el('strong', {}, [source.label]),
+                el('div', {}, [source.quote])
+              ]))
+            ])
+          : null
+      ].filter(Boolean))
     ]));
 
-  box.append(
-    el('h3', { class: 'modal-title' }, ['Agent 优化完成 · ' + result.rounds + ' 轮']),
+  const wasCancelled = result.cancelled || (result.run && result.run.status === 'CANCELLED');
+  const completionTitle = wasCancelled ? 'Agent 已取消' : result.ok ? 'Agent 优化完成' : 'Agent 部分结果';
+  const incompleteReason = result.incomplete || (!result.ok && result.error);
+  box.append(...[
+    el('h3', { class: 'modal-title' }, [completionTitle + ' · ' + result.rounds + ' 轮']),
     stat('去 AI 味体检', result.auditBefore, result.auditAfter, ' 分'),
     stat('JD 技能覆盖', result.jdBefore, result.jdAfter, '%'),
     stepsBlock,
@@ -2362,13 +2425,13 @@ function renderAgentResult(overlay, box, result, error, steps) {
       : null,
     // Agent 提前收工时的如实标注：做了多少说多少，不让「部分完成」看起来像完成。
     // ok=false + partial 的这次运行会走到这里（而不是失败页），所以警告要写得足够显眼。
-    result.incomplete
+    incompleteReason
       ? el('div', {
           style: 'margin:10px 0 0;padding:9px 12px;border-radius:6px;background:#fff7ed;' +
             'border-left:3px solid #f59e0b;font-size:12px;color:#92400e;line-height:1.7;'
         }, [
-          el('b', {}, ['⚠ 这次运行不算完成']),
-          el('span', {}, ['：' + result.incomplete + '。下面这些改写本身是过了校验门的，可以用；' +
+          el('b', {}, [wasCancelled ? '本次运行已取消' : '⚠ 这次运行不算完成']),
+          el('span', {}, ['：' + incompleteReason + '。下面这些改写本身是过了校验门的，可以用；' +
             '但上面的覆盖率对比仅供参考，建议按这份 JD 再跑一轮。'])
         ])
       : null,
@@ -2399,47 +2462,27 @@ function renderAgentResult(overlay, box, result, error, steps) {
         }
       }, ['应用选中的改写'])
     ])
-  );
+  ].filter(Boolean));
 }
 
 // 应用：被勾选的改写按条目位置替换 description 行（未勾选/拒收的行保持原文）
 // ---------------- Agent 快照（后悔药） ----------------
-// 应用改写前自动快照当前档案；写入走主进程 settings:save 的 agentSnapshot 通道
-async function saveSnapshotBeforeApply() {
-  try {
-    // 复用 settings 通道：主进程在 agent:run 应用侧没有专门入口，
-    // 这里直接用 snapshots 表的写入能力（经 settings:save 存元数据）
-    // —— 简洁起见：由主进程 saveProfile 前不做拦截，由渲染层显式调用。
-    const label = 'Agent 改写前 · ' + new Date().toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' });
-    await call(window.api.snapshots.save(state.user.id, label, state.profile));
-    return true;
-  } catch (_) {
-    return false; // 快照失败不阻断应用（用户已逐条勾选确认过）
-  }
-}
-
 async function applyAgentResult(result, acceptedList) {
   const accepted = acceptedList || result.accepted;
   if (!accepted || !accepted.length) { toast('请至少勾选一条改写', 'err'); return; }
 
-  // 切分与回填交给主进程引擎（applyRewrites）：导入器产出的 description 是 string[]，
-  // 渲染层再自己实现一套切分就会和引擎漂移——错行、重复、甚至把整段描述压成一行。
-  let next;
+  if (!state.user || !state.profile) { toast('请先登录并填写档案', 'err'); return; }
+  const generation = accountGeneration;
+  const ownerId = state.user.id;
+  const original = JSON.parse(JSON.stringify(state.profile));
   try {
-    next = await call(window.api.resume.applyRewrites(state.profile, accepted));
-  } catch (err) {
-    toast('应用失败：' + err.message, 'err');
-    return;
-  }
-
-  // 后悔药：应用前快照当前档案（失败不阻断——用户已逐条勾选）
-  const snapped = await saveSnapshotBeforeApply();
-
-  try {
-    state.profile = await call(window.api.profile.save(state.user.id, next));
-    toast(snapped ? '已应用并保存（改写前档案已备份，可在信息录入页回炉）' : 'Agent 优化已应用并保存', 'ok');
+    const next = await call(window.api.resume.commitRewrites(ownerId, original, accepted));
+    if (generation !== accountGeneration || state.user?.id !== ownerId) return;
+    state.profile = next;
+    toast('已应用并保存（改写前档案已备份，可在信息录入页回炉）', 'ok');
     renderResumePage();
   } catch (err) {
+    if (generation !== accountGeneration) return;
     toast('应用失败：' + err.message, 'err');
   }
 }
@@ -5035,15 +5078,23 @@ function renderCodeResult() {
   }
 
   // 响应主进程的推理请求（Agent embedded 通道）
-  window.api.embedded.onRequest(async (req) => {
-    try {
-      await window.EmbeddedLlm.ensureEngine(); // 若未加载则现加载（用户已在配置里点过下载）
-      const content = await window.EmbeddedLlm.embeddedChat(req.messages);
-      window.api.embedded.respond(req.id, { content });
-      report();
-    } catch (err) {
-      window.api.embedded.respond(req.id, { error: err.message });
-    }
+  const requests = new Map();
+  let queue = Promise.resolve();
+  window.api.embedded.onCancel(req => { requests.get(req.id)?.abort(); });
+  window.api.embedded.onRequest(req => {
+    const controller = new AbortController();
+    requests.set(req.id, controller);
+    // 单 GPU 串行推理；取消排队任务不会中断正在处理的另一请求。
+    queue = queue.catch(() => {}).then(async () => {
+      try {
+        if (controller.signal.aborted) return;
+        const reply = await window.EmbeddedLlm.embeddedChat(req.messages, { signal: controller.signal });
+        if (!controller.signal.aborted) window.api.embedded.respond(req.id, reply);
+        report();
+      } catch (err) {
+        if (!controller.signal.aborted) window.api.embedded.respond(req.id, { error: err.message });
+      } finally { requests.delete(req.id); }
+    });
   });
 })();
 
@@ -5307,18 +5358,24 @@ async function openSaveVersion() {
 
 // 载入版本：先确保当前档案有后悔药（自动快照），再整体替换
 async function loadVersion(v) {
+  if (!state.user) return;
+  const generation = accountGeneration, ownerId = state.user.id;
   try {
-    const full = await call(window.api.versions.get(state.user.id, v.id));
+    const full = await call(window.api.versions.get(ownerId, v.id));
+    if (generation !== accountGeneration) return;
     const hasData = !isProfileEmpty(state.profile);
     if (hasData) {
       const ok = await modalConfirm('载入版本「' + v.name + '」？',
         '当前档案会被这个版本替换。载入前我们会自动把当前档案备份到右侧「<b>回炉快照</b>」，可随时还原。', '载入并备份');
-      if (!ok) return;
+      if (!ok || generation !== accountGeneration) return;
       try {
-        await call(window.api.snapshots.save(state.user.id, '载入版本前 · ' + fmtSnapshotTime(Date.now()), state.profile));
+        await call(window.api.snapshots.save(ownerId, '载入版本前 · ' + fmtSnapshotTime(Date.now()), state.profile));
       } catch (_) { /* 备份失败不阻断 */ }
     }
-    state.profile = await call(window.api.profile.save(state.user.id, full.profile));
+    if (generation !== accountGeneration) return;
+    const next = await call(window.api.profile.save(ownerId, full.profile));
+    if (generation !== accountGeneration) return;
+    state.profile = next;
     // 版本里带着它针对的 JD，一并恢复，方便继续做匹配/优化
     if (full.jdText) {
       state.jdText = full.jdText;
@@ -5328,7 +5385,7 @@ async function loadVersion(v) {
     toast('已载入版本「' + v.name + '」' + (full.jdText ? '（含它针对的 JD）' : ''), 'ok');
     renderProfile();
   } catch (err) {
-    toast('载入失败：' + err.message, 'err');
+    if (generation === accountGeneration) toast('载入失败：' + err.message, 'err');
   }
 }
 

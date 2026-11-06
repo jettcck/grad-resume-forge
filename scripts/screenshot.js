@@ -367,6 +367,11 @@ function registerIpc() {
   });
   // 应用改写：与主进程一致，直接用引擎的实现（渲染层不再自己切分）
   h('resume:applyRewrites', (profile, accepted) => agentReal.applyRewritesToProfile(profile, accepted));
+  h('resume:commitRewrites', (uid, profile, accepted) => {
+    const next = agentReal.applyRewritesToProfile(profile, accepted);
+    store.saveAgentSnapshot(uid, 'Agent 改写前', profile);
+    return store.saveProfile(uid, next);
+  });
   // Agent 运行控制（第二阶段：取消 / 记录 / 清理 / 回放），方向必须与主进程一致
   h('agent:cancel', () => ({ cancelled: true }));
   h('agent:runs', () => mockRuns);
@@ -1038,6 +1043,39 @@ async function main() {
     return out.join('\\n');
   })()`));
 
+  // 演示档案＋固定模型回复，真实运行检索、来源校验及渲染；此截图不计为真实模型效果。
+  const evidenceProfile = { skills: 'Java、Docker', projects: [
+    { name: '订单接口', tech: 'Java', description: '开发订单接口，支撑 100QPS\\n调试接口，处理 200 条请求' },
+    { name: '部署练习', tech: 'Docker', description: '使用 Docker 部署学习项目' }
+  ], internships: [] };
+  evidenceProfile.projects[0].description = evidenceProfile.projects[0].description.replace('\\n', '\n');
+  const evidenceResult = await agentReal.runAgent(evidenceProfile, 'Java Docker 后端工程师', {
+    llm: { chat: async () => JSON.stringify({ rewrites: [
+      { id: 'p0-b0', text: '使用 Java 开发订单接口，支撑 100QPS' },
+      { id: 'p0-b1', text: '使用 Docker 调试接口，处理 200 条请求' }
+    ] }) }
+  });
+  console.log(await verify(win, `(() => {
+    const out = [], t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const result = ${JSON.stringify(evidenceResult)};
+    const overlay = el('div', { class: 'modal-overlay', id: 'evidence-demo' });
+    const box = el('div', { class: 'modal-box', style: 'max-width:760px;max-height:90vh;overflow:auto;' });
+    overlay.append(box); document.body.append(overlay);
+    renderAgentResult(overlay, box, result, null, result.steps);
+    box.querySelector('.agent-mode-tag').textContent = '通道：演示档案 · 固定模型回复（来源预览）';
+    t('来源预览有通过校验的候选', result.accepted.length === 1);
+    t('跨项目 Docker 候选被拒收', result.rejected.some(r => /本条经历证据/.test(r.reason)));
+    const details = box.querySelector('.rw-evidence');
+    t('改写卡片有可展开的原始来源', !!details);
+    if (details) details.open = true;
+    t('来源展示原始技术栈 Java 且不显示空节点', !!details && /Java/.test(details.textContent) && !/null/.test(box.textContent));
+    t('实时步骤展示用户经历检索', /检索用户原始经历来源/.test(box.textContent));
+    return out.join('\\n');
+  })()`));
+  await sleep(350);
+  await shot(win, '13-agent-evidence');
+  await win.webContents.executeJavaScript(`document.getElementById('evidence-demo').remove()`);
+
   // 配置弹窗：出现「本机模型服务探测」区块
   await win.webContents.executeJavaScript(`(() => {
     const cfg = Array.from(document.querySelectorAll('#route-resume .btn')).find((b) => b.textContent.trim() === '配置');
@@ -1592,52 +1630,6 @@ async function main() {
     return out.join('\\n');
   })()`));
 
-  // —— 通道选择必须跨重启记住 ——
-  // 用户明确选「零配置（规则）」（不调用任何模型），重启后自动默认若因为探测到模型而切回
-  // 需要模型的通道，用户没注意就会把内容发给模型。这条只有真的重载一次才测得出来。
-  // 放在整条管线的最后：reload() 之后窗口的截图面可能失效（曾导致后续截图报
-  // "display surface not available for capture"），不能再有截图排在它后面。
-  await win.webContents.executeJavaScript(`(() => {
-    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
-    const r = segs.find((b) => /零配置/.test(b.textContent));
-    if (r) r.click();
-    return !!r;
-  })()`);
-  await sleep(900);
-  console.log((savedSettings.agent && savedSettings.agent.mode === 'rules' ? '✅' : '❌')
-    + ' 通道选择已写进设置（读到 mode=' + (savedSettings.agent && savedSettings.agent.mode) + '）');
-
-  // 模拟重启：设置里留着「规则」，同时把模型标成可用 —— 自动默认此时会想选流水线
-  mockAgentAvailable = true;
-  savedSettings.agent = { provider: 'ollama', mode: 'rules' };
-  if (process.env.GRF_BREAK_PREF === '1') mockSettingsUnreadable = true; // 负向验证：断言必须因此变红
-  win.webContents.reload();
-  await sleep(2800);
-  await win.webContents.executeJavaScript(`(() => {
-    const f = document.getElementById('auth-form');
-    if (!f) return false;
-    f.querySelector('input[name="email"]').value = '${DEMO_EMAIL}';
-    f.querySelector('input[name="password"]').value = '${DEMO_PASSWORD}';
-    f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
-    return true;
-  })()`);
-  await sleep(1800);
-  await win.webContents.executeJavaScript(`(() => {
-    document.querySelector('.nav-item[data-route="resume"]').click();
-    return true;
-  })()`);
-  await sleep(2400);
-  console.log(await verify(win, `(() => {
-    const out = [];
-    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
-    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
-    const btn = (txt) => segs.find((b) => new RegExp(txt).test(b.textContent));
-    t('重启后仍选中上次的通道', !!btn('零配置') && btn('零配置').classList.contains('active'));
-    t('自动默认没有抢回选中（模型可用也不切走）', !!btn('流水线') && !btn('流水线').classList.contains('active'));
-    return out.join('\\n');
-  })()`));
-  mockAgentAvailable = false;
-
   // ---------------- 笔试中心 / 编程题（作品集用图） ----------------
   // 这两块是「工程能力」最直观的证据，之前 15 张图里没有。
   // 走的是真实 exam-core / codeRunner（mock 层只替换了数据落地），所以判题结果是真跑出来的。
@@ -1715,6 +1707,52 @@ async function main() {
   })()`);
   await sleep(700);
   await shot(win, '12-code-judged');
+
+  // —— 通道选择必须跨重启记住 ——
+  // 用户明确选「零配置（规则）」（不调用任何模型），重启后自动默认若因为探测到模型而切回
+  // 需要模型的通道，用户没注意就会把内容发给模型。这条只有真的重载一次才测得出来。
+  // 放在整条管线的最后：reload() 之后窗口的截图面可能失效（曾导致后续截图报
+  // "display surface not available for capture"），不能再有截图排在它后面。
+  await win.webContents.executeJavaScript(`(() => {
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const r = segs.find((b) => /零配置/.test(b.textContent));
+    if (r) r.click();
+    return !!r;
+  })()`);
+  await sleep(900);
+  console.log((savedSettings.agent && savedSettings.agent.mode === 'rules' ? '✅' : '❌')
+    + ' 通道选择已写进设置（读到 mode=' + (savedSettings.agent && savedSettings.agent.mode) + '）');
+
+  // 模拟重启：设置里留着「规则」，同时把模型标成可用 —— 自动默认此时会想选流水线
+  mockAgentAvailable = true;
+  savedSettings.agent = { provider: 'ollama', mode: 'rules' };
+  if (process.env.GRF_BREAK_PREF === '1') mockSettingsUnreadable = true; // 负向验证：断言必须因此变红
+  win.webContents.reload();
+  await sleep(2800);
+  await win.webContents.executeJavaScript(`(() => {
+    const f = document.getElementById('auth-form');
+    if (!f) return false;
+    f.querySelector('input[name="email"]').value = '${DEMO_EMAIL}';
+    f.querySelector('input[name="password"]').value = '${DEMO_PASSWORD}';
+    f.dispatchEvent(new Event('submit', { cancelable: true, bubbles: true }));
+    return true;
+  })()`);
+  await sleep(1800);
+  await win.webContents.executeJavaScript(`(() => {
+    document.querySelector('.nav-item[data-route="resume"]').click();
+    return true;
+  })()`);
+  await sleep(2400);
+  console.log(await verify(win, `(() => {
+    const out = [];
+    const t = (n, c) => out.push((c ? '✅' : '❌') + ' ' + n);
+    const segs = Array.from(document.querySelectorAll('#route-resume .seg-btn'));
+    const btn = (txt) => segs.find((b) => new RegExp(txt).test(b.textContent));
+    t('重启后仍选中上次的通道', !!btn('零配置') && btn('零配置').classList.contains('active'));
+    t('自动默认没有抢回选中（模型可用也不切走）', !!btn('流水线') && !btn('流水线').classList.contains('active'));
+    return out.join('\\n');
+  })()`));
+  mockAgentAvailable = false;
 
   console.log('done. shots in', SHOTS);
   app.exit(0);

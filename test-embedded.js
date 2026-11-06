@@ -119,4 +119,27 @@ assert(/macOS/.test(en) && /macOS/.test(zh), 'README 如实说明仅 Windows 平
 const pkg = JSON.parse(R('package.json'));
 assert(/test-embedded\.js/.test(pkg.scripts.test), 'npm test 包含 test-embedded.js');
 
-console.log('\n零门槛守卫自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
+(async () => {
+  const vm = require('vm');
+  let calls = 0, interrupted = 0;
+  let reply = { choices: [{ message: { content: '{}' } }], usage: { total_tokens: 31 } };
+  const engine = { chat: { completions: { create: async () => { calls++; return reply; } } }, interruptGenerate: () => { interrupted++; } };
+  const sandbox = { window: {}, navigator: {}, console, setTimeout, Promise, Error };
+  vm.createContext(sandbox);
+  // 模块闭包内注入假 GPU 引擎，验证真实推理函数，不下载模型。
+  vm.runInContext(emb.replace('let _engine = null;', 'let _engine = globalThis.testEngine;'), Object.assign(sandbox, { testEngine: engine }));
+  const out = await sandbox.window.EmbeddedLlm.embeddedChat([{ role: 'user', content: 'x' }]);
+  assert(out.content === '{}' && out.usage.total_tokens === 31, '内嵌推理回传实际用量，不丢弃 WebLLM usage');
+  const pre = new AbortController(); pre.abort();
+  let error;
+  try { await sandbox.window.EmbeddedLlm.embeddedChat([], { signal: pre.signal }); } catch (e) { error = e; }
+  assert(error?.name === 'AbortError' && calls === 1, '预取消不启动内嵌 GPU 推理');
+  let finish;
+  engine.chat.completions.create = () => new Promise(resolve => { finish = resolve; });
+  const controller = new AbortController();
+  const waiting = sandbox.window.EmbeddedLlm.embeddedChat([], { signal: controller.signal }).catch(e => e);
+  controller.abort(); finish(reply);
+  const stopped = await waiting;
+  assert(interrupted === 1 && stopped.name === 'AbortError', '取消正在运行的内嵌推理调用 interruptGenerate 并丢弃旧响应');
+  console.log('\n零门槛守卫自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);
+})().catch(error => { console.error(error); process.exitCode = 1; });

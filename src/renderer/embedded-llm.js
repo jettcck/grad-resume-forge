@@ -182,12 +182,23 @@
   }
 
   // 对话：返回全文（非流式简单版——Agent 改写需要完整 JSON，流式无益）
-  async function embeddedChat(messages) {
+  async function embeddedChat(messages, options = {}) {
+    const stopped = () => {
+      if (options.signal?.aborted) throw Object.assign(new Error('内嵌模型请求已取消'), { name: 'AbortError' });
+    };
+    stopped();
     const engine = _engine || await ensureEngine();
-    const reply = await engine.chat.completions.create({ messages: messages, stream: false });
+    stopped();
+    const interrupt = () => { Promise.resolve(engine.interruptGenerate()).catch(() => {}); };
+    options.signal?.addEventListener('abort', interrupt, { once: true });
+    let reply;
+    try {
+      reply = await engine.chat.completions.create({ messages: messages, stream: false });
+      stopped();
+    } finally { options.signal?.removeEventListener('abort', interrupt); }
     const content = reply && reply.choices && reply.choices[0] && reply.choices[0].message && reply.choices[0].message.content;
     if (!content) throw new Error('内嵌模型未返回内容');
-    return content;
+    return { content, usage: reply.usage };
   }
 
   // 释放（切换 provider 时省内存）

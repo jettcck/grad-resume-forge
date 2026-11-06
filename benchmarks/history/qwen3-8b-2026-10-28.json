@@ -1,0 +1,177 @@
+{
+  "schemaVersion": 2,
+  "timestamp": "2026-10-28T04:50:07.671Z",
+  "suite": "agent-bench-llm",
+  "suiteVersion": "2",
+  "provider": "ollama",
+  "endpoint": "http://127.0.0.1:11434",
+  "model": "qwen3:8b",
+  "temperature": 0.3,
+  "maxSteps": 12,
+  "promptVersion": {
+    "rewriteSystem": "rewrite-system-v1",
+    "rewriteRules": "rewrite-rules-v1",
+    "agenticSystem": "agentic-system-v2"
+  },
+  "promptFiles": {
+    "rewrite-system-v1.txt": "85538fa827e1c767f42db680d21746e902f5c581f1e300a10ffd68a54294f221",
+    "rewrite-rules-v1.txt": "4f218015993b31e70bb04a020a27aa69a5a4c44b0994cb45c098281ccf0135d5",
+    "agentic-system-v2.txt": "ed631e075a45bab0a0371de69cd683f550342f4b77f76aef0c21d3f48c66d2c9"
+  },
+  "cases": 4,
+  "sample": 1,
+  "caseSet": {
+    "id": "agent-bench-fixed-v1",
+    "count": 4,
+    "sha256": "32fa07f1e373f738c0e2fe183be0ca280f6959fc9f3ae9ba25bb4b6dbc4b141b"
+  },
+  "commit": "a72d5a03133c3e93c1243343ec000890c397b985",
+  "commitShort": "a72d5a0",
+  "gitDirty": false,
+  "gitDirtyFiles": [],
+  "branch": "master",
+  "runtime": {
+    "node": "v22.22.2",
+    "platform": "win32",
+    "arch": "x64",
+    "packageVersion": "1.15.0"
+  },
+  "reproducible": {
+    "reproducible": true,
+    "missingFields": []
+  },
+  "metrics": {
+    "cases": 4,
+    "samplePerCase": 1,
+    "totalRuns": 4,
+    "completedRuns": 4,
+    "failedRuns": 0,
+    "successRate": 0,
+    "acceptanceRate": 36.4,
+    "avgLatencyMs": 154315,
+    "avgSteps": 8.5,
+    "accepted": 4,
+    "rejected": 7,
+    "metricLoss": 0,
+    "fabricated": 1,
+    "tokens": 62190
+  },
+  "byCase": [
+    {
+      "case": "backend-profile-java-jd-v1",
+      "runs": 1,
+      "completed": 1,
+      "ok": 0,
+      "successRate": 0,
+      "accepted": 2,
+      "rejected": 6,
+      "metricLoss": 0,
+      "fabricated": 1,
+      "avgLatencyMs": 193905
+    },
+    {
+      "case": "frontend-profile-vue-jd-v1",
+      "runs": 1,
+      "completed": 1,
+      "ok": 0,
+      "successRate": 0,
+      "accepted": 0,
+      "rejected": 0,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "avgLatencyMs": 163001
+    },
+    {
+      "case": "algorithm-profile-python-jd-v1",
+      "runs": 1,
+      "completed": 1,
+      "ok": 0,
+      "successRate": 0,
+      "accepted": 2,
+      "rejected": 1,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "avgLatencyMs": 186971
+    },
+    {
+      "case": "finance-profile-excel-jd-v1",
+      "runs": 1,
+      "completed": 1,
+      "ok": 0,
+      "successRate": 0,
+      "accepted": 0,
+      "rejected": 0,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "avgLatencyMs": 73384
+    }
+  ],
+  "evidence": {
+    "fabricatedSamples": [
+      {
+        "case": "backend-profile-java-jd-v1",
+        "run": 1,
+        "keywords": [
+          "Docker"
+        ],
+        "old": "负责订单系统开发，支撑日活 3 万",
+        "text": "基于Spring Boot开发订单系统，日活3万，采用Docker容器化部署"
+      }
+    ],
+    "metricLossSamples": []
+  },
+  "runs": [
+    {
+      "case": "backend-profile-java-jd-v1",
+      "run": 1,
+      "ok": false,
+      "ms": 193905,
+      "accepted": 2,
+      "rejected": 6,
+      "lost": 0,
+      "fabricated": 1,
+      "status": "FAILED",
+      "steps": 7,
+      "tokens": 13564
+    },
+    {
+      "case": "frontend-profile-vue-jd-v1",
+      "run": 1,
+      "ok": false,
+      "ms": 163001,
+      "accepted": 0,
+      "rejected": 0,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 11,
+      "tokens": 19056
+    },
+    {
+      "case": "algorithm-profile-python-jd-v1",
+      "run": 1,
+      "ok": false,
+      "ms": 186971,
+      "accepted": 2,
+      "rejected": 1,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 11,
+      "tokens": 22710
+    },
+    {
+      "case": "finance-profile-excel-jd-v1",
+      "run": 1,
+      "ok": false,
+      "ms": 73384,
+      "accepted": 0,
+      "rejected": 0,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 5,
+      "tokens": 6860
+    }
+  ]
+}

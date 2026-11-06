@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('api', {
     matchJd: (resume: unknown, jdText: string) => ipcRenderer.invoke('resume:matchJd', resume, jdText),
     // 把勾选的改写写回档案：切分与回填由主进程引擎负责（渲染层不再自己实现一套）
     applyRewrites: (profile: unknown, accepted: unknown) => ipcRenderer.invoke('resume:applyRewrites', profile, accepted),
+    commitRewrites: (userId: string, profile: unknown, accepted: unknown) => ipcRenderer.invoke('resume:commitRewrites', userId, profile, accepted),
     importResume: () => ipcRenderer.invoke('resume:importPdf')
   },
   applications: {
@@ -192,8 +193,13 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.on('embedded:req', handler as never);
       return () => ipcRenderer.removeListener('embedded:req', handler as never);
     },
+    onCancel: (cb: (req: { id: string }) => void) => {
+      const handler = (_e: unknown, req: { id: string }) => cb(req);
+      ipcRenderer.on('embedded:cancel', handler);
+      return () => ipcRenderer.removeListener('embedded:cancel', handler);
+    },
     // 渲染进程 → 主进程：回传推理结果
-    respond: (id: string, result: { content?: string; error?: string }) =>
+    respond: (id: string, result: { content?: string; error?: string; usage?: import('../../packages/llm-adapters/dist/types').LlmUsage }) =>
       ipcRenderer.send('embedded:res', { id, ...result })
   }
 });

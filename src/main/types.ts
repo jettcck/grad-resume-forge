@@ -148,10 +148,20 @@ export interface AgentStep {
   retryCount?: number;
 }
 
+export interface RewriteEvidence {
+  sourceId: string;
+  path: string;
+  label: string;
+  quote: string;
+  digest: string;
+}
+
 export interface AcceptedRewrite {
   id: string;
   old: string;
   text: string;
+  /** 来自本次原始档案，校验门生成；不接受模型自造的来源。 */
+  evidence?: RewriteEvidence[];
 }
 
 export interface RejectedRewrite {
@@ -161,6 +171,8 @@ export interface RejectedRewrite {
 
 export interface PipelineResult {
   ok: boolean;
+  cancelled?: boolean;
+  run?: import('../../packages/agent-core/dist/index').RunRecord;
   /** pipeline = LLM 流水线；rules = 零下载规则通道（不调用任何模型） */
   mode: 'pipeline' | 'rules';
   error: string | null;

@@ -43,6 +43,22 @@ const docs: Doc[] = EXAM_BANK.map((q) => ({
 const docById = new Map(EXAM_BANK.map((q) => [q.id, q]));
 const bm25 = new Bm25Index(docs);
 
+/**
+ * BM25 分数下限。
+ *
+ * 依据：evals/retrieval-eval.js 在 62 条标注 query（含 8 条语料外问题）上扫描阈值，
+ * minScore=5 让语料外误召回从 75% 降到 37.5%，域内 hit@3 只从 85.2% 掉到 83.3%。
+ * 不设下限时，BM25 只要命中「怎么/什么/需要」这类高频词就会返回结果，
+ * 把题库内容硬塞给 Agent —— 而题库不是用户经历，塞进去只会诱导编造。
+ *
+ * 注意：这个绝对值依赖当前语料规模（151 条）。语料量级变化后必须重新扫描。
+ */
+const BM25_MIN_SCORE = 5;
+
+function searchBm25(query: string, topK: number): Hit[] {
+  return bm25.search(query, topK, { minScore: BM25_MIN_SCORE });
+}
+
 interface VectorCache {
   key: string;
   vectors: Map<string, number[]>;
@@ -107,7 +123,7 @@ export async function retrieveKnowledge(queryValue: unknown, topKValue?: unknown
     return { query, mode, requestedTopK, results: [], vectorAvailable: null, vectorModel: null, note: '按请求跳过检索，作为 no-retrieval 对照组' };
   }
   if (mode === 'bm25') {
-    return { query, mode, requestedTopK, results: asKnowledgeHits(bm25.search(query, requestedTopK)), vectorAvailable: null, vectorModel: null, note: 'BM25：零依赖、可解释的关键词检索' };
+    return { query, mode, requestedTopK, results: asKnowledgeHits(searchBm25(query, requestedTopK)), vectorAvailable: null, vectorModel: null, note: 'BM25：零依赖、可解释的关键词检索' };
   }
 
   const opts = options();
@@ -116,7 +132,7 @@ export async function retrieveKnowledge(queryValue: unknown, topKValue?: unknown
     if (mode === 'hybrid') {
       return {
         query, mode, requestedTopK,
-        results: asKnowledgeHits(bm25.search(query, requestedTopK)),
+        results: asKnowledgeHits(searchBm25(query, requestedTopK)),
         vectorAvailable: false, vectorModel: opts.model || null, fallbackMode: 'bm25',
         note: '向量端点不可用，hybrid 已明确降级为 BM25；未伪造向量结果'
       };
@@ -132,7 +148,7 @@ export async function retrieveKnowledge(queryValue: unknown, topKValue?: unknown
       vectorAvailable: true, vectorModel: opts.model || null, note: '向量：使用真实 embedding 的余弦相似度'
     };
   }
-  const lexical = bm25.search(query, requestedTopK);
+  const lexical = searchBm25(query, requestedTopK);
   const fused = rrfFuse([lexical, vector.hits], { topK: requestedTopK });
   return {
     query, mode, requestedTopK, results: asKnowledgeHits(fused),

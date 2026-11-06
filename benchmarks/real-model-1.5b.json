@@ -1,0 +1,2293 @@
+{
+  "schemaVersion": 2,
+  "timestamp": "2026-11-02T10:44:03.622Z",
+  "suite": "agent-bench-llm",
+  "suiteVersion": "3",
+  "provider": "ollama",
+  "endpoint": "http://127.0.0.1:11434",
+  "model": "qwen2.5:1.5b",
+  "temperature": 0.3,
+  "maxSteps": 12,
+  "maxRounds": 2,
+  "maxDurationMs": 180000,
+  "rateUnit": "percent",
+  "modes": [
+    "pipeline",
+    "agentic"
+  ],
+  "modelInfo": {
+    "digest": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+    "size": 986061892,
+    "details": {
+      "parent_model": "",
+      "format": "gguf",
+      "family": "qwen2",
+      "families": [
+        "qwen2"
+      ],
+      "parameter_size": "1.5B",
+      "quantization_level": "Q4_K_M",
+      "context_length": 32768,
+      "embedding_length": 1536,
+      "runner": "ggml"
+    },
+    "capabilities": [
+      "completion",
+      "tools"
+    ],
+    "ollamaVersion": "0.40.7"
+  },
+  "sourceSnapshot": {
+    "path": "benchmarks/source-snapshots/e7e66a9466a4678a.json",
+    "sha256": "e7e66a9466a4678af251e5a6f0b77a79e7057685466737993a863109026df37a",
+    "files": [
+      {
+        "path": "dist/main/agent.js",
+        "sha256": "0a0556483179fa944f1bedf20b859fc2adc5f7b67711dec272ae649053664147"
+      },
+      {
+        "path": "dist/main/exam-bank.js",
+        "sha256": "5f25adc2d781e6f2354a4710db4a352e8370c005511fa745126eb0ce89687949"
+      },
+      {
+        "path": "dist/main/lexicon.js",
+        "sha256": "69ff8af9a8df50d4a57a997df06c359905234fc73288f7c3453097af15a0441f"
+      },
+      {
+        "path": "dist/main/prompts.js",
+        "sha256": "f7446e4156db3b864528df7f9f1efb829d872752bd61e62b3dac5315eeeedbbd"
+      },
+      {
+        "path": "dist/main/resume-engine.js",
+        "sha256": "4b2c9b550f5724d7d0018b307cce82cdcf2d6b73396618b9bed213c08d035246"
+      },
+      {
+        "path": "dist/main/retrieval.js",
+        "sha256": "a6550af0a736f390579f5d39ad0fc62c241cbe14c30c376fab4639d2f1023c54"
+      },
+      {
+        "path": "evals/agent-bench-llm.js",
+        "sha256": "77245efdfaa5e8243088d566c3ef4192ffbb499f346b45ffa6ecf248bf0ce8d6"
+      },
+      {
+        "path": "evals/real-model-metrics.js",
+        "sha256": "793ee7457371e0995f628795f7a9076e32ebf494f09700ac6971e56db917c8d5"
+      },
+      {
+        "path": "package-lock.json",
+        "sha256": "49130c234308186a53065414f3dd659a06583884245a1704d8cd3b9dcf404ad1"
+      },
+      {
+        "path": "package.json",
+        "sha256": "4e5c2ae84423d31c8ae1c5c306f5325424181182ce7edbeeec8816629f31dbcd"
+      },
+      {
+        "path": "packages/agent-core/dist/index.js",
+        "sha256": "fbf6023fd12428018f592dd79164239c0d4ebba0759fa72421b57d616e29f9f3"
+      },
+      {
+        "path": "packages/agent-core/dist/run-store.js",
+        "sha256": "000e82cb60e4415052b2216dfcbd35cd356b665ecf58845fd83efe3cca3166c8"
+      },
+      {
+        "path": "packages/agent-core/dist/runtime.js",
+        "sha256": "fc0ec105710395433ca5ce24056ef0238f13222e006bdcddadc9e448ed97ce6d"
+      },
+      {
+        "path": "packages/agent-core/dist/state-machine.js",
+        "sha256": "cf11d38f047494366defc018da4315beeaf719670768c6afd3e5066d840c9913"
+      },
+      {
+        "path": "packages/agent-core/dist/tools.js",
+        "sha256": "c7f449f68db47b823820f8f3e0cff1ceca3d3b8689782c908ad7a31546a416fa"
+      },
+      {
+        "path": "packages/agent-core/dist/types.js",
+        "sha256": "6d1193374ceac95c30f3d9ed0be6d0c1d4490fb0af785b1058b66cbc5946d071"
+      },
+      {
+        "path": "packages/llm-adapters/dist/index.js",
+        "sha256": "3d31b4618cb380527982e0d34e6691f6585aef2bddea98c45acbd9a18c04969b"
+      },
+      {
+        "path": "packages/retrieval/dist/index.js",
+        "sha256": "6040516084f849415db3c5d6fc85f6a3533faef0aa28dbbc3bd74e7a8b5fec7e"
+      },
+      {
+        "path": "prompts/agentic-system-v2.txt",
+        "sha256": "ed631e075a45bab0a0371de69cd683f550342f4b77f76aef0c21d3f48c66d2c9"
+      },
+      {
+        "path": "prompts/rewrite-rules-v1.txt",
+        "sha256": "4f218015993b31e70bb04a020a27aa69a5a4c44b0994cb45c098281ccf0135d5"
+      },
+      {
+        "path": "prompts/rewrite-system-v1.txt",
+        "sha256": "85538fa827e1c767f42db680d21746e902f5c581f1e300a10ffd68a54294f221"
+      }
+    ]
+  },
+  "promptVersion": {
+    "rewriteSystem": "rewrite-system-v1",
+    "rewriteRules": "rewrite-rules-v1",
+    "agenticSystem": "agentic-system-v2"
+  },
+  "promptFiles": {
+    "rewrite-system-v1.txt": "85538fa827e1c767f42db680d21746e902f5c581f1e300a10ffd68a54294f221",
+    "rewrite-rules-v1.txt": "4f218015993b31e70bb04a020a27aa69a5a4c44b0994cb45c098281ccf0135d5",
+    "agentic-system-v2.txt": "ed631e075a45bab0a0371de69cd683f550342f4b77f76aef0c21d3f48c66d2c9"
+  },
+  "cases": 4,
+  "sample": 3,
+  "caseSet": {
+    "id": "agent-bench-fixed-v1",
+    "count": 4,
+    "sha256": "32fa07f1e373f738c0e2fe183be0ca280f6959fc9f3ae9ba25bb4b6dbc4b141b"
+  },
+  "commit": "4cf79aba07f3772c0617801af1d92b3ccc966f16",
+  "commitShort": "4cf79ab",
+  "gitDirty": true,
+  "gitDirtyFiles": [
+    "M README.md",
+    "M README.zh-CN.md",
+    "M docs/career-agent-internship.md",
+    "M evals/agent-bench-llm.js",
+    "M packages/agent-core/src/runtime.ts",
+    "M packages/agent-core/src/tools.ts",
+    "M packages/llm-adapters/src/index.ts",
+    "M packages/llm-adapters/src/types.ts",
+    "M scripts/smoke-real-ipc.js",
+    "M src/main/agent.ts",
+    "M src/main/types.ts",
+    "M src/renderer/app.js",
+    "M test-agent.js",
+    "M test-renderer-apply.js",
+    "M test-runtime.js",
+    "M test-stream.js",
+    "?? benchmarks/real-model-1.5b.json",
+    "?? benchmarks/source-snapshots/",
+    "?? evals/real-model-metrics.js"
+  ],
+  "branch": "master",
+  "runtime": {
+    "node": "v24.12.0",
+    "platform": "win32",
+    "arch": "x64",
+    "packageVersion": "1.15.0"
+  },
+  "hardware": {
+    "cpu": "13th Gen Intel(R) Core(TM) i7-13650HX",
+    "logicalCpus": 20,
+    "memoryBytes": 34124718080
+  },
+  "reproducible": {
+    "reproducible": true,
+    "missingFields": []
+  },
+  "metrics": {
+    "totalRuns": 24,
+    "completedRuns": 11,
+    "failedRuns": 13,
+    "returnedRuns": 24,
+    "successRate": 45.8,
+    "successRateCi95": [
+      27.9,
+      64.9
+    ],
+    "acceptanceRate": 70.6,
+    "avgLatencyMs": 669,
+    "p50LatencyMs": 385,
+    "p95LatencyMs": 1387,
+    "avgSteps": 1.8,
+    "avgTokens": 1330,
+    "tokens": 31925,
+    "tokensReported": 31925,
+    "tokenReportedRequests": 42,
+    "modelRequests": 42,
+    "tokenCoverage": 100,
+    "accepted": 12,
+    "rejected": 5,
+    "metricLoss": 0,
+    "fabricated": 0,
+    "targetBullets": 60,
+    "acceptedCoverage": 20,
+    "hallucinationRate": 0,
+    "failureCounts": {
+      "no_tool_calls": 12,
+      "all_rejected": 1
+    },
+    "cases": 4,
+    "samplePerCase": 3,
+    "modes": [
+      "pipeline",
+      "agentic"
+    ]
+  },
+  "byCase": [
+    {
+      "case": "backend-profile-java-jd-v1",
+      "runs": 6,
+      "completed": 3,
+      "returned": 6,
+      "ok": 3,
+      "successRate": 50,
+      "accepted": 3,
+      "rejected": 0,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "avgLatencyMs": 795
+    },
+    {
+      "case": "frontend-profile-vue-jd-v1",
+      "runs": 6,
+      "completed": 3,
+      "returned": 6,
+      "ok": 3,
+      "successRate": 50,
+      "accepted": 3,
+      "rejected": 0,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "avgLatencyMs": 251
+    },
+    {
+      "case": "algorithm-profile-python-jd-v1",
+      "runs": 6,
+      "completed": 3,
+      "returned": 6,
+      "ok": 3,
+      "successRate": 50,
+      "accepted": 3,
+      "rejected": 0,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "avgLatencyMs": 438
+    },
+    {
+      "case": "finance-profile-excel-jd-v1",
+      "runs": 6,
+      "completed": 2,
+      "returned": 6,
+      "ok": 2,
+      "successRate": 33.3,
+      "accepted": 3,
+      "rejected": 5,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "avgLatencyMs": 1192
+    }
+  ],
+  "byMode": {
+    "pipeline": {
+      "totalRuns": 12,
+      "completedRuns": 11,
+      "failedRuns": 1,
+      "returnedRuns": 12,
+      "successRate": 91.7,
+      "successRateCi95": [
+        64.6,
+        98.5
+      ],
+      "acceptanceRate": 70.6,
+      "avgLatencyMs": 615,
+      "p50LatencyMs": 264,
+      "p95LatencyMs": 2172,
+      "avgSteps": 1.3,
+      "avgTokens": 446,
+      "tokens": 5356,
+      "tokensReported": 5356,
+      "tokenReportedRequests": 15,
+      "modelRequests": 15,
+      "tokenCoverage": 100,
+      "accepted": 12,
+      "rejected": 5,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "targetBullets": 30,
+      "acceptedCoverage": 40,
+      "hallucinationRate": 0,
+      "failureCounts": {
+        "all_rejected": 1
+      }
+    },
+    "agentic": {
+      "totalRuns": 12,
+      "completedRuns": 0,
+      "failedRuns": 12,
+      "returnedRuns": 12,
+      "successRate": 0,
+      "successRateCi95": [
+        0,
+        24.2
+      ],
+      "acceptanceRate": null,
+      "avgLatencyMs": 723,
+      "p50LatencyMs": 666,
+      "p95LatencyMs": 1383,
+      "avgSteps": 2.3,
+      "avgTokens": 2214,
+      "tokens": 26569,
+      "tokensReported": 26569,
+      "tokenReportedRequests": 27,
+      "modelRequests": 27,
+      "tokenCoverage": 100,
+      "accepted": 0,
+      "rejected": 0,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "targetBullets": 30,
+      "acceptedCoverage": 0,
+      "hallucinationRate": null,
+      "failureCounts": {
+        "no_tool_calls": 12
+      }
+    }
+  },
+  "evidence": {
+    "fabricatedSamples": [],
+    "metricLossSamples": []
+  },
+  "runs": [
+    {
+      "case": "backend-profile-java-jd-v1",
+      "mode": "pipeline",
+      "run": 1,
+      "ok": true,
+      "ms": 2172,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 1,
+      "tokens": 363,
+      "requests": [
+        {
+          "ms": 2163,
+          "tokens": 363,
+          "promptTokens": 315,
+          "completionTokens": 48,
+          "tools": [],
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责订单系统开发，支撑日活3万，优化查询性能，响应时间从800ms降至120ms\"}],\"summarySuggestion\":\"\"}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 79%（5/7）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 2163,
+          "detail": "返回 102 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 79%（5/7）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责订单系统开发，支撑日活 3 万",
+          "text": "负责订单系统开发，支撑日活3万，优化查询性能，响应时间从800ms降至120ms"
+        }
+      ],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "backend-profile-java-jd-v1",
+      "mode": "agentic",
+      "run": 1,
+      "ok": false,
+      "ms": 758,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 2,
+      "tokens": 2002,
+      "requests": [
+        {
+          "ms": 729,
+          "tokens": 1001,
+          "promptTokens": 890,
+          "completionTokens": 111,
+          "tools": [],
+          "content": "{\"name\": \"analyze_jd\", \"arguments\": {\"target\": \"Java 后端开发工程师\", \"required_skills\": [\"熟悉 Java / Spring Boot / MySQL / Redis\", \"有 Docker 与分布式系统实践经验\"]}}\n{\"name\": \"retrieve_knowledge\", \"arguments\": {\"mode\": \"bm25\", \"query\": \"Java 后端开发工程师\", \"topK\": 5}}\n{\"name\": \"audit_text\", \"arguments\": {\"summary\": \"应届生，求职后端开发工程师\"}}\n",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 28,
+          "tokens": 1001,
+          "promptTokens": 998,
+          "completionTokens": 3,
+          "tools": [],
+          "content": "",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 1 步）",
+          "ok": false,
+          "ms": 729,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 28,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "backend-profile-java-jd-v1",
+      "mode": "pipeline",
+      "run": 2,
+      "ok": true,
+      "ms": 202,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 1,
+      "tokens": 346,
+      "requests": [
+        {
+          "ms": 200,
+          "tokens": 346,
+          "promptTokens": 315,
+          "completionTokens": 31,
+          "tools": [],
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责订单系统开发，支撑日活3万\"}],\"summarySuggestion\":\"\"}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 1,
+          "detail": "覆盖率 79%（5/7）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 200,
+          "detail": "返回 77 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 79%（5/7）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责订单系统开发，支撑日活 3 万",
+          "text": "负责订单系统开发，支撑日活3万"
+        }
+      ],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "backend-profile-java-jd-v1",
+      "mode": "agentic",
+      "run": 2,
+      "ok": false,
+      "ms": 749,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 2,
+      "tokens": 2044,
+      "requests": [
+        {
+          "ms": 730,
+          "tokens": 1022,
+          "promptTokens": 890,
+          "completionTokens": 132,
+          "tools": [],
+          "content": "{\"name\": \"analyze_jd\", \"arguments\": {\"job_title\": \"Java 后端开发工程师\", \"required_skills\": [\"熟悉 Java / Spring Boot / MySQL / Redis\", \"有 Docker 与分布式系统实践经验\"]}}\n{\"name\": \"audit_text\", \"arguments\": {\"summary\": \"应届生，求职后端开发工程师\"}}\n{\"name\": \"rewrite_bullets\", \"arguments\": [{\"id\": \"p0-b0\", \"text\": \"负责订单系统开发，支撑日活 3 万；优化查询性能，响应时间从 800ms 降到 120ms。\"}]}",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 18,
+          "tokens": 1022,
+          "promptTokens": 1021,
+          "completionTokens": 1,
+          "tools": [],
+          "content": "",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 1 步）",
+          "ok": false,
+          "ms": 730,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 18,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "backend-profile-java-jd-v1",
+      "mode": "pipeline",
+      "run": 3,
+      "ok": true,
+      "ms": 264,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 1,
+      "tokens": 361,
+      "requests": [
+        {
+          "ms": 261,
+          "tokens": 361,
+          "promptTokens": 315,
+          "completionTokens": 46,
+          "tools": [],
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责订单系统开发，支撑日活3万，优化查询性能，从800ms降到120ms\"}],\"summarySuggestion\":\"\"}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 79%（5/7）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 262,
+          "detail": "返回 98 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 79%（5/7）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责订单系统开发，支撑日活 3 万",
+          "text": "负责订单系统开发，支撑日活3万，优化查询性能，从800ms降到120ms"
+        }
+      ],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "backend-profile-java-jd-v1",
+      "mode": "agentic",
+      "run": 3,
+      "ok": false,
+      "ms": 623,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 2,
+      "tokens": 2000,
+      "requests": [
+        {
+          "ms": 595,
+          "tokens": 1000,
+          "promptTokens": 890,
+          "completionTokens": 110,
+          "tools": [],
+          "content": "{\"name\": \"analyze_jd\", \"arguments\": {\"target\": \"Java 后端开发工程师\", \"skills\": [\"熟悉 Java / Spring Boot / MySQL / Redis\", \"有 Docker 与分布式系统实践经验\"]}}\n{\"name\": \"retrieve_knowledge\", \"arguments\": {\"mode\": \"bm25\", \"query\": \"Java 后端开发工程师\", \"topK\": 5}}\n{\"name\": \"audit_text\", \"arguments\": {\"summary\": \"应届生，求职后端开发工程师\"}}\n",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 27,
+          "tokens": 1000,
+          "promptTokens": 997,
+          "completionTokens": 3,
+          "tools": [],
+          "content": "",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 1 步）",
+          "ok": false,
+          "ms": 595,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 27,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "frontend-profile-vue-jd-v1",
+      "mode": "pipeline",
+      "run": 1,
+      "ok": true,
+      "ms": 230,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 1,
+      "tokens": 316,
+      "requests": [
+        {
+          "ms": 228,
+          "tokens": 316,
+          "promptTokens": 286,
+          "completionTokens": 30,
+          "tools": [],
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"实现权限组件，覆盖20个页面\"}],\"summarySuggestion\":\"\"}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 40%（2/5）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 228,
+          "detail": "返回 76 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 40%（2/5）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "实现权限组件，覆盖 20 个页面",
+          "text": "实现权限组件，覆盖20个页面"
+        }
+      ],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "frontend-profile-vue-jd-v1",
+      "mode": "agentic",
+      "run": 1,
+      "ok": false,
+      "ms": 276,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 2,
+      "tokens": 1798,
+      "requests": [
+        {
+          "ms": 254,
+          "tokens": 899,
+          "promptTokens": 857,
+          "completionTokens": 42,
+          "tools": [],
+          "content": "{\"name\": \"analyze_jd\", \"arguments\": {\"target_jd\": \"岗位：前端开发工程师\\n要求：熟悉 React、Vue、TypeScript；了解组件化与性能优化\"}}\n",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 21,
+          "tokens": 899,
+          "promptTokens": 897,
+          "completionTokens": 2,
+          "tools": [],
+          "content": "",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 1 步）",
+          "ok": false,
+          "ms": 255,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 21,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "frontend-profile-vue-jd-v1",
+      "mode": "pipeline",
+      "run": 2,
+      "ok": true,
+      "ms": 166,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 1,
+      "tokens": 314,
+      "requests": [
+        {
+          "ms": 165,
+          "tokens": 314,
+          "promptTokens": 286,
+          "completionTokens": 28,
+          "tools": [],
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"实现20个页面权限组件\"}],\"summarySuggestion\":\"\"}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 1,
+          "detail": "覆盖率 40%（2/5）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 165,
+          "detail": "返回 73 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 40%（2/5）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "实现权限组件，覆盖 20 个页面",
+          "text": "实现20个页面权限组件"
+        }
+      ],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "frontend-profile-vue-jd-v1",
+      "mode": "agentic",
+      "run": 2,
+      "ok": false,
+      "ms": 253,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 2,
+      "tokens": 1795,
+      "requests": [
+        {
+          "ms": 226,
+          "tokens": 897,
+          "promptTokens": 857,
+          "completionTokens": 40,
+          "tools": [],
+          "content": "{\"name\": \"analyze_jd\", \"arguments\": {\"jd\": \"岗位：前端开发工程师\\n要求：熟悉 React、Vue、TypeScript；了解组件化与性能优化\"}}\n",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 27,
+          "tokens": 898,
+          "promptTokens": 895,
+          "completionTokens": 3,
+          "tools": [],
+          "content": "",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 1 步）",
+          "ok": false,
+          "ms": 226,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 27,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "frontend-profile-vue-jd-v1",
+      "mode": "pipeline",
+      "run": 3,
+      "ok": true,
+      "ms": 196,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 1,
+      "tokens": 316,
+      "requests": [
+        {
+          "ms": 194,
+          "tokens": 316,
+          "promptTokens": 286,
+          "completionTokens": 30,
+          "tools": [],
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"实现权限组件，覆盖20个页面\"}],\"summarySuggestion\":\"\"}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 40%（2/5）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 194,
+          "detail": "返回 76 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 40%（2/5）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "实现权限组件，覆盖 20 个页面",
+          "text": "实现权限组件，覆盖20个页面"
+        }
+      ],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "frontend-profile-vue-jd-v1",
+      "mode": "agentic",
+      "run": 3,
+      "ok": false,
+      "ms": 385,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 3,
+      "tokens": 2883,
+      "requests": [
+        {
+          "ms": 253,
+          "tokens": 901,
+          "promptTokens": 857,
+          "completionTokens": 44,
+          "tools": [
+            "analyze_jd"
+          ],
+          "content": "",
+          "rawToolCalls": [
+            {
+              "id": "call_a2xev0no",
+              "function": {
+                "index": 0,
+                "name": "analyze_jd",
+                "arguments": {
+                  "target": "前端开发工程师",
+                  "skills": [
+                    "熟悉 React、Vue、TypeScript",
+                    "了解组件化与性能优化"
+                  ]
+                }
+              }
+            }
+          ],
+          "error": null
+        },
+        {
+          "ms": 114,
+          "tokens": 991,
+          "promptTokens": 975,
+          "completionTokens": 16,
+          "tools": [],
+          "content": "好的，我将修正参数并重新分析 JD。请稍等。",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 17,
+          "tokens": 991,
+          "promptTokens": 990,
+          "completionTokens": 1,
+          "tools": [],
+          "content": "",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "调用 analyze_jd 失败",
+          "ok": false,
+          "ms": 0,
+          "detail": "出现未声明的参数 target",
+          "retryCount": 0
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 114,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 3 步）",
+          "ok": false,
+          "ms": 17,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "algorithm-profile-python-jd-v1",
+      "mode": "pipeline",
+      "run": 1,
+      "ok": true,
+      "ms": 330,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 1,
+      "tokens": 330,
+      "requests": [
+        {
+          "ms": 328,
+          "tokens": 330,
+          "promptTokens": 279,
+          "completionTokens": 51,
+          "tools": [],
+          "content": "{\n    \"rewrites\": [\n        {\n            \"id\": \"p0-b0\",\n            \"text\": \"微调 BERT 模型，准确率提升 5%\"\n        }\n    ],\n    \"summarySuggestion\": \"\"\n}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 75%（3/4）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 328,
+          "detail": "返回 145 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 75%（3/4）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "微调 BERT 模型，准确率提升 5%",
+          "text": "微调 BERT 模型，准确率提升 5%"
+        }
+      ],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "algorithm-profile-python-jd-v1",
+      "mode": "agentic",
+      "run": 1,
+      "ok": false,
+      "ms": 666,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 3,
+      "tokens": 2953,
+      "requests": [
+        {
+          "ms": 270,
+          "tokens": 899,
+          "promptTokens": 855,
+          "completionTokens": 44,
+          "tools": [
+            "analyze_jd"
+          ],
+          "content": "",
+          "rawToolCalls": [
+            {
+              "id": "call_zwnnppuc",
+              "function": {
+                "index": 0,
+                "name": "analyze_jd",
+                "arguments": {
+                  "target": "岗位：算法工程师，要求：熟悉 Python、PyTorch；有深度学习与 NLP 项目经验优先"
+                }
+              }
+            }
+          ],
+          "error": null
+        },
+        {
+          "ms": 213,
+          "tokens": 1012,
+          "promptTokens": 977,
+          "completionTokens": 35,
+          "tools": [],
+          "content": "对不起，我遇到了一些问题。请尝试重新检查并修正参数 `target`，使其符合预期。我将再次尝试调用 `analyze_jd`。",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 183,
+          "tokens": 1042,
+          "promptTokens": 1011,
+          "completionTokens": 31,
+          "tools": [],
+          "content": "请确保 `target` 字段已正确声明。如果问题仍然存在，请跳过这一步并直接调用 `analyze_jd`。",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "调用 analyze_jd 失败",
+          "ok": false,
+          "ms": 0,
+          "detail": "出现未声明的参数 target",
+          "retryCount": 0
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 213,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 3 步）",
+          "ok": false,
+          "ms": 183,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "algorithm-profile-python-jd-v1",
+      "mode": "pipeline",
+      "run": 2,
+      "ok": true,
+      "ms": 311,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 1,
+      "tokens": 330,
+      "requests": [
+        {
+          "ms": 310,
+          "tokens": 330,
+          "promptTokens": 279,
+          "completionTokens": 51,
+          "tools": [],
+          "content": "{\n  \"rewrites\": [\n    {\n      \"id\": \"p0-b0\",\n      \"text\": \"微调 BERT 模型，提升准确率 5%\"\n    }\n  ],\n  \"summarySuggestion\": \"\"\n}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 75%（3/4）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 310,
+          "detail": "返回 119 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 75%（3/4）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "微调 BERT 模型，准确率提升 5%",
+          "text": "微调 BERT 模型，提升准确率 5%"
+        }
+      ],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "algorithm-profile-python-jd-v1",
+      "mode": "agentic",
+      "run": 2,
+      "ok": false,
+      "ms": 284,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 2,
+      "tokens": 1798,
+      "requests": [
+        {
+          "ms": 261,
+          "tokens": 899,
+          "promptTokens": 855,
+          "completionTokens": 44,
+          "tools": [],
+          "content": "{\"name\": \"analyze_jd\", \"arguments\": {\"target_jd\": \"岗位：算法工程师\\n要求：熟悉 Python、PyTorch；有深度学习与 NLP 项目经验优先\"}}\n",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 22,
+          "tokens": 899,
+          "promptTokens": 897,
+          "completionTokens": 2,
+          "tools": [],
+          "content": "",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 1 步）",
+          "ok": false,
+          "ms": 261,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 22,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "algorithm-profile-python-jd-v1",
+      "mode": "pipeline",
+      "run": 3,
+      "ok": true,
+      "ms": 260,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 1,
+      "tokens": 318,
+      "requests": [
+        {
+          "ms": 258,
+          "tokens": 318,
+          "promptTokens": 279,
+          "completionTokens": 39,
+          "tools": [],
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"微调 BERT 模型，提升准确率 5%\"}],\"summarySuggestion\":\"一句话简介，不需要\"}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 75%（3/4）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 258,
+          "detail": "返回 90 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 75%（3/4）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "微调 BERT 模型，准确率提升 5%",
+          "text": "微调 BERT 模型，提升准确率 5%"
+        }
+      ],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "algorithm-profile-python-jd-v1",
+      "mode": "agentic",
+      "run": 3,
+      "ok": false,
+      "ms": 777,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 2,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 3,
+      "tokens": 2979,
+      "requests": [
+        {
+          "ms": 303,
+          "tokens": 900,
+          "promptTokens": 855,
+          "completionTokens": 45,
+          "tools": [
+            "analyze_jd"
+          ],
+          "content": "",
+          "rawToolCalls": [
+            {
+              "id": "call_koqcvrhu",
+              "function": {
+                "index": 0,
+                "name": "analyze_jd",
+                "arguments": {
+                  "target": "岗位：算法工程师\n要求：熟悉 Python、PyTorch；有深度学习与 NLP 项目经验优先\n"
+                }
+              }
+            }
+          ],
+          "error": null
+        },
+        {
+          "ms": 362,
+          "tokens": 1032,
+          "promptTokens": 978,
+          "completionTokens": 54,
+          "tools": [],
+          "content": "对不起，我遇到了一些问题。看起来您没有提供目标 JD 的参数。请确保在调用 analyze_jd 之前，您已经提供了完整的 JD 要求。如果您能提供完整的 JD 要求，我可以帮助您进行优化。",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 112,
+          "tokens": 1047,
+          "promptTokens": 1031,
+          "completionTokens": 16,
+          "tools": [],
+          "content": "请您提供完整的 JD 要求，然后我们继续进行优化。",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "调用 analyze_jd 失败",
+          "ok": false,
+          "ms": 0,
+          "detail": "出现未声明的参数 target",
+          "retryCount": 0
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 362,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 3 步）",
+          "ok": false,
+          "ms": 112,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "finance-profile-excel-jd-v1",
+      "mode": "pipeline",
+      "run": 1,
+      "ok": true,
+      "ms": 1369,
+      "accepted": 1,
+      "rejected": 2,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 2,
+      "tokens": 838,
+      "requests": [
+        {
+          "ms": 717,
+          "tokens": 404,
+          "promptTokens": 296,
+          "completionTokens": 108,
+          "tools": [],
+          "content": "{\n  \"rewrites\": [\n    {\n      \"id\": \"p0-b0\",\n      \"text\": \"负责月度对账工作，通过认真负责的态度完成各项任务\"\n    },\n    {\n      \"id\": \"p0-b1\",\n      \"text\": \"参与财务报表编制，支撑12家子公司\"\n    },\n    {\n      \"id\": \"审计\",\n      \"text\": \"持有CPA或熟悉用友者优先\"\n    }\n  ],\n  \"summarySuggestion\": \"\"\n}",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 649,
+          "tokens": 434,
+          "promptTokens": 334,
+          "completionTokens": 100,
+          "tools": [],
+          "content": "{\n  \"rewrites\": [\n    {\n      \"id\": \"p0-b0\",\n      \"text\": \"负责月度对账工作，通过认真负责的态度完成各项任务\"\n    },\n    {\n      \"id\": \"p0-b1\",\n      \"text\": \"参与财务报表编制，支撑12家子公司\"\n    },\n    {\n      \"id\": \"id\",\n      \"text\": \"审计\"\n    }\n  ],\n  \"summarySuggestion\": \"\"\n}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 87%（7/8）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 67"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 717,
+          "detail": "返回 253 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 2 条"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 2 轮）",
+          "ok": true,
+          "ms": 649,
+          "detail": "返回 242 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 2 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 67"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 87%（7/8）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b1",
+          "old": "参与财务报表编制，支撑 12 家子公司",
+          "text": "参与财务报表编制，支撑12家子公司"
+        }
+      ],
+      "rejections": [
+        {
+          "id": "p0-b0",
+          "reason": "含套话「认真负责」"
+        },
+        {
+          "id": "id",
+          "reason": "未知条目 id"
+        }
+      ],
+      "completion": null
+    },
+    {
+      "case": "finance-profile-excel-jd-v1",
+      "mode": "agentic",
+      "run": 1,
+      "ok": false,
+      "ms": 1298,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 2,
+      "tokens": 2150,
+      "requests": [
+        {
+          "ms": 1277,
+          "tokens": 1075,
+          "promptTokens": 873,
+          "completionTokens": 202,
+          "tools": [],
+          "content": "{\"name\": \"analyze_jd\", \"arguments\": {\"target\": \"财务专员\", \"required_skills\": [\"熟练使用 Excel\", \"了解财务报表编制与审计流程\"], \"optional_skills\": [\"持有 CPA 或熟悉用友\"]}}\n{\"name\": \"audit_text\", \"arguments\": {\"text\": \"负责月度对账工作，通过认真负责的态度完成各项任务\"}}\n{\"name\": \"audit_text\", \"arguments\": {\"text\": \"参与财务报表编制，支撑 12 家子公司\"}}\n{\"name\": \"rewrite_bullets\", \"arguments\": [{\"id\": \"p0-b0\", \"text\": \"负责月度对账工作，通过认真负责的态度完成各项任务；参与财务报表编制，支撑 12 家子公司\"}]}\n{\"name\": \"rewrite_bullets\", \"arguments\": [{\"id\": \"p0-b1\", \"text\": \"参与财务报表编制，支撑 12 家子公司；具备扎实的专业基础\"}]}",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 20,
+          "tokens": 1075,
+          "promptTokens": 1074,
+          "completionTokens": 1,
+          "tools": [],
+          "content": "",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 1 步）",
+          "ok": false,
+          "ms": 1277,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 20,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "finance-profile-excel-jd-v1",
+      "mode": "pipeline",
+      "run": 2,
+      "ok": false,
+      "ms": 495,
+      "accepted": 0,
+      "rejected": 1,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 2,
+      "tokens": 689,
+      "requests": [
+        {
+          "ms": 252,
+          "tokens": 330,
+          "promptTokens": 296,
+          "completionTokens": 34,
+          "tools": [],
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责月度对账，通过认真负责的态度完成各项任务\"}],\"summarySuggestion\":\"\"}",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 243,
+          "tokens": 359,
+          "promptTokens": 324,
+          "completionTokens": 35,
+          "tools": [],
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责月度对账工作，通过认真负责的态度完成各项任务\"}],\"summarySuggestion\":\"\"}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 87%（7/8）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 67"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 252,
+          "detail": "返回 84 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 0 条，拒收 1 条"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 2 轮）",
+          "ok": true,
+          "ms": 243,
+          "detail": "返回 86 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 2 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 0 条，拒收 1 条"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [
+        {
+          "id": "p0-b0",
+          "reason": "含套话「认真负责」"
+        }
+      ],
+      "completion": null
+    },
+    {
+      "case": "finance-profile-excel-jd-v1",
+      "mode": "agentic",
+      "run": 2,
+      "ok": false,
+      "ms": 1219,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 2,
+      "tokens": 1985,
+      "requests": [
+        {
+          "ms": 307,
+          "tokens": 920,
+          "promptTokens": 873,
+          "completionTokens": 47,
+          "tools": [],
+          "content": "{\"name\": \"analyze_jd\", \"arguments\": {\"target_jd\": \"岗位：财务专员\\n要求：熟练使用 Excel，了解财务报表编制与审计流程；持有 CPA 或熟悉用友者优先\"}}\n",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 912,
+          "tokens": 1065,
+          "promptTokens": 918,
+          "completionTokens": 147,
+          "tools": [],
+          "content": "{\"name\": \"retrieve_knowledge\", \"arguments\": {\"mode\": \"bm25\", \"query\": \"财务报表编制\", \"topK\": 5}}\n{\"name\": \"audit_text\", \"arguments\": {\"current_resume\": \"本人具备扎实的专业基础\"}}\n{\"name\": \"rewrite_bullets\", \"arguments\": [{\"rewrites\": [{\"id\": \"p0-b0\", \"text\": \"负责月度对账工作，通过认真负责的态度完成各项任务\"}], {\"id\": \"p0-b1\", \"text\": \"参与财务报表编制，支撑 12 家子公司\"}], \"result\": null}}\n{\"name\": \"submit_result\", \"arguments\": {\"result\": null}}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 1 步）",
+          "ok": false,
+          "ms": 307,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 912,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    },
+    {
+      "case": "finance-profile-excel-jd-v1",
+      "mode": "pipeline",
+      "run": 3,
+      "ok": true,
+      "ms": 1387,
+      "accepted": 2,
+      "rejected": 2,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "COMPLETED",
+      "steps": 2,
+      "tokens": 835,
+      "requests": [
+        {
+          "ms": 705,
+          "tokens": 404,
+          "promptTokens": 296,
+          "completionTokens": 108,
+          "tools": [],
+          "content": "{\n  \"rewrites\": [\n    {\n      \"id\": \"p0-b0\",\n      \"text\": \"负责月度对账工作，通过认真负责的态度完成各项任务\"\n    },\n    {\n      \"id\": \"p0-b1\",\n      \"text\": \"参与财务报表编制，支撑12家子公司\"\n    },\n    {\n      \"id\": \"summary\",\n      \"text\": \"持有CPA或熟悉用友者优先\"\n    }\n  ],\n  \"summarySuggestion\": \"\"\n}",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 680,
+          "tokens": 431,
+          "promptTokens": 324,
+          "completionTokens": 107,
+          "tools": [],
+          "content": "{\n  \"rewrites\": [\n    {\n      \"id\": \"p0-b0\",\n      \"text\": \"负责月度对账，通过认真负责的态度完成各项任务\"\n    },\n    {\n      \"id\": \"p0-b1\",\n      \"text\": \"参与财务报表编制，支撑12家子公司\"\n    },\n    {\n      \"id\": \"审计\",\n      \"text\": \"持有CPA证书或熟悉用友系统\"\n    }\n  ],\n  \"summarySuggestion\": \"\"\n}",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": null,
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 87%（7/8）"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 67"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 705,
+          "detail": "返回 258 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 2 条，拒收 1 条"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 2 轮）",
+          "ok": true,
+          "ms": 680,
+          "detail": "返回 252 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 2 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 82"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 87%（7/8）"
+        }
+      ],
+      "acceptedRewrites": [
+        {
+          "id": "p0-b1",
+          "old": "参与财务报表编制，支撑 12 家子公司",
+          "text": "参与财务报表编制，支撑12家子公司"
+        },
+        {
+          "id": "summary",
+          "old": "本人具备扎实的专业基础",
+          "text": "持有CPA或熟悉用友者优先"
+        }
+      ],
+      "rejections": [
+        {
+          "id": "p0-b0",
+          "reason": "含套话「认真负责」"
+        },
+        {
+          "id": "审计",
+          "reason": "未知条目 id"
+        }
+      ],
+      "completion": null
+    },
+    {
+      "case": "finance-profile-excel-jd-v1",
+      "mode": "agentic",
+      "run": 3,
+      "ok": false,
+      "ms": 1383,
+      "accepted": 0,
+      "rejected": 0,
+      "targetBullets": 3,
+      "lost": 0,
+      "fabricated": 0,
+      "status": "FAILED",
+      "steps": 2,
+      "tokens": 2182,
+      "requests": [
+        {
+          "ms": 1359,
+          "tokens": 1091,
+          "promptTokens": 873,
+          "completionTokens": 218,
+          "tools": [],
+          "content": "{\"name\": \"analyze_jd\", \"arguments\": {\"target\": \"财务专员\", \"required_skills\": [\"熟练使用 Excel\", \"了解财务报表编制与审计流程\", \"持有 CPA 或熟悉用友者优先\"]}}\n{\"name\": \"audit_text\", \"arguments\": {\"text\": \"负责月度对账工作，通过认真负责的态度完成各项任务\"}}\n{\"name\": \"audit_text\", \"arguments\": {\"text\": \"参与财务报表编制，支撑 12 家子公司\"}}\n{\"name\": \"rewrite_bullets\", \"arguments\": [{\"rewrites\": [{\"id\": \"p0-b0\", \"text\": \"负责月度对账工作，通过认真负责的态度完成各项任务\"}], {\"id\": \"p0-b1\", \"text\": \"参与财务报表编制，支撑 12 家子公司\"}], \"result\": null}}\n{\"name\": \"rewrite_bullets\", \"arguments\": [{\"rewrites\": [{\"id\": \"summary\", \"text\": \"本人具备扎实的专业基础\"}], \"result\": null}]}",
+          "rawToolCalls": [],
+          "error": null
+        },
+        {
+          "ms": 23,
+          "tokens": 1091,
+          "promptTokens": 1090,
+          "completionTokens": 1,
+          "tools": [],
+          "content": "",
+          "rawToolCalls": [],
+          "error": null
+        }
+      ],
+      "error": "模型连续未调用工具，终止",
+      "incomplete": null,
+      "stepTrace": [
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 1 步）",
+          "ok": false,
+          "ms": 1359,
+          "detail": "未调用任何工具"
+        },
+        {
+          "tool": "agent",
+          "label": "LLM 决策（第 2 步）",
+          "ok": false,
+          "ms": 24,
+          "detail": "未调用任何工具"
+        }
+      ],
+      "acceptedRewrites": [],
+      "rejections": [],
+      "completion": null
+    }
+  ]
+}

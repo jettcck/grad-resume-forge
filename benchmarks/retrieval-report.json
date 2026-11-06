@@ -1,0 +1,1426 @@
+{
+  "schemaVersion": 1,
+  "timestamp": "2026-10-28T06:37:16.511Z",
+  "suite": "retrieval-eval",
+  "corpus": {
+    "source": "src/main/exam-bank.ts",
+    "bankVersion": 2,
+    "docs": 151,
+    "fields": [
+      "stem",
+      "options",
+      "explanation",
+      "tags"
+    ],
+    "sha256": "fbb4197e5f88039bda0763c41e9b3ddfa8663531cef7749be8e18f69df500c40"
+  },
+  "caseSet": {
+    "version": 2,
+    "path": "evals/retrieval-cases-v2.json",
+    "total": 62,
+    "byType": {
+      "keyword": 14,
+      "paraphrase": 18,
+      "colloquial": 12,
+      "multi_hop": 10,
+      "out_of_domain": 8
+    },
+    "sha256": "3956f39e1b8cc69b77ee01b04dc43f32786f591a8e7caa6af7439076e2713b9d"
+  },
+  "config": {
+    "topK": 5,
+    "mrrCutoff": 10,
+    "bootstrap": 1000
+  },
+  "thresholdSweep": [
+    {
+      "kind": "absolute",
+      "minScore": 0,
+      "hit3": 0.8518518518518519,
+      "ndcg5": 0.8364583218221683,
+      "recall5": 0.9166666666666666,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "absolute",
+      "minScore": 0.5,
+      "hit3": 0.8518518518518519,
+      "ndcg5": 0.8364583218221683,
+      "recall5": 0.9166666666666666,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "absolute",
+      "minScore": 1,
+      "hit3": 0.8518518518518519,
+      "ndcg5": 0.8364583218221683,
+      "recall5": 0.9166666666666666,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "absolute",
+      "minScore": 2,
+      "hit3": 0.8518518518518519,
+      "ndcg5": 0.8364583218221683,
+      "recall5": 0.9166666666666666,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "absolute",
+      "minScore": 3,
+      "hit3": 0.8518518518518519,
+      "ndcg5": 0.8364583218221683,
+      "recall5": 0.9166666666666666,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "absolute",
+      "minScore": 4,
+      "hit3": 0.8333333333333334,
+      "ndcg5": 0.827199062562909,
+      "recall5": 0.8981481481481481,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "absolute",
+      "minScore": 5,
+      "hit3": 0.8333333333333334,
+      "ndcg5": 0.827199062562909,
+      "recall5": 0.8981481481481481,
+      "oodFalsePositiveRate": 0.375
+    },
+    {
+      "kind": "absolute",
+      "minScore": 6,
+      "hit3": 0.8333333333333334,
+      "ndcg5": 0.8192235707467349,
+      "recall5": 0.8796296296296297,
+      "oodFalsePositiveRate": 0.375
+    },
+    {
+      "kind": "relative",
+      "relativeToTop": 0,
+      "hit3": 0.8518518518518519,
+      "ndcg5": 0.8364583218221683,
+      "recall5": 0.9166666666666666,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "relative",
+      "relativeToTop": 0.2,
+      "hit3": 0.8518518518518519,
+      "ndcg5": 0.8364583218221683,
+      "recall5": 0.9166666666666666,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "relative",
+      "relativeToTop": 0.3,
+      "hit3": 0.8518518518518519,
+      "ndcg5": 0.8342617792401122,
+      "recall5": 0.9074074074074074,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "relative",
+      "relativeToTop": 0.4,
+      "hit3": 0.8518518518518519,
+      "ndcg5": 0.8342617792401122,
+      "recall5": 0.9074074074074074,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "relative",
+      "relativeToTop": 0.5,
+      "hit3": 0.8333333333333334,
+      "ndcg5": 0.825002519980853,
+      "recall5": 0.8888888888888888,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "coverage",
+      "minCoverage": 0.1,
+      "hit3": 0.8148148148148148,
+      "ndcg5": 0.8036119215542222,
+      "recall5": 0.8425925925925926,
+      "oodFalsePositiveRate": 0.75
+    },
+    {
+      "kind": "coverage",
+      "minCoverage": 0.15,
+      "hit3": 0.7962962962962963,
+      "ndcg5": 0.7807003178715917,
+      "recall5": 0.8055555555555556,
+      "oodFalsePositiveRate": 0.5
+    },
+    {
+      "kind": "coverage",
+      "minCoverage": 0.2,
+      "hit3": 0.7407407407407407,
+      "ndcg5": 0.7124116554035297,
+      "recall5": 0.7222222222222222,
+      "oodFalsePositiveRate": 0.25
+    },
+    {
+      "kind": "coverage",
+      "minCoverage": 0.3,
+      "hit3": 0.5925925925925926,
+      "ndcg5": 0.5421372509699294,
+      "recall5": 0.5462962962962963,
+      "oodFalsePositiveRate": 0.125
+    },
+    {
+      "kind": "coverage",
+      "minCoverage": 0.4,
+      "hit3": 0.3888888888888889,
+      "ndcg5": 0.3556165262779536,
+      "recall5": 0.35185185185185186,
+      "oodFalsePositiveRate": 0
+    },
+    {
+      "kind": "coverage",
+      "minCoverage": 0.5,
+      "hit3": 0.2962962962962963,
+      "ndcg5": 0.2930784195764548,
+      "recall5": 0.28703703703703703,
+      "oodFalsePositiveRate": 0
+    },
+    {
+      "kind": "coverage+score",
+      "minCoverage": 0.1,
+      "minScore": 5,
+      "hit3": 0.8148148148148148,
+      "ndcg5": 0.8036119215542222,
+      "recall5": 0.8425925925925926,
+      "oodFalsePositiveRate": 0.375
+    },
+    {
+      "kind": "coverage+score",
+      "minCoverage": 0.15,
+      "minScore": 5,
+      "hit3": 0.7962962962962963,
+      "ndcg5": 0.7807003178715917,
+      "recall5": 0.8055555555555556,
+      "oodFalsePositiveRate": 0.375
+    },
+    {
+      "kind": "coverage+score",
+      "minCoverage": 0.2,
+      "minScore": 5,
+      "hit3": 0.7407407407407407,
+      "ndcg5": 0.7124116554035297,
+      "recall5": 0.7222222222222222,
+      "oodFalsePositiveRate": 0.25
+    }
+  ],
+  "recommendedThreshold": {
+    "kind": "absolute",
+    "minScore": 5,
+    "hit3": 0.8333333333333334,
+    "ndcg5": 0.827199062562909,
+    "recall5": 0.8981481481481481,
+    "oodFalsePositiveRate": 0.375
+  },
+  "vector": {
+    "attempted": false,
+    "available": false,
+    "model": "nomic-embed-text",
+    "endpoint": "http://127.0.0.1:11434"
+  },
+  "commit": "cb3905c61fa61f90f1ce904d528b7da090c6bc6b",
+  "commitShort": "cb3905c",
+  "gitDirty": true,
+  "reproducible": {
+    "reproducible": true,
+    "missingFields": []
+  },
+  "metrics": {
+    "bm25": {
+      "overall": {
+        "n": 54,
+        "hit1": 0.7962962962962963,
+        "hit3": 0.8518518518518519,
+        "hit5": 0.9259259259259259,
+        "recall5": 0.9166666666666666,
+        "mrr": 0.8345679012345678,
+        "ndcg5": 0.8364583218221683
+      },
+      "byType": {
+        "keyword": {
+          "n": 14,
+          "hit1": 0.9285714285714286,
+          "hit3": 0.9285714285714286,
+          "hit5": 1,
+          "recall5": 1,
+          "mrr": 0.9428571428571428,
+          "ndcg5": 0.9562037719453244
+        },
+        "paraphrase": {
+          "n": 18,
+          "hit1": 0.5555555555555556,
+          "hit3": 0.6666666666666666,
+          "hit5": 0.7777777777777778,
+          "recall5": 0.7777777777777778,
+          "mrr": 0.6175925925925926,
+          "ndcg5": 0.6565294091837741
+        },
+        "colloquial": {
+          "n": 12,
+          "hit1": 0.8333333333333334,
+          "hit3": 0.9166666666666666,
+          "hit5": 1,
+          "recall5": 1,
+          "mrr": 0.8958333333333334,
+          "ndcg5": 0.9218005259704043
+        },
+        "multi_hop": {
+          "n": 10,
+          "hit1": 1,
+          "hit3": 1,
+          "hit5": 1,
+          "recall5": 0.95,
+          "mrr": 1,
+          "ndcg5": 0.8902760894209759
+        }
+      },
+      "ood": {
+        "n": 8,
+        "falsePositive": 6,
+        "falsePositiveRate": 0.75,
+        "avgTopScore": 5.196986
+      },
+      "latencyMs": {
+        "p50": 0.079,
+        "p95": 0.46,
+        "max": 0.702
+      },
+      "ci": {
+        "hit3": {
+          "low": 0.7592592592592593,
+          "high": 0.9259259259259259,
+          "iterations": 1000
+        },
+        "ndcg5": {
+          "low": 0.7571557280281401,
+          "high": 0.9082973734054482,
+          "iterations": 1000
+        },
+        "mrr": {
+          "low": 0.7509259259259259,
+          "high": 0.9172839506172841,
+          "iterations": 1000
+        }
+      }
+    }
+  },
+  "perQuery": {
+    "bm25": [
+      {
+        "id": "K01",
+        "type": "keyword",
+        "query": "HashMap 的底层结构是什么，扩容是怎么做的",
+        "hits": [
+          "pm-07",
+          "pm-08",
+          "hr-07",
+          "algo-ds-02",
+          "be-java-03"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 0,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 0.2,
+        "ndcg5": 0.38685280723454163
+      },
+      {
+        "id": "K02",
+        "type": "keyword",
+        "query": "MySQL 索引在什么情况下会失效",
+        "hits": [
+          "db-mysql-02",
+          "db-mysql-06",
+          "db-mysql-01",
+          "db-mysql-05",
+          "adm-02"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K03",
+        "type": "keyword",
+        "query": "TCP 三次握手的第二次握手服务端回什么标志位",
+        "hits": [
+          "be-net-01",
+          "pm-07",
+          "fe-eng-02",
+          "pm-05",
+          "be-net-05"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K04",
+        "type": "keyword",
+        "query": "CSS 选择器 .a .b 和 .a > .b 有什么区别",
+        "hits": [
+          "fe-css-03",
+          "gen-01",
+          "db-mysql-05",
+          "apt-05",
+          "apt-12"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K05",
+        "type": "keyword",
+        "query": "快速排序的平均时间复杂度是多少",
+        "hits": [
+          "algo-ds-04",
+          "algo-ds-02",
+          "be-java-02",
+          "apt-11",
+          "apt-03"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K06",
+        "type": "keyword",
+        "query": "资产负债率的计算公式",
+        "hits": [
+          "fin-03",
+          "fin-04",
+          "fin-01",
+          "fin-13",
+          "fin-02"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K07",
+        "type": "keyword",
+        "query": "次日留存率怎么计算",
+        "hits": [
+          "pm-05",
+          "pm-12",
+          "op-11",
+          "pm-07",
+          "pm-08"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K08",
+        "type": "keyword",
+        "query": "RFM 模型用哪三个维度划分用户价值",
+        "hits": [
+          "op-03",
+          "op-09",
+          "op-01",
+          "pm-03",
+          "pm-01"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K09",
+        "type": "keyword",
+        "query": "InnoDB 聚簇索引的叶子节点存放的是什么",
+        "hits": [
+          "db-mysql-01",
+          "db-mysql-03",
+          "pm-08",
+          "db-mysql-06",
+          "db-mysql-05"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K10",
+        "type": "keyword",
+        "query": "死锁的四个必要条件是什么",
+        "hits": [
+          "be-os-02",
+          "apt-05",
+          "hr-02",
+          "be-java-05",
+          "pm-08"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K11",
+        "type": "keyword",
+        "query": "窗口函数 ROW_NUMBER 和 RANK 的关键区别",
+        "hits": [
+          "data-sql-01",
+          "db-mysql-04",
+          "fe-js-01",
+          "fe-js-05",
+          "apt-10"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K12",
+        "type": "keyword",
+        "query": "数据仓库分层里 ODS 层通常存放什么",
+        "hits": [
+          "data-dw-01",
+          "db-mysql-01",
+          "be-java-07",
+          "pm-07",
+          "be-redis-02"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K13",
+        "type": "keyword",
+        "query": "RICE 模型四个字母分别代表什么",
+        "hits": [
+          "pm-01",
+          "hr-02",
+          "data-stat-01",
+          "pm-03",
+          "adm-02"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "K14",
+        "type": "keyword",
+        "query": "流动比率的分母是什么",
+        "hits": [
+          "fin-09",
+          "fin-03",
+          "pm-05",
+          "pm-08",
+          "fin-04"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "P01",
+        "type": "paraphrase",
+        "query": "热点数据突然失效，瞬时大量请求全都打到数据库上，有什么办法挡住",
+        "hits": [
+          "be-prac-04",
+          "fe-browser-02",
+          "op-06",
+          "data-sql-02",
+          "gen-05"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "P02",
+        "type": "paraphrase",
+        "query": "多个线程同时改一个共享变量，怎么保证一个线程改完另一个立刻能看到",
+        "hits": [
+          "pm-04",
+          "be-prac-04",
+          "be-java-07",
+          "be-os-01",
+          "be-java-04"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 0,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 0.2,
+        "ndcg5": 0.38685280723454163
+      },
+      {
+        "id": "P03",
+        "type": "paraphrase",
+        "query": "两个人同时修改同一条记录，后提交的把先提交的覆盖了，数据库层面怎么避免",
+        "hits": [
+          "be-prac-02",
+          "en-07",
+          "be-os-02",
+          "gen-02",
+          "be-java-01"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 0,
+        "hit5": 0,
+        "recall5": 0,
+        "rr": 0,
+        "ndcg5": 0
+      },
+      {
+        "id": "P04",
+        "type": "paraphrase",
+        "query": "用户重复点提交按钮，怎么保证同一笔请求只处理一次",
+        "hits": [
+          "be-prac-02",
+          "pm-08",
+          "adm-03",
+          "be-net-02",
+          "pm-07"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "P05",
+        "type": "paraphrase",
+        "query": "公司账面上有利润，但账户里没钱，这是为什么",
+        "hits": [
+          "fin-13",
+          "pm-03",
+          "pm-07",
+          "fin-11",
+          "fin-04"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 0,
+        "hit5": 0,
+        "recall5": 0,
+        "rr": 0,
+        "ndcg5": 0
+      },
+      {
+        "id": "P06",
+        "type": "paraphrase",
+        "query": "怎么科学判断一个新功能上线后到底有没有效果",
+        "hits": [
+          "pm-02",
+          "pm-09",
+          "pm-07",
+          "pm-08",
+          "pm-10"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 0,
+        "hit5": 0,
+        "recall5": 0,
+        "rr": 0,
+        "ndcg5": 0
+      },
+      {
+        "id": "P07",
+        "type": "paraphrase",
+        "query": "先做一个能跑起来的最小版本验证想法，再逐步完善",
+        "hits": [
+          "pm-02",
+          "en-09",
+          "apt-01",
+          "op-06",
+          "pm-01"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "P08",
+        "type": "paraphrase",
+        "query": "面试时怎么讲清楚自己在项目里具体做了什么",
+        "hits": [
+          "hr-02",
+          "pm-07",
+          "gen-04",
+          "gen-02",
+          "pm-08"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 0,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 0.25,
+        "ndcg5": 0.4306765580733931
+      },
+      {
+        "id": "P09",
+        "type": "paraphrase",
+        "query": "需求太多做不完，怎么决定先做哪个后做哪个",
+        "hits": [
+          "hr-07",
+          "pm-07",
+          "pm-08",
+          "pm-06",
+          "gen-06"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 0,
+        "hit5": 0,
+        "recall5": 0,
+        "rr": 0,
+        "ndcg5": 0
+      },
+      {
+        "id": "P10",
+        "type": "paraphrase",
+        "query": "日志里能不能直接把用户的密码和身份证号打出来",
+        "hits": [
+          "be-prac-03",
+          "op-07",
+          "pm-05",
+          "fe-browser-03",
+          "be-java-09"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "P11",
+        "type": "paraphrase",
+        "query": "网页第一次打开很慢，怎么让首屏更快出来",
+        "hits": [
+          "be-net-01",
+          "pm-07",
+          "fe-eng-03",
+          "en-02",
+          "pm-08"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 0.3333333333333333,
+        "ndcg5": 0.5
+      },
+      {
+        "id": "P12",
+        "type": "paraphrase",
+        "query": "Redis 的数据是怎么保存到磁盘上的",
+        "hits": [
+          "be-redis-02",
+          "be-redis-03",
+          "fe-browser-02",
+          "be-os-03",
+          "be-redis-01"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "P13",
+        "type": "paraphrase",
+        "query": "一条 SQL 到底有没有走索引，应该怎么看",
+        "hits": [
+          "db-mysql-05",
+          "db-mysql-01",
+          "db-mysql-06",
+          "db-mysql-02",
+          "data-sql-01"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 0.3333333333333333,
+        "ndcg5": 0.5
+      },
+      {
+        "id": "P14",
+        "type": "paraphrase",
+        "query": "前端把接口密钥打进包里，别人能不能直接看到",
+        "hits": [
+          "fe-eng-02",
+          "be-spring-02",
+          "op-07",
+          "be-java-09",
+          "be-prac-01"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "P15",
+        "type": "paraphrase",
+        "query": "函数已经执行完了，为什么还能访问外层的变量",
+        "hits": [
+          "fe-js-05",
+          "pm-03",
+          "pm-07",
+          "adm-02",
+          "pm-04"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "P16",
+        "type": "paraphrase",
+        "query": "少数极端值把平均值拉高了，用哪个指标更能代表整体水平",
+        "hits": [
+          "data-stat-01",
+          "algo-ds-04",
+          "op-03",
+          "pm-08",
+          "be-java-06"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "P17",
+        "type": "paraphrase",
+        "query": "用户说想要一个导出按钮，产品经理应该按原话直接实现吗",
+        "hits": [
+          "pm-11",
+          "pm-12",
+          "hr-08",
+          "pm-05",
+          "pm-01"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "P18",
+        "type": "paraphrase",
+        "query": "一项跨部门流程长期卡在某个审批节点，怎么改",
+        "hits": [
+          "adm-08",
+          "pm-07",
+          "db-mysql-01",
+          "db-mysql-07",
+          "be-redis-01"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "C01",
+        "type": "colloquial",
+        "query": "哈希表查东西快吗",
+        "hits": [
+          "algo-ds-07",
+          "algo-ds-02",
+          "be-prac-03"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 0.5,
+        "ndcg5": 0.6309297535714574
+      },
+      {
+        "id": "C02",
+        "type": "colloquial",
+        "query": "redis 的 key 还有多久过期咋看",
+        "hits": [
+          "be-redis-01",
+          "be-prac-04",
+          "be-redis-03",
+          "be-redis-02",
+          "apt-04"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "C03",
+        "type": "colloquial",
+        "query": "索引为啥不走了",
+        "hits": [
+          "db-mysql-01",
+          "db-mysql-06",
+          "db-mysql-05",
+          "db-mysql-02",
+          "be-spring-02"
+        ],
+        "error": null,
+        "hit1": 0,
+        "hit3": 0,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 0.25,
+        "ndcg5": 0.4306765580733931
+      },
+      {
+        "id": "C04",
+        "type": "colloquial",
+        "query": "三次握手第二步回啥",
+        "hits": [
+          "be-net-01",
+          "pm-05"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "C05",
+        "type": "colloquial",
+        "query": "线程和进程到底啥区别",
+        "hits": [
+          "be-os-01",
+          "be-java-07",
+          "data-sql-01",
+          "fe-css-03",
+          "be-java-03"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "C06",
+        "type": "colloquial",
+        "query": "spring 事务啥时候会回滚",
+        "hits": [
+          "be-spring-03",
+          "be-spring-04",
+          "be-spring-01",
+          "be-spring-05",
+          "db-mysql-03"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "C07",
+        "type": "colloquial",
+        "query": "前端首屏咋优化",
+        "hits": [
+          "fe-eng-03",
+          "fe-eng-02",
+          "fe-eng-01"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "C08",
+        "type": "colloquial",
+        "query": "闭包到底是啥",
+        "hits": [
+          "fe-js-05"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "C09",
+        "type": "colloquial",
+        "query": "元素 float 之后父容器高度塌了怎么办",
+        "hits": [
+          "fe-css-02",
+          "be-spring-01",
+          "db-mysql-04",
+          "fe-css-03",
+          "algo-ds-03"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "C10",
+        "type": "colloquial",
+        "query": "报表行数咋变多了",
+        "hits": [
+          "data-sql-03",
+          "fin-01",
+          "db-mysql-01",
+          "pm-11",
+          "fin-13"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "C11",
+        "type": "colloquial",
+        "query": "留存率咋算",
+        "hits": [
+          "pm-05",
+          "pm-12",
+          "op-11",
+          "be-prac-03",
+          "adm-04"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "C12",
+        "type": "colloquial",
+        "query": "毛利率咋算",
+        "hits": [
+          "fin-04",
+          "op-02",
+          "fin-08",
+          "op-08"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "M01",
+        "type": "multi_hop",
+        "query": "JVM 里对象实例放在哪块内存，垃圾回收从哪些根对象开始找",
+        "hits": [
+          "be-java-08",
+          "be-java-07",
+          "be-java-05",
+          "be-java-01",
+          "be-spring-02"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 0.7967075809905066
+      },
+      {
+        "id": "M02",
+        "type": "multi_hop",
+        "query": "Spring 事务为什么不生效，AOP 代理是怎么起作用的",
+        "hits": [
+          "be-spring-04",
+          "be-spring-02",
+          "pm-07",
+          "be-spring-03",
+          "be-spring-01"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "M03",
+        "type": "multi_hop",
+        "query": "HTTPS 的加密发生在哪一层，缓存相关的响应头有哪些",
+        "hits": [
+          "be-net-03",
+          "be-net-04",
+          "en-01",
+          "be-redis-03",
+          "fin-06"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 0.7967075809905066
+      },
+      {
+        "id": "M04",
+        "type": "multi_hop",
+        "query": "联合索引为什么要求最左前缀，哪些写法会让索引失效",
+        "hits": [
+          "db-mysql-02",
+          "db-mysql-05",
+          "pm-03",
+          "fe-css-02",
+          "pm-07"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 0.7967075809905066
+      },
+      {
+        "id": "M05",
+        "type": "multi_hop",
+        "query": "浏览器拿到 HTML 之后是分几步把页面画出来的",
+        "hits": [
+          "fe-browser-01",
+          "db-mysql-04",
+          "pm-08",
+          "fe-browser-03",
+          "en-08"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 0.5,
+        "rr": 1,
+        "ndcg5": 0.8262346571285599
+      },
+      {
+        "id": "M06",
+        "type": "multi_hop",
+        "query": "防 XSS 该怎么做，token 放在 localStorage 安全吗",
+        "hits": [
+          "fe-browser-03",
+          "fe-eng-02",
+          "pm-07",
+          "fe-browser-02",
+          "be-java-03"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 0.944847956559586
+      },
+      {
+        "id": "M07",
+        "type": "multi_hop",
+        "query": "缓存穿透和缓存击穿有什么区别，分别怎么防",
+        "hits": [
+          "be-redis-03",
+          "be-prac-04",
+          "pm-07",
+          "be-net-03",
+          "pm-08"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "M08",
+        "type": "multi_hop",
+        "query": "A/B 实验里看到指标变好，就能判定策略有效吗",
+        "hits": [
+          "data-stat-02",
+          "pm-04",
+          "gen-01",
+          "db-mysql-05",
+          "fe-css-03"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 1
+      },
+      {
+        "id": "M09",
+        "type": "multi_hop",
+        "query": "一场活动的投入产出比怎么算，GMV 指的是什么",
+        "hits": [
+          "op-02",
+          "op-01",
+          "pm-08",
+          "op-08",
+          "pm-07"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 0.944847956559586
+      },
+      {
+        "id": "M10",
+        "type": "multi_hop",
+        "query": "用户价值怎么分层，LTV 偏低时优先做什么",
+        "hits": [
+          "op-12",
+          "op-03",
+          "op-09",
+          "pm-03",
+          "op-01"
+        ],
+        "error": null,
+        "hit1": 1,
+        "hit3": 1,
+        "hit5": 1,
+        "recall5": 1,
+        "rr": 1,
+        "ndcg5": 0.7967075809905066
+      },
+      {
+        "id": "O01",
+        "type": "out_of_domain",
+        "query": "红烧肉怎么做才不腻",
+        "hits": [
+          "pm-07",
+          "pm-08"
+        ],
+        "error": null,
+        "oodHit": true
+      },
+      {
+        "id": "O02",
+        "type": "out_of_domain",
+        "query": "明天上海到杭州的高铁几点发车",
+        "hits": [],
+        "error": null,
+        "oodHit": false
+      },
+      {
+        "id": "O03",
+        "type": "out_of_domain",
+        "query": "如何办理护照延期",
+        "hits": [],
+        "error": null,
+        "oodHit": false
+      },
+      {
+        "id": "O04",
+        "type": "out_of_domain",
+        "query": "钢琴考级需要准备哪些曲目",
+        "hits": [
+          "gen-03",
+          "gen-06",
+          "op-07",
+          "en-04",
+          "fe-js-02"
+        ],
+        "error": null,
+        "oodHit": true
+      },
+      {
+        "id": "O05",
+        "type": "out_of_domain",
+        "query": "猫粮哪个牌子好",
+        "hits": [
+          "be-java-06",
+          "data-sql-03",
+          "adm-01"
+        ],
+        "error": null,
+        "oodHit": true
+      },
+      {
+        "id": "O06",
+        "type": "out_of_domain",
+        "query": "世界杯决赛什么时候开始",
+        "hits": [
+          "adm-02",
+          "pm-08",
+          "en-01",
+          "pm-03",
+          "pm-07"
+        ],
+        "error": null,
+        "oodHit": true
+      },
+      {
+        "id": "O07",
+        "type": "out_of_domain",
+        "query": "阳台种番茄要注意什么",
+        "hits": [
+          "be-java-10",
+          "op-08",
+          "pm-03",
+          "adm-02",
+          "pm-07"
+        ],
+        "error": null,
+        "oodHit": true
+      },
+      {
+        "id": "O08",
+        "type": "out_of_domain",
+        "query": "手机电池不耐用怎么修",
+        "hits": [
+          "pm-07",
+          "pm-08"
+        ],
+        "error": null,
+        "oodHit": true
+      }
+    ]
+  }
+}

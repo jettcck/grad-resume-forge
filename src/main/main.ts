@@ -60,6 +60,10 @@ function forgetSession(webContentsId: number): void {
   const uid = sessions.get(webContentsId);
   if (uid) sessionKeys.delete(uid);
   sessions.delete(webContentsId);
+  // 先撤销会话，再中止任务，避免 abort 回调继续向已切换账号的窗口推送。
+  activeRuns.forEach((entry) => {
+    if (entry.ownerWebContentsId === webContentsId) entry.ctl.abort();
+  });
 }
 
 function createWindow(): void {
@@ -240,7 +244,11 @@ const sessions = new Map<number, string>(); // webContents.id → userId
 function rememberSession(ev: Electron.IpcMainInvokeEvent, userId: unknown): void {
   const uid = String(userId || '');
   if (!uid) return;
-  try { sessions.set(ev.sender.id, uid); } catch (_) { /* 忽略 */ }
+  try {
+    const previous = sessions.get(ev.sender.id);
+    if (previous && previous !== uid) forgetSession(ev.sender.id);
+    sessions.set(ev.sender.id, uid);
+  } catch (_) { /* 忽略 */ }
 }
 
 function sessionUserId(ev: Electron.IpcMainInvokeEvent): string {
@@ -276,6 +284,7 @@ ipcMain.handle('auth:session', (_e, token: string) => {
     const r = auth.resumeSession(token);
     // 无效/过期 token 是正常的恢复失败，不应因为读取 null.id 再包装成 IPC 异常。
     if (r) rememberSession(_e, r.id);
+    else forgetSession(_e.sender.id);
     return ok(r);
   } catch (err) {
     return fail((err as Error).message);
@@ -285,9 +294,7 @@ ipcMain.handle('auth:session', (_e, token: string) => {
 ipcMain.handle('auth:logout', (_e, token: string) => {
   try {
     // 本次会话的临时密钥随登出一起清掉：不写盘的东西不该在登出后还留着
-    const uid = sessions.get(_e.sender.id);
-    if (uid) sessionKeys.delete(uid);
-    sessions.delete(_e.sender.id);
+    forgetSession(_e.sender.id);
     return ok(auth.logout(token));
   } catch (err) {
     return fail((err as Error).message);
@@ -307,7 +314,9 @@ ipcMain.handle('profile:save', (_e, userId: string, profile: Partial<Profile>) =
   try {
     assertPlainObject(profile, '档案');
     assertSize(profile, LIMITS.profileJson, '档案');
-    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
+    const currentUser = sessionUserId(_e);
+    if (userId !== currentUser) throw new Error('登录账号已变化，请在当前账号重新保存');
+    userId = currentUser;
     return ok(store.saveProfile(userId, profile));
   } catch (err) {
     return fail((err as Error).message);
@@ -336,6 +345,24 @@ ipcMain.handle('resume:applyRewrites', (_e, profile: Partial<Profile>, accepted:
   } catch (err) {
     return fail((err as Error).message);
   }
+});
+
+// 校验、快照和保存同步完成；切换账号或另一处保存后不再接收旧操作。
+ipcMain.handle('resume:commitRewrites', (_e, expectedUserId: string, profile: Partial<Profile>, accepted: unknown) => {
+  try {
+    const userId = sessionUserId(_e);
+    if (userId !== expectedUserId) throw new Error('登录账号已变化，请在当前账号重新优化');
+    assertPlainObject(profile, '档案');
+    assertSize(profile, LIMITS.profileJson, '档案');
+    if (!Array.isArray(accepted) || !accepted.length) throw new Error('请至少勾选一条改写');
+    assertSize(accepted, LIMITS.profileJson, '改写结果');
+    const saved = store.getProfile(userId);
+    const originalVersion = (profile as { updatedAt?: number }).updatedAt;
+    if (saved?.updatedAt != null && originalVersion !== saved.updatedAt) throw new Error('档案已另行保存，请重新优化后再应用');
+    const next = agent.applyRewritesToProfile(profile, accepted as never[]);
+    store.saveAgentSnapshot(userId, 'Agent 改写前 · ' + new Date().toLocaleString('zh-CN'), profile);
+    return ok(store.saveProfile(userId, next));
+  } catch (err) { return fail((err as Error).message); }
 });
 
 ipcMain.handle('resume:audit', (_e, text: string) => {
@@ -1110,7 +1137,9 @@ ipcMain.handle('exam:plan:save', (_e, input: Record<string, unknown>) => {
 // ---------------- Agent 快照 ----------------
 ipcMain.handle('snapshots:save', (_e, userId: string, label: string, profile: Partial<Profile>) => {
   try {
-    userId = sessionUserId(_e); // 会话权威在主进程：不信任 renderer 传来的 userId
+    const currentUser = sessionUserId(_e);
+    if (userId !== currentUser) throw new Error('登录账号已变化，请在当前账号重新保存');
+    userId = currentUser;
     if (!store.findUserById(userId)) return fail('用户不存在');
     assertPlainObject(profile, '档案');
     assertSize(profile, LIMITS.profileJson, '档案');
@@ -1343,13 +1372,16 @@ import { askAssistant, hotQuestions } from './assistant';
 
 // ---- 内嵌模型桥：模型在渲染进程跑（WebGPU），主进程通过窗口代理调用 ----
 // 协议：主进程发 'embedded:req' {id, messages} → 渲染进程推理 → 'embedded:res' {id, content|error}
-const embeddedPending = new Map<string, { resolve: (v: string) => void; reject: (e: Error) => void; timer: NodeJS.Timeout }>();
+const embeddedPending = new Map<string, { resolve: (v: string) => void; reject: (e: Error) => void;
+  owner: Electron.WebContents; dispose: () => void; onUsage?: import('../../packages/llm-adapters/dist/types').ChatOptions['onUsage'] }>();
 
-ipcMain.on('embedded:res', (_e, payload: { id: string; content?: string; error?: string }) => {
+ipcMain.on('embedded:res', (_e, payload: { id: string; content?: string; error?: string;
+  usage?: import('../../packages/llm-adapters/dist/types').LlmUsage }) => {
   const p = embeddedPending.get(payload && payload.id);
-  if (!p) return;
+  if (!p || p.owner.id !== _e.sender.id) return;
   embeddedPending.delete(payload.id);
-  clearTimeout(p.timer);
+  p.dispose();
+  if (payload.usage) p.onUsage?.(payload.usage);
   if (payload.error) p.reject(new Error(String(payload.error)));
   else p.resolve(String(payload.content || ''));
 });
@@ -1363,7 +1395,7 @@ ipcMain.on('embedded:status', (_e, st: { webgpu?: boolean; ready?: boolean }) =>
   };
 });
 
-function embeddedLlmClient(): import('./types').LlmClient {
+function embeddedLlmClient(owner?: Electron.WebContents): import('./types').LlmClient {
   const REQ_TIMEOUT = 180000; // 内嵌模型推理慢（0.5B 在核显上单轮可达分钟级）
   return {
     provider: 'embedded',
@@ -1375,17 +1407,35 @@ function embeddedLlmClient(): import('./types').LlmClient {
         error: embeddedStatus.webgpu ? undefined : '此设备不支持 WebGPU，无法使用应用内模型'
       };
     },
-    async chat(messages: import('./types').ChatMessage[], _opts?: import('./types').ChatOptions): Promise<string | import('./types').ToolCallReply> {
+    async chat(messages: import('./types').ChatMessage[], opts?: import('./types').ChatOptions): Promise<string | import('./types').ToolCallReply> {
+      const sender = owner || mainWindow?.webContents;
+      const abortError = (): Error => Object.assign(new Error('内嵌模型请求已取消'), { name: 'AbortError' });
+      if (opts?.signal?.aborted) throw abortError();
       if (!mainWindow || mainWindow.isDestroyed()) throw new Error('窗口不可用');
+      if (!sender || sender.isDestroyed()) throw new Error('窗口不可用');
       if (!embeddedStatus.ready) throw new Error('应用内模型未就绪（先在配置里下载）');
+      if (opts?.tools?.length) throw new Error('应用内模型仅支持流水线改写，请切换到流水线通道');
       const id = 'emb_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
       return await new Promise<string>((resolve, reject) => {
-        const timer = setTimeout(() => {
+        const stop = (error: Error): void => {
+          if (!embeddedPending.has(id)) return;
           embeddedPending.delete(id);
-          reject(new Error('内嵌模型响应超时'));
-        }, REQ_TIMEOUT);
-        embeddedPending.set(id, { resolve, reject, timer });
-        mainWindow!.webContents.send('embedded:req', { id, messages });
+          dispose();
+          if (!sender.isDestroyed()) sender.send('embedded:cancel', { id });
+          reject(error);
+        };
+        const abort = (): void => stop(abortError());
+        const gone = (): void => stop(new Error('窗口已关闭'));
+        const timer = setTimeout(() => stop(new Error('内嵌模型响应超时')), REQ_TIMEOUT);
+        const dispose = (): void => {
+          clearTimeout(timer);
+          opts?.signal?.removeEventListener('abort', abort);
+          sender.removeListener('destroyed', gone);
+        };
+        embeddedPending.set(id, { resolve, reject, owner: sender, dispose, onUsage: opts?.onUsage });
+        opts?.signal?.addEventListener('abort', abort, { once: true });
+        sender.once('destroyed', gone);
+        sender.send('embedded:req', { id, messages });
       });
     }
   };
@@ -1432,7 +1482,7 @@ function getRunStore(userId: string) {
   return runStores.get(safe)!;
 }
 /** 正在运行的运行 → 取消控制器（带 owner：只有本人能取消自己的运行） */
-const activeRuns = new Map<string, { ownerUserId: string; ctl: AbortController }>();
+const activeRuns = new Map<string, { ownerUserId: string; ownerWebContentsId: number; ctl: AbortController }>();
 
 ipcMain.handle('agent:cancel', (_e, runId: string) => {
   try {
@@ -1506,6 +1556,7 @@ ipcMain.handle('agent:replay', async (_e, runId: string, profile: Partial<Profil
     const tools = agent.buildAgentTools(ctx).map((t) => ({
       name: t.name, description: t.description, inputSchema: t.inputSchema,
       permission: 'readonly' as const, timeoutMs: 15_000, maxRetries: 0, idempotent: true,
+      cacheResult: t.name !== 'rewrite_bullets',
       execute: async (args: Record<string, unknown>) => Promise.resolve(t.run(args, ctx))
     })) as unknown as Parameters<typeof replayRun>[1]['tools'];
     return ok(await replayRun(rec, { tools, ctx }));
@@ -1527,34 +1578,29 @@ ipcMain.handle('agent:run', async (_e, profile: Partial<Profile>, jdText: string
     // 规则通道不需要任何模型客户端
     const llm = rulesOnly
       ? undefined
-      : (cfg.provider === 'embedded' ? embeddedLlmClient() : createLlmClient(cfg));
-    const send = (s: unknown) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('agent:progress', s);
-      }
-    };
-    const sendStream = (piece: string, round: number) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('agent:stream', { round, piece });
-      }
-    };
-    if (rulesOnly) {
-      const result = await agent.runAgent(profile, jdText, { onStep: send, rulesOnly: true });
-      return ok(result);
-    }
+      : (cfg.provider === 'embedded' ? embeddedLlmClient(_e.sender) : createLlmClient(cfg));
     // runId 由渲染层给出：这样用户点「取消」时主进程能立刻找到对应的运行。
     // 但必须拒绝重复 ID：覆盖别人的控制器会让「取消」打到错误的任务上，
     // 而且先结束的那个任务的 finally 会把新任务的控制器删掉（评审指出）。
     const runId = String(o.runId || ('run_' + Date.now().toString(36)));
     if (activeRuns.has(runId)) return fail('这次运行的 ID 正在使用中，请稍后重试');
     const ctl = new AbortController();
-    activeRuns.set(runId, { ownerUserId: userId, ctl });
+    const sender = _e.sender;
+    activeRuns.set(runId, { ownerUserId: userId, ownerWebContentsId: sender.id, ctl });
+    const canSend = (): boolean => !ctl.signal.aborted && !sender.isDestroyed() && sessions.get(sender.id) === userId;
+    const send = (s: unknown) => {
+      if (canSend()) sender.send('agent:progress', { ...(s as object), runId });
+    };
+    const sendStream = (piece: string, round: number) => {
+      if (canSend()) sender.send('agent:stream', { runId, round, piece });
+    };
     try {
       const runner = o.mode === 'agentic' ? agent.agenticLoop : agent.runAgent;
       const result = await runner(profile, jdText, {
-        llm, onStep: send, onChunk: sendStream,
+        llm, rulesOnly, onStep: send, onChunk: sendStream,
         runId, taskId: 'resume-optimize', runStore: getRunStore(userId), signal: ctl.signal
       } as never);
+      if (sessions.get(sender.id) !== userId) return fail('登录账号已变化，请在当前账号重新运行');
       return ok(result);
     } finally {
       // 只删自己那一个：就算 runId 之后被复用，也不能顺手删掉别人的控制器

@@ -112,6 +112,8 @@ export interface ToolSpec<A = Record<string, unknown>, C = unknown> {
   maxRetries: number;
   /** 幂等工具才允许自动重试（非幂等的写操作重试可能造成重复写入） */
   idempotent: boolean;
+  /** false 时每次重新执行；幂等重试仍可用，适合结果依赖可变上下文的工具。 */
+  cacheResult?: boolean;
   execute(args: A, ctx: C): Promise<unknown> | unknown;
 }
 

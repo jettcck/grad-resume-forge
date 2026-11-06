@@ -30,6 +30,7 @@ function makeTool(name, opts) {
     timeoutMs: o.timeoutMs || 200,
     maxRetries: o.maxRetries == null ? 1 : o.maxRetries,
     idempotent: o.idempotent !== false,
+    cacheResult: o.cacheResult,
     execute: async (args) => {
       calls.count++;
       if (o.behavior) return o.behavior(args, calls.count);
@@ -173,6 +174,24 @@ function makeAdapter(opts) {
     const again = await reg.call('ok_tool', { text: 'a', items: [{ id: 'x' }] }, undefined, 3);
     assert(again.ok === true && again.meta.idempotentHit === true && good.calls.count === 1,
       '幂等命中：同样入参不重复执行（实际执行 ' + good.calls.count + ' 次）');
+
+    let revision = 1;
+    const stateful = makeTool('stateful_tool', { cacheResult: false, behavior: () => revision });
+    reg.register(stateful.spec);
+    await reg.call('stateful_tool', {}, undefined, 3);
+    revision = 2;
+    const fresh = await reg.call('stateful_tool', {}, undefined, 3);
+    assert(fresh.ok && fresh.data === 2 && !fresh.meta.idempotentHit && stateful.calls.count === 2,
+      '关闭结果缓存后，同一入参读取更新后的上下文');
+    let repairAttempts = 0;
+    const noCacheRetry = makeTool('no_cache_retry', { cacheResult: false, behavior: () => {
+      if (++repairAttempts === 1) throw new Error('临时失败');
+      return '恢复成功';
+    } });
+    reg.register(noCacheRetry.spec);
+    const repaired = await reg.call('no_cache_retry', {}, undefined, 3);
+    assert(repaired.ok && repaired.meta.attempts === 2,
+      '关闭结果缓存仍保留幂等工具的异常重试');
 
     // 超时：幂等工具会重试，但最终仍以 timeout 收场
     const slow = makeTool('slow_tool', { timeoutMs: 30, maxRetries: 1, behavior: () => sleep(100).then(() => 'never') });
@@ -387,6 +406,52 @@ function makeAdapter(opts) {
     const replay3 = await core.replayRun(rec3, { tools: [t6.spec] });
     assert(replay3.okCount === 0 && replay3.skipped >= 1,
       '默认脱敏时回放如实跳过（跳过 ' + replay3.skipped + ' 步），不拿空入参去猜');
+  }
+
+  // 预算边界回归：模型返回、submit_result、重试与异步等待都不得绕过预算。
+  {
+    const complete = () => [{ key: 'done', ok: true, critical: true, label: 'done' }];
+    let clock = 0;
+    const late = makeAdapter({ script: [], checksFn: complete }).adapter;
+    late.decide = async () => { clock = 100; return { content: '', calls: [{ name: 'submit_result', args: {} }] }; };
+    const lateResult = await core.runAgentRuntime({ adapter: late, tools: [], now: () => clock, budget: { maxDurationMs: 10 } });
+    assert(lateResult.timedOut && lateResult.status === 'FAILED' && !lateResult.finished, '模型返回已经超时，submit_result 不得标记 COMPLETED');
+    assert(lateResult.record.usage.ms === 100, '模型请求返回后立即刷新墙钟用量');
+
+    let decisions = 0;
+    const tokenAdapter = makeAdapter({ script: [], checksFn: complete }).adapter;
+    tokenAdapter.decide = async () => { decisions++; return { content: '', tokens: 6, calls: [{ name: 'submit_result', args: {} }] }; };
+    const tokens = await core.runAgentRuntime({ adapter: tokenAdapter, tools: [], budget: { maxTokens: 5 } });
+    assert(tokens.status === 'FAILED' && !tokens.finished && decisions === 1, 'token 超预算后不执行收工，也不再请求模型');
+    assert(tokens.record.usage.tokens === 6 && /token/.test(tokens.loopError), '记录已消耗 token 和预算终止原因');
+
+    const hung = makeAdapter({ script: [], checksFn: complete }).adapter;
+    let deadlineSignal;
+    hung.decide = (_msgs, signal) => { deadlineSignal = signal; return new Promise(() => {}); };
+    const start = Date.now();
+    const deadline = await core.runAgentRuntime({ adapter: hung, tools: [], budget: { maxDurationMs: 20 } });
+    assert(deadline.timedOut && deadline.status === 'FAILED' && deadlineSignal.aborted && Date.now() - start < 1000, '无响应模型也在期限到达时结束，信号通知适配器');
+
+    const usage = core.emptyUsage(); let calls = 0;
+    const reg = new core.ToolRegistry({ runId: 'retry-limit', budget: { ...core.DEFAULT_BUDGET, maxToolCalls: 1 }, usage, now: () => 0 });
+    const retry = makeTool('limited', { maxRetries: 2, behavior: () => { calls++; throw new Error('transient'); } });
+    reg.register(retry.spec);
+    const limited = await reg.call('limited', {}, undefined, 1);
+    assert(!limited.ok && limited.errorType === 'budget' && calls === 1 && usage.toolCalls === 1, '每次重试前检查调用预算，上限 1 次只执行 1 次');
+    assert(limited.meta.attempts === 1 && usage.retries === 0, '没有实际重试时 attempts 和 retries 不虚增');
+
+    let elapsed = 0; let slowCalls = 0;
+    const durationUsage = core.emptyUsage();
+    const durationReg = new core.ToolRegistry({ runId: 'retry-deadline', budget: { ...core.DEFAULT_BUDGET, maxDurationMs: 10 }, usage: durationUsage, now: () => elapsed });
+    durationReg.register(makeTool('late-retry', { maxRetries: 2, behavior: () => { slowCalls++; elapsed = 100; throw new Error('transient'); } }).spec);
+    const lateRetry = await durationReg.call('late-retry', {}, undefined, 1);
+    assert(lateRetry.errorType === 'budget' && slowCalls === 1 && durationUsage.ms === 100, '工具失败后刷新墙钟，已超时不得重试');
+
+    const retryUsage = core.emptyUsage(); let attempts = 0;
+    const retryReg = new core.ToolRegistry({ runId: 'retry-count', budget: core.DEFAULT_BUDGET, usage: retryUsage, now: () => 0 });
+    retryReg.register(makeTool('flaky', { maxRetries: 1, behavior: () => { if (++attempts === 1) throw new Error('transient'); return 'ok'; } }).spec);
+    const repaired = await retryReg.call('flaky', {}, undefined, 1);
+    assert(repaired.ok && repaired.meta.attempts === 2 && retryUsage.retries === 1, '失败一次后成功，实际重试次数恰好为 1');
   }
 
   console.log('\nAgent Runtime 自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

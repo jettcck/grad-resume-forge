@@ -1,0 +1,3403 @@
+{
+  "schemaVersion": 1,
+  "suite": "resume-evidence-ablation",
+  "suiteVersion": "1",
+  "timestamp": "2026-11-02T11:46:40.865Z",
+  "provider": "ollama",
+  "endpoint": "http://127.0.0.1:11434",
+  "model": "qwen2.5:1.5b",
+  "modelInfo": {
+    "digest": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+    "details": {
+      "parent_model": "",
+      "format": "gguf",
+      "family": "qwen2",
+      "families": [
+        "qwen2"
+      ],
+      "parameter_size": "1.5B",
+      "quantization_level": "Q4_K_M"
+    },
+    "ollamaVersion": "0.40.7"
+  },
+  "temperature": 0.3,
+  "sample": 3,
+  "cases": 4,
+  "modes": [
+    "none",
+    "bm25"
+  ],
+  "runner": "pipeline",
+  "maxRounds": 2,
+  "maxDurationMs": 60000,
+  "contextWindow": "server-default",
+  "rateUnit": "percent",
+  "promptVersion": {
+    "rewriteSystem": "rewrite-system-v1",
+    "rewriteRules": "rewrite-rules-v2",
+    "agenticSystem": "agentic-system-v3"
+  },
+  "commit": "4cf79aba07f3772c0617801af1d92b3ccc966f16",
+  "commitShort": "4cf79ab",
+  "gitDirty": true,
+  "runtime": {
+    "node": "v24.12.0",
+    "platform": "win32",
+    "arch": "x64"
+  },
+  "sourceSnapshot": {
+    "path": "benchmarks/source-snapshots/2c8689fd0ad37b64.json",
+    "sha256": "2c8689fd0ad37b648850bb7ef24571326deec15ee6244fb963bf0da269731151"
+  },
+  "caseSet": {
+    "id": "resume-evidence-fixed-v1",
+    "count": 4,
+    "sha256": "8a6cbcb4a988793eb26bbe08e4d1ccee96ca88c0531ff9daa936ac6af74783ca",
+    "inputs": [
+      {
+        "id": "backend-redis-source-v1",
+        "expectedSkill": "redis",
+        "expectedSource": "p0-tech",
+        "forbiddenSkills": [
+          "docker",
+          "容器化"
+        ],
+        "profile": {
+          "skills": "Java",
+          "projects": [
+            {
+              "name": "订单缓存",
+              "tech": "Java、Redis",
+              "description": "负责缓存模块开发，响应从 800ms 降至 120ms"
+            }
+          ],
+          "internships": []
+        },
+        "jd": "Java 后端开发，要求具备 Redis 缓存项目经验，保持实际指标。"
+      },
+      {
+        "id": "frontend-vue-source-v1",
+        "expectedSkill": "vue",
+        "expectedSource": "p0-tech",
+        "forbiddenSkills": [
+          "react"
+        ],
+        "profile": {
+          "skills": "JavaScript",
+          "projects": [
+            {
+              "name": "商城前端",
+              "tech": "Vue、JavaScript",
+              "description": "完成商城页面开发，交付 5 个页面"
+            }
+          ],
+          "internships": []
+        },
+        "jd": "前端开发实习，要求具备 Vue 页面开发经验，不要增加没有做过的功能。"
+      },
+      {
+        "id": "finance-excel-source-v1",
+        "expectedSkill": "excel",
+        "expectedSource": "p0-tech",
+        "forbiddenSkills": [
+          "python"
+        ],
+        "profile": {
+          "skills": "财务基础",
+          "projects": [
+            {
+              "name": "月度报表",
+              "tech": "Excel",
+              "description": "负责月度报表整理，处理 2000 行数据"
+            }
+          ],
+          "internships": []
+        },
+        "jd": "财务实习，要求具备 Excel 报表处理经验，保留原始数据规模。"
+      },
+      {
+        "id": "cross-project-docker-negative-v1",
+        "expectedSkill": null,
+        "expectedSource": null,
+        "forbiddenSkills": [
+          "docker",
+          "容器化"
+        ],
+        "profile": {
+          "skills": "Java、Docker",
+          "projects": [
+            {
+              "name": "订单接口",
+              "tech": "Java",
+              "description": "开发订单接口，支撑 100QPS"
+            },
+            {
+              "name": "独立部署练习",
+              "tech": "Docker",
+              "description": "使用 Docker 部署学习项目"
+            }
+          ],
+          "internships": []
+        },
+        "jd": "后端开发，需要 Docker 实践。请优化订单接口经历；独立部署练习属于另一个项目，不能移植到订单接口。"
+      }
+    ]
+  },
+  "reproducible": {
+    "reproducible": true,
+    "missingFields": []
+  },
+  "metrics": {
+    "totalRuns": 24,
+    "completedRuns": 24,
+    "failedRuns": 0,
+    "returnedRuns": 24,
+    "successRate": 100,
+    "successRateCi95": [
+      86.2,
+      100
+    ],
+    "acceptanceRate": 100,
+    "avgLatencyMs": 426,
+    "p50LatencyMs": 241,
+    "p95LatencyMs": 740,
+    "avgSteps": 1.1,
+    "avgTokens": 782,
+    "tokens": 18767,
+    "tokensReported": 18767,
+    "tokenReportedRequests": 27,
+    "modelRequests": 27,
+    "tokenCoverage": 100,
+    "accepted": 27,
+    "rejected": 0,
+    "metricLoss": 0,
+    "fabricated": 0,
+    "targetBullets": 30,
+    "acceptedCoverage": 90,
+    "hallucinationRate": 0,
+    "failureCounts": {},
+    "targetSkillHits": 0,
+    "targetSkillRuns": 18,
+    "targetSkillCoverage": 0,
+    "sourceCoverage": 100,
+    "unsupportedSkillAccepted": 0,
+    "evidenceRejections": 0
+  },
+  "byMode": {
+    "none": {
+      "totalRuns": 12,
+      "completedRuns": 12,
+      "failedRuns": 0,
+      "returnedRuns": 12,
+      "successRate": 100,
+      "successRateCi95": [
+        75.8,
+        100
+      ],
+      "acceptanceRate": 100,
+      "avgLatencyMs": 490,
+      "p50LatencyMs": 236,
+      "p95LatencyMs": 3400,
+      "avgSteps": 1,
+      "avgTokens": 440,
+      "tokens": 5276,
+      "tokensReported": 5276,
+      "tokenReportedRequests": 12,
+      "modelRequests": 12,
+      "tokenCoverage": 100,
+      "accepted": 12,
+      "rejected": 0,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "targetBullets": 15,
+      "acceptedCoverage": 80,
+      "hallucinationRate": 0,
+      "failureCounts": {},
+      "targetSkillHits": 0,
+      "targetSkillRuns": 9,
+      "targetSkillCoverage": 0,
+      "sourceCoverage": 100,
+      "unsupportedSkillAccepted": 0,
+      "evidenceRejections": 0
+    },
+    "bm25": {
+      "totalRuns": 12,
+      "completedRuns": 12,
+      "failedRuns": 0,
+      "returnedRuns": 12,
+      "successRate": 100,
+      "successRateCi95": [
+        75.8,
+        100
+      ],
+      "acceptanceRate": 100,
+      "avgLatencyMs": 363,
+      "p50LatencyMs": 268,
+      "p95LatencyMs": 740,
+      "avgSteps": 1.3,
+      "avgTokens": 1124,
+      "tokens": 13491,
+      "tokensReported": 13491,
+      "tokenReportedRequests": 15,
+      "modelRequests": 15,
+      "tokenCoverage": 100,
+      "accepted": 15,
+      "rejected": 0,
+      "metricLoss": 0,
+      "fabricated": 0,
+      "targetBullets": 15,
+      "acceptedCoverage": 100,
+      "hallucinationRate": 0,
+      "failureCounts": {},
+      "targetSkillHits": 0,
+      "targetSkillRuns": 9,
+      "targetSkillCoverage": 0,
+      "sourceCoverage": 100,
+      "unsupportedSkillAccepted": 0,
+      "evidenceRejections": 0
+    }
+  },
+  "runs": [
+    {
+      "case": "backend-redis-source-v1",
+      "run": 1,
+      "mode": "none",
+      "ok": true,
+      "ms": 3400,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 3386,
+          "tokens": 447,
+          "promptTokens": 405,
+          "completionTokens": 42,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责缓存模块开发，响应时间从 800ms 降至 120ms\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 447,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "redis",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责缓存模块开发，响应从 800ms 降至 120ms",
+          "text": "负责缓存模块开发，响应时间从 800ms 降至 120ms",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单缓存 · 第 1 条",
+              "quote": "负责缓存模块开发，响应从 800ms 降至 120ms",
+              "digest": "bc99cbe8c54f8e440695ee658f50bc0a87b6a219116aafe396a465d41bc7e50e"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 1,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 3386,
+          "detail": "返回 91 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 2,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "Java 后端开发，要求具备 Redis 缓存项目经验，保持实际指标。",
+        "results": []
+      }
+    },
+    {
+      "case": "backend-redis-source-v1",
+      "run": 1,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 304,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 298,
+          "tokens": 827,
+          "promptTokens": 785,
+          "completionTokens": 42,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责缓存模块开发，响应时间从 800ms 降至 120ms\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 827,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "redis",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责缓存模块开发，响应从 800ms 降至 120ms",
+          "text": "负责缓存模块开发，响应时间从 800ms 降至 120ms",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单缓存 · 第 1 条",
+              "quote": "负责缓存模块开发，响应从 800ms 降至 120ms",
+              "digest": "bc99cbe8c54f8e440695ee658f50bc0a87b6a219116aafe396a465d41bc7e50e"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 4 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 298,
+          "detail": "返回 91 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "Java 后端开发，要求具备 Redis 缓存项目经验，保持实际指标。",
+        "results": [
+          {
+            "sourceId": "p0-tech",
+            "path": "projects[0].tech",
+            "label": "项目 1 · 订单缓存",
+            "quote": "Java、Redis",
+            "digest": "c5639ac0899660ad5122fdf1b1a22a04afb392321065a5e3de6eef17130c5399"
+          },
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 订单缓存 · 第 1 条",
+            "quote": "负责缓存模块开发，响应从 800ms 降至 120ms",
+            "digest": "bc99cbe8c54f8e440695ee658f50bc0a87b6a219116aafe396a465d41bc7e50e"
+          },
+          {
+            "sourceId": "skills",
+            "path": "skills",
+            "label": "个人技能",
+            "quote": "Java",
+            "digest": "c1ba60ce13586503a21a05e9ef0bb959f1ba74a1d37bcfcbf5fc6bfb548f684d"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 订单缓存",
+            "quote": "订单缓存",
+            "digest": "743f66d2808fc420b3cd270a771834612e648338a7c7acf20fe6bf6b64054497"
+          }
+        ]
+      }
+    },
+    {
+      "case": "backend-redis-source-v1",
+      "run": 2,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 237,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 232,
+          "tokens": 827,
+          "promptTokens": 785,
+          "completionTokens": 42,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责缓存模块开发，响应时间从 800ms 降至 120ms\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 827,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "redis",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责缓存模块开发，响应从 800ms 降至 120ms",
+          "text": "负责缓存模块开发，响应时间从 800ms 降至 120ms",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单缓存 · 第 1 条",
+              "quote": "负责缓存模块开发，响应从 800ms 降至 120ms",
+              "digest": "bc99cbe8c54f8e440695ee658f50bc0a87b6a219116aafe396a465d41bc7e50e"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 1,
+          "detail": "用户档案来源 4 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 232,
+          "detail": "返回 91 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 2,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "Java 后端开发，要求具备 Redis 缓存项目经验，保持实际指标。",
+        "results": [
+          {
+            "sourceId": "p0-tech",
+            "path": "projects[0].tech",
+            "label": "项目 1 · 订单缓存",
+            "quote": "Java、Redis",
+            "digest": "c5639ac0899660ad5122fdf1b1a22a04afb392321065a5e3de6eef17130c5399"
+          },
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 订单缓存 · 第 1 条",
+            "quote": "负责缓存模块开发，响应从 800ms 降至 120ms",
+            "digest": "bc99cbe8c54f8e440695ee658f50bc0a87b6a219116aafe396a465d41bc7e50e"
+          },
+          {
+            "sourceId": "skills",
+            "path": "skills",
+            "label": "个人技能",
+            "quote": "Java",
+            "digest": "c1ba60ce13586503a21a05e9ef0bb959f1ba74a1d37bcfcbf5fc6bfb548f684d"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 订单缓存",
+            "quote": "订单缓存",
+            "digest": "743f66d2808fc420b3cd270a771834612e648338a7c7acf20fe6bf6b64054497"
+          }
+        ]
+      }
+    },
+    {
+      "case": "backend-redis-source-v1",
+      "run": 2,
+      "mode": "none",
+      "ok": true,
+      "ms": 268,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 265,
+          "tokens": 447,
+          "promptTokens": 405,
+          "completionTokens": 42,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责缓存模块开发，响应时间从 800ms 降至 120ms\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 447,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "redis",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责缓存模块开发，响应从 800ms 降至 120ms",
+          "text": "负责缓存模块开发，响应时间从 800ms 降至 120ms",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单缓存 · 第 1 条",
+              "quote": "负责缓存模块开发，响应从 800ms 降至 120ms",
+              "digest": "bc99cbe8c54f8e440695ee658f50bc0a87b6a219116aafe396a465d41bc7e50e"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 265,
+          "detail": "返回 91 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "Java 后端开发，要求具备 Redis 缓存项目经验，保持实际指标。",
+        "results": []
+      }
+    },
+    {
+      "case": "backend-redis-source-v1",
+      "run": 3,
+      "mode": "none",
+      "ok": true,
+      "ms": 236,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 233,
+          "tokens": 447,
+          "promptTokens": 405,
+          "completionTokens": 42,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责缓存模块开发，响应时间从 800ms 降至 120ms\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 447,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "redis",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责缓存模块开发，响应从 800ms 降至 120ms",
+          "text": "负责缓存模块开发，响应时间从 800ms 降至 120ms",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单缓存 · 第 1 条",
+              "quote": "负责缓存模块开发，响应从 800ms 降至 120ms",
+              "digest": "bc99cbe8c54f8e440695ee658f50bc0a87b6a219116aafe396a465d41bc7e50e"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 233,
+          "detail": "返回 91 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "Java 后端开发，要求具备 Redis 缓存项目经验，保持实际指标。",
+        "results": []
+      }
+    },
+    {
+      "case": "backend-redis-source-v1",
+      "run": 3,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 274,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 271,
+          "tokens": 827,
+          "promptTokens": 785,
+          "completionTokens": 42,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责缓存模块开发，响应时间从 800ms 降至 120ms\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 827,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "redis",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责缓存模块开发，响应从 800ms 降至 120ms",
+          "text": "负责缓存模块开发，响应时间从 800ms 降至 120ms",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单缓存 · 第 1 条",
+              "quote": "负责缓存模块开发，响应从 800ms 降至 120ms",
+              "digest": "bc99cbe8c54f8e440695ee658f50bc0a87b6a219116aafe396a465d41bc7e50e"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 4 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 271,
+          "detail": "返回 91 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "Java 后端开发，要求具备 Redis 缓存项目经验，保持实际指标。",
+        "results": [
+          {
+            "sourceId": "p0-tech",
+            "path": "projects[0].tech",
+            "label": "项目 1 · 订单缓存",
+            "quote": "Java、Redis",
+            "digest": "c5639ac0899660ad5122fdf1b1a22a04afb392321065a5e3de6eef17130c5399"
+          },
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 订单缓存 · 第 1 条",
+            "quote": "负责缓存模块开发，响应从 800ms 降至 120ms",
+            "digest": "bc99cbe8c54f8e440695ee658f50bc0a87b6a219116aafe396a465d41bc7e50e"
+          },
+          {
+            "sourceId": "skills",
+            "path": "skills",
+            "label": "个人技能",
+            "quote": "Java",
+            "digest": "c1ba60ce13586503a21a05e9ef0bb959f1ba74a1d37bcfcbf5fc6bfb548f684d"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 订单缓存",
+            "quote": "订单缓存",
+            "digest": "743f66d2808fc420b3cd270a771834612e648338a7c7acf20fe6bf6b64054497"
+          }
+        ]
+      }
+    },
+    {
+      "case": "frontend-vue-source-v1",
+      "run": 1,
+      "mode": "none",
+      "ok": true,
+      "ms": 237,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 234,
+          "tokens": 424,
+          "promptTokens": 394,
+          "completionTokens": 30,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"完成商城页面开发，交付5个页面\"}],\"summarySuggestion\":\" \"}",
+          "error": null
+        }
+      ],
+      "tokens": 424,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "vue",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "完成商城页面开发，交付 5 个页面",
+          "text": "完成商城页面开发，交付5个页面",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 商城前端 · 第 1 条",
+              "quote": "完成商城页面开发，交付 5 个页面",
+              "digest": "4fbbbd0ea1bb233c06b080fc3d226fdde662739f00270197a3e95b70e94179e4"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 234,
+          "detail": "返回 78 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "前端开发实习，要求具备 Vue 页面开发经验，不要增加没有做过的功能。",
+        "results": []
+      }
+    },
+    {
+      "case": "frontend-vue-source-v1",
+      "run": 1,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 268,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 265,
+          "tokens": 709,
+          "promptTokens": 677,
+          "completionTokens": 32,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"完成商城页面开发，交付 5 个页面\"}],\"summarySuggestion\":\" \"}",
+          "error": null
+        }
+      ],
+      "tokens": 709,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "vue",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "完成商城页面开发，交付 5 个页面",
+          "text": "完成商城页面开发，交付 5 个页面",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 商城前端 · 第 1 条",
+              "quote": "完成商城页面开发，交付 5 个页面",
+              "digest": "4fbbbd0ea1bb233c06b080fc3d226fdde662739f00270197a3e95b70e94179e4"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 3 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 265,
+          "detail": "返回 80 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "前端开发实习，要求具备 Vue 页面开发经验，不要增加没有做过的功能。",
+        "results": [
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 商城前端 · 第 1 条",
+            "quote": "完成商城页面开发，交付 5 个页面",
+            "digest": "4fbbbd0ea1bb233c06b080fc3d226fdde662739f00270197a3e95b70e94179e4"
+          },
+          {
+            "sourceId": "p0-tech",
+            "path": "projects[0].tech",
+            "label": "项目 1 · 商城前端",
+            "quote": "Vue、JavaScript",
+            "digest": "1ed758fb8ad19d68bb4c7b7f15879acc8b95612ff14cb6b27dc94b99c6ffcc02"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 商城前端",
+            "quote": "商城前端",
+            "digest": "a152e19c0dad7a26898c0049f5d078db7daa5b86de99dde5d4baac596fab5f63"
+          }
+        ]
+      }
+    },
+    {
+      "case": "frontend-vue-source-v1",
+      "run": 2,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 192,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 188,
+          "tokens": 709,
+          "promptTokens": 677,
+          "completionTokens": 32,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"完成商城页面开发，交付 5 个页面\"}],\"summarySuggestion\":\" \"}",
+          "error": null
+        }
+      ],
+      "tokens": 709,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "vue",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "完成商城页面开发，交付 5 个页面",
+          "text": "完成商城页面开发，交付 5 个页面",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 商城前端 · 第 1 条",
+              "quote": "完成商城页面开发，交付 5 个页面",
+              "digest": "4fbbbd0ea1bb233c06b080fc3d226fdde662739f00270197a3e95b70e94179e4"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 3 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 188,
+          "detail": "返回 80 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "前端开发实习，要求具备 Vue 页面开发经验，不要增加没有做过的功能。",
+        "results": [
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 商城前端 · 第 1 条",
+            "quote": "完成商城页面开发，交付 5 个页面",
+            "digest": "4fbbbd0ea1bb233c06b080fc3d226fdde662739f00270197a3e95b70e94179e4"
+          },
+          {
+            "sourceId": "p0-tech",
+            "path": "projects[0].tech",
+            "label": "项目 1 · 商城前端",
+            "quote": "Vue、JavaScript",
+            "digest": "1ed758fb8ad19d68bb4c7b7f15879acc8b95612ff14cb6b27dc94b99c6ffcc02"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 商城前端",
+            "quote": "商城前端",
+            "digest": "a152e19c0dad7a26898c0049f5d078db7daa5b86de99dde5d4baac596fab5f63"
+          }
+        ]
+      }
+    },
+    {
+      "case": "frontend-vue-source-v1",
+      "run": 2,
+      "mode": "none",
+      "ok": true,
+      "ms": 189,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 186,
+          "tokens": 420,
+          "promptTokens": 394,
+          "completionTokens": 26,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"完成5个页面开发\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 420,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "vue",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "完成商城页面开发，交付 5 个页面",
+          "text": "完成5个页面开发",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 商城前端 · 第 1 条",
+              "quote": "完成商城页面开发，交付 5 个页面",
+              "digest": "4fbbbd0ea1bb233c06b080fc3d226fdde662739f00270197a3e95b70e94179e4"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 186,
+          "detail": "返回 70 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "前端开发实习，要求具备 Vue 页面开发经验，不要增加没有做过的功能。",
+        "results": []
+      }
+    },
+    {
+      "case": "frontend-vue-source-v1",
+      "run": 3,
+      "mode": "none",
+      "ok": true,
+      "ms": 179,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 176,
+          "tokens": 424,
+          "promptTokens": 394,
+          "completionTokens": 30,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"完成商城页面开发，交付5个页面\"}],\"summarySuggestion\":\" \"}",
+          "error": null
+        }
+      ],
+      "tokens": 424,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "vue",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "完成商城页面开发，交付 5 个页面",
+          "text": "完成商城页面开发，交付5个页面",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 商城前端 · 第 1 条",
+              "quote": "完成商城页面开发，交付 5 个页面",
+              "digest": "4fbbbd0ea1bb233c06b080fc3d226fdde662739f00270197a3e95b70e94179e4"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 176,
+          "detail": "返回 78 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "前端开发实习，要求具备 Vue 页面开发经验，不要增加没有做过的功能。",
+        "results": []
+      }
+    },
+    {
+      "case": "frontend-vue-source-v1",
+      "run": 3,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 208,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 205,
+          "tokens": 709,
+          "promptTokens": 677,
+          "completionTokens": 32,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"完成商城页面开发，交付 5 个页面\"}],\"summarySuggestion\":\" \"}",
+          "error": null
+        }
+      ],
+      "tokens": 709,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "vue",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "完成商城页面开发，交付 5 个页面",
+          "text": "完成商城页面开发，交付 5 个页面",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 商城前端 · 第 1 条",
+              "quote": "完成商城页面开发，交付 5 个页面",
+              "digest": "4fbbbd0ea1bb233c06b080fc3d226fdde662739f00270197a3e95b70e94179e4"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 3 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 205,
+          "detail": "返回 80 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 50%（1/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "前端开发实习，要求具备 Vue 页面开发经验，不要增加没有做过的功能。",
+        "results": [
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 商城前端 · 第 1 条",
+            "quote": "完成商城页面开发，交付 5 个页面",
+            "digest": "4fbbbd0ea1bb233c06b080fc3d226fdde662739f00270197a3e95b70e94179e4"
+          },
+          {
+            "sourceId": "p0-tech",
+            "path": "projects[0].tech",
+            "label": "项目 1 · 商城前端",
+            "quote": "Vue、JavaScript",
+            "digest": "1ed758fb8ad19d68bb4c7b7f15879acc8b95612ff14cb6b27dc94b99c6ffcc02"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 商城前端",
+            "quote": "商城前端",
+            "digest": "a152e19c0dad7a26898c0049f5d078db7daa5b86de99dde5d4baac596fab5f63"
+          }
+        ]
+      }
+    },
+    {
+      "case": "finance-excel-source-v1",
+      "run": 1,
+      "mode": "none",
+      "ok": true,
+      "ms": 247,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 244,
+          "tokens": 431,
+          "promptTokens": 397,
+          "completionTokens": 34,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责整理月度报表，处理2000行数据\"}],\"summarySuggestion\":\" \"}",
+          "error": null
+        }
+      ],
+      "tokens": 431,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "excel",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责月度报表整理，处理 2000 行数据",
+          "text": "负责整理月度报表，处理2000行数据",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 月度报表 · 第 1 条",
+              "quote": "负责月度报表整理，处理 2000 行数据",
+              "digest": "ec2999a306286079452341b393fe3271cfc99827141066cb664459eb34dbf4ce"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 244,
+          "detail": "返回 81 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "财务实习，要求具备 Excel 报表处理经验，保留原始数据规模。",
+        "results": []
+      }
+    },
+    {
+      "case": "finance-excel-source-v1",
+      "run": 1,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 276,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 273,
+          "tokens": 808,
+          "promptTokens": 774,
+          "completionTokens": 34,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责整理月度报表，处理2000行数据\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 808,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "excel",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责月度报表整理，处理 2000 行数据",
+          "text": "负责整理月度报表，处理2000行数据",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 月度报表 · 第 1 条",
+              "quote": "负责月度报表整理，处理 2000 行数据",
+              "digest": "ec2999a306286079452341b393fe3271cfc99827141066cb664459eb34dbf4ce"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 4 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 273,
+          "detail": "返回 80 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "财务实习，要求具备 Excel 报表处理经验，保留原始数据规模。",
+        "results": [
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 月度报表 · 第 1 条",
+            "quote": "负责月度报表整理，处理 2000 行数据",
+            "digest": "ec2999a306286079452341b393fe3271cfc99827141066cb664459eb34dbf4ce"
+          },
+          {
+            "sourceId": "p0-tech",
+            "path": "projects[0].tech",
+            "label": "项目 1 · 月度报表",
+            "quote": "Excel",
+            "digest": "48d53635551c8fd4564251d49f4e6eba58c2774469144e4346310955fbadbf4c"
+          },
+          {
+            "sourceId": "skills",
+            "path": "skills",
+            "label": "个人技能",
+            "quote": "财务基础",
+            "digest": "c4a2e40a1fbdef4f5fab32f4c612c57b57d05e6e99fd683610fc537b614e14b5"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 月度报表",
+            "quote": "月度报表",
+            "digest": "046a05d5a7b702b59e694769a0fb9af1a3dbbe6af3d4722f482bc0c64f58fe76"
+          }
+        ]
+      }
+    },
+    {
+      "case": "finance-excel-source-v1",
+      "run": 2,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 197,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 195,
+          "tokens": 808,
+          "promptTokens": 774,
+          "completionTokens": 34,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责月度报表整理，处理2000行数据\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 808,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "excel",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责月度报表整理，处理 2000 行数据",
+          "text": "负责月度报表整理，处理2000行数据",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 月度报表 · 第 1 条",
+              "quote": "负责月度报表整理，处理 2000 行数据",
+              "digest": "ec2999a306286079452341b393fe3271cfc99827141066cb664459eb34dbf4ce"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 4 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 195,
+          "detail": "返回 80 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "财务实习，要求具备 Excel 报表处理经验，保留原始数据规模。",
+        "results": [
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 月度报表 · 第 1 条",
+            "quote": "负责月度报表整理，处理 2000 行数据",
+            "digest": "ec2999a306286079452341b393fe3271cfc99827141066cb664459eb34dbf4ce"
+          },
+          {
+            "sourceId": "p0-tech",
+            "path": "projects[0].tech",
+            "label": "项目 1 · 月度报表",
+            "quote": "Excel",
+            "digest": "48d53635551c8fd4564251d49f4e6eba58c2774469144e4346310955fbadbf4c"
+          },
+          {
+            "sourceId": "skills",
+            "path": "skills",
+            "label": "个人技能",
+            "quote": "财务基础",
+            "digest": "c4a2e40a1fbdef4f5fab32f4c612c57b57d05e6e99fd683610fc537b614e14b5"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 月度报表",
+            "quote": "月度报表",
+            "digest": "046a05d5a7b702b59e694769a0fb9af1a3dbbe6af3d4722f482bc0c64f58fe76"
+          }
+        ]
+      }
+    },
+    {
+      "case": "finance-excel-source-v1",
+      "run": 2,
+      "mode": "none",
+      "ok": true,
+      "ms": 224,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 222,
+          "tokens": 431,
+          "promptTokens": 397,
+          "completionTokens": 34,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责整理月度报表，处理2000行数据\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 431,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "excel",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责月度报表整理，处理 2000 行数据",
+          "text": "负责整理月度报表，处理2000行数据",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 月度报表 · 第 1 条",
+              "quote": "负责月度报表整理，处理 2000 行数据",
+              "digest": "ec2999a306286079452341b393fe3271cfc99827141066cb664459eb34dbf4ce"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 222,
+          "detail": "返回 80 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 0,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "财务实习，要求具备 Excel 报表处理经验，保留原始数据规模。",
+        "results": []
+      }
+    },
+    {
+      "case": "finance-excel-source-v1",
+      "run": 3,
+      "mode": "none",
+      "ok": true,
+      "ms": 189,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 186,
+          "tokens": 431,
+          "promptTokens": 397,
+          "completionTokens": 34,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责整理月度报表，处理2000行数据\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 431,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "excel",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责月度报表整理，处理 2000 行数据",
+          "text": "负责整理月度报表，处理2000行数据",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 月度报表 · 第 1 条",
+              "quote": "负责月度报表整理，处理 2000 行数据",
+              "digest": "ec2999a306286079452341b393fe3271cfc99827141066cb664459eb34dbf4ce"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 186,
+          "detail": "返回 80 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "财务实习，要求具备 Excel 报表处理经验，保留原始数据规模。",
+        "results": []
+      }
+    },
+    {
+      "case": "finance-excel-source-v1",
+      "run": 3,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 245,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 1,
+      "requests": [
+        {
+          "ms": 242,
+          "tokens": 808,
+          "promptTokens": 774,
+          "completionTokens": 34,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"负责月度报表整理，处理2000行数据\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 808,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": "excel",
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "负责月度报表整理，处理 2000 行数据",
+          "text": "负责月度报表整理，处理2000行数据",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 月度报表 · 第 1 条",
+              "quote": "负责月度报表整理，处理 2000 行数据",
+              "digest": "ec2999a306286079452341b393fe3271cfc99827141066cb664459eb34dbf4ce"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 4 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 1 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 242,
+          "detail": "返回 80 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 82%（5/6）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "财务实习，要求具备 Excel 报表处理经验，保留原始数据规模。",
+        "results": [
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 月度报表 · 第 1 条",
+            "quote": "负责月度报表整理，处理 2000 行数据",
+            "digest": "ec2999a306286079452341b393fe3271cfc99827141066cb664459eb34dbf4ce"
+          },
+          {
+            "sourceId": "p0-tech",
+            "path": "projects[0].tech",
+            "label": "项目 1 · 月度报表",
+            "quote": "Excel",
+            "digest": "48d53635551c8fd4564251d49f4e6eba58c2774469144e4346310955fbadbf4c"
+          },
+          {
+            "sourceId": "skills",
+            "path": "skills",
+            "label": "个人技能",
+            "quote": "财务基础",
+            "digest": "c4a2e40a1fbdef4f5fab32f4c612c57b57d05e6e99fd683610fc537b614e14b5"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 月度报表",
+            "quote": "月度报表",
+            "digest": "046a05d5a7b702b59e694769a0fb9af1a3dbbe6af3d4722f482bc0c64f58fe76"
+          }
+        ]
+      }
+    },
+    {
+      "case": "cross-project-docker-negative-v1",
+      "run": 1,
+      "mode": "none",
+      "ok": true,
+      "ms": 256,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 2,
+      "requests": [
+        {
+          "ms": 253,
+          "tokens": 458,
+          "promptTokens": 426,
+          "completionTokens": 32,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"开发订单接口，支撑 100QPS\"}],\"summarySuggestion\":\" \"}",
+          "error": null
+        }
+      ],
+      "tokens": 458,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": null,
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "开发订单接口，支撑 100QPS",
+          "text": "开发订单接口，支撑 100QPS",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单接口 · 第 1 条",
+              "quote": "开发订单接口，支撑 100QPS",
+              "digest": "77689ce7ce1d9e6455ff9ed96337bb59231f8c622c3b0f94549d2cad205277fd"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 253,
+          "detail": "返回 79 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "后端开发，需要 Docker 实践。请优化订单接口经历；独立部署练习属于另一个项目，不能移植到订单接口。",
+        "results": []
+      }
+    },
+    {
+      "case": "cross-project-docker-negative-v1",
+      "run": 1,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 731,
+      "steps": 2,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 2,
+      "rejected": 0,
+      "targetBullets": 2,
+      "requests": [
+        {
+          "ms": 478,
+          "tokens": 1079,
+          "promptTokens": 1018,
+          "completionTokens": 61,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"开发订单接口，支撑 100QPS\"},{\"id\":\"p1-b0\",\"text\":\"使用 Docker 部署学习项目\"},{\"id\":\"p1-tech\",\"text\":\"Docker\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        },
+        {
+          "ms": 247,
+          "tokens": 1074,
+          "promptTokens": 1042,
+          "completionTokens": 32,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"开发订单接口，支撑 100QPS\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 2153,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 2,
+      "expectedSkill": null,
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "开发订单接口，支撑 100QPS",
+          "text": "开发订单接口，支撑 100QPS",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单接口 · 第 1 条",
+              "quote": "开发订单接口，支撑 100QPS",
+              "digest": "77689ce7ce1d9e6455ff9ed96337bb59231f8c622c3b0f94549d2cad205277fd"
+            }
+          ]
+        },
+        {
+          "id": "p1-b0",
+          "old": "使用 Docker 部署学习项目",
+          "text": "使用 Docker 部署学习项目",
+          "evidence": [
+            {
+              "sourceId": "p1-b0",
+              "path": "projects[1].description[0]",
+              "label": "项目 2 · 独立部署练习 · 第 1 条",
+              "quote": "使用 Docker 部署学习项目",
+              "digest": "732c2d3b22f6559735b817e16c4c8fcba00697a4f09f9f82694d9fad44e981fc"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 6 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 478,
+          "detail": "返回 152 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 2,
+          "detail": "接受 2 条，拒收 1 条"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 2 轮）",
+          "ok": true,
+          "ms": 247,
+          "detail": "返回 78 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 2 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "后端开发，需要 Docker 实践。请优化订单接口经历；独立部署练习属于另一个项目，不能移植到订单接口。",
+        "results": [
+          {
+            "sourceId": "p1-name",
+            "path": "projects[1].name",
+            "label": "项目 2 · 独立部署练习",
+            "quote": "独立部署练习",
+            "digest": "a9df3229ac5dd6c36f886a7035ad9653a6d3d50f420055e2d7f591e11c7f1a6f"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 订单接口",
+            "quote": "订单接口",
+            "digest": "733835254e85af480605a3a13594904fcd72b1368942583991c49b1e201da5de"
+          },
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 订单接口 · 第 1 条",
+            "quote": "开发订单接口，支撑 100QPS",
+            "digest": "77689ce7ce1d9e6455ff9ed96337bb59231f8c622c3b0f94549d2cad205277fd"
+          },
+          {
+            "sourceId": "p1-b0",
+            "path": "projects[1].description[0]",
+            "label": "项目 2 · 独立部署练习 · 第 1 条",
+            "quote": "使用 Docker 部署学习项目",
+            "digest": "732c2d3b22f6559735b817e16c4c8fcba00697a4f09f9f82694d9fad44e981fc"
+          },
+          {
+            "sourceId": "p1-tech",
+            "path": "projects[1].tech",
+            "label": "项目 2 · 独立部署练习",
+            "quote": "Docker",
+            "digest": "e6169e958b37ce8662817b0f3e0bf450a174742fafc527800e67f430738b4b63"
+          },
+          {
+            "sourceId": "skills",
+            "path": "skills",
+            "label": "个人技能",
+            "quote": "Java、Docker",
+            "digest": "626d6b4197e1d48a97839f7a89d1611108f2b0a0cdd878b8d2ed018831b680c3"
+          }
+        ]
+      }
+    },
+    {
+      "case": "cross-project-docker-negative-v1",
+      "run": 2,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 682,
+      "steps": 2,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 2,
+      "rejected": 0,
+      "targetBullets": 2,
+      "requests": [
+        {
+          "ms": 421,
+          "tokens": 1079,
+          "promptTokens": 1018,
+          "completionTokens": 61,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"开发订单接口，支撑 100QPS\"},{\"id\":\"p1-b0\",\"text\":\"使用 Docker 部署学习项目\"},{\"id\":\"p1-tech\",\"text\":\"Docker\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        },
+        {
+          "ms": 254,
+          "tokens": 1074,
+          "promptTokens": 1042,
+          "completionTokens": 32,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"开发订单接口，支撑 100QPS\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 2153,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 2,
+      "expectedSkill": null,
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "开发订单接口，支撑 100QPS",
+          "text": "开发订单接口，支撑 100QPS",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单接口 · 第 1 条",
+              "quote": "开发订单接口，支撑 100QPS",
+              "digest": "77689ce7ce1d9e6455ff9ed96337bb59231f8c622c3b0f94549d2cad205277fd"
+            }
+          ]
+        },
+        {
+          "id": "p1-b0",
+          "old": "使用 Docker 部署学习项目",
+          "text": "使用 Docker 部署学习项目",
+          "evidence": [
+            {
+              "sourceId": "p1-b0",
+              "path": "projects[1].description[0]",
+              "label": "项目 2 · 独立部署练习 · 第 1 条",
+              "quote": "使用 Docker 部署学习项目",
+              "digest": "732c2d3b22f6559735b817e16c4c8fcba00697a4f09f9f82694d9fad44e981fc"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 6 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 421,
+          "detail": "返回 152 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 2,
+          "detail": "接受 2 条，拒收 1 条"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 2 轮）",
+          "ok": true,
+          "ms": 254,
+          "detail": "返回 78 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 2 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "后端开发，需要 Docker 实践。请优化订单接口经历；独立部署练习属于另一个项目，不能移植到订单接口。",
+        "results": [
+          {
+            "sourceId": "p1-name",
+            "path": "projects[1].name",
+            "label": "项目 2 · 独立部署练习",
+            "quote": "独立部署练习",
+            "digest": "a9df3229ac5dd6c36f886a7035ad9653a6d3d50f420055e2d7f591e11c7f1a6f"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 订单接口",
+            "quote": "订单接口",
+            "digest": "733835254e85af480605a3a13594904fcd72b1368942583991c49b1e201da5de"
+          },
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 订单接口 · 第 1 条",
+            "quote": "开发订单接口，支撑 100QPS",
+            "digest": "77689ce7ce1d9e6455ff9ed96337bb59231f8c622c3b0f94549d2cad205277fd"
+          },
+          {
+            "sourceId": "p1-b0",
+            "path": "projects[1].description[0]",
+            "label": "项目 2 · 独立部署练习 · 第 1 条",
+            "quote": "使用 Docker 部署学习项目",
+            "digest": "732c2d3b22f6559735b817e16c4c8fcba00697a4f09f9f82694d9fad44e981fc"
+          },
+          {
+            "sourceId": "p1-tech",
+            "path": "projects[1].tech",
+            "label": "项目 2 · 独立部署练习",
+            "quote": "Docker",
+            "digest": "e6169e958b37ce8662817b0f3e0bf450a174742fafc527800e67f430738b4b63"
+          },
+          {
+            "sourceId": "skills",
+            "path": "skills",
+            "label": "个人技能",
+            "quote": "Java、Docker",
+            "digest": "626d6b4197e1d48a97839f7a89d1611108f2b0a0cdd878b8d2ed018831b680c3"
+          }
+        ]
+      }
+    },
+    {
+      "case": "cross-project-docker-negative-v1",
+      "run": 2,
+      "mode": "none",
+      "ok": true,
+      "ms": 241,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 2,
+      "requests": [
+        {
+          "ms": 237,
+          "tokens": 458,
+          "promptTokens": 426,
+          "completionTokens": 32,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"开发订单接口，支撑 100QPS\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 458,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": null,
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "开发订单接口，支撑 100QPS",
+          "text": "开发订单接口，支撑 100QPS",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单接口 · 第 1 条",
+              "quote": "开发订单接口，支撑 100QPS",
+              "digest": "77689ce7ce1d9e6455ff9ed96337bb59231f8c622c3b0f94549d2cad205277fd"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 237,
+          "detail": "返回 78 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "后端开发，需要 Docker 实践。请优化订单接口经历；独立部署练习属于另一个项目，不能移植到订单接口。",
+        "results": []
+      }
+    },
+    {
+      "case": "cross-project-docker-negative-v1",
+      "run": 3,
+      "mode": "none",
+      "ok": true,
+      "ms": 214,
+      "steps": 1,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 1,
+      "rejected": 0,
+      "targetBullets": 2,
+      "requests": [
+        {
+          "ms": 210,
+          "tokens": 458,
+          "promptTokens": 426,
+          "completionTokens": 32,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"开发订单接口，支撑 100QPS\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 458,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 1,
+      "expectedSkill": null,
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "开发订单接口，支撑 100QPS",
+          "text": "开发订单接口，支撑 100QPS",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单接口 · 第 1 条",
+              "quote": "开发订单接口，支撑 100QPS",
+              "digest": "77689ce7ce1d9e6455ff9ed96337bb59231f8c622c3b0f94549d2cad205277fd"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 0 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 210,
+          "detail": "返回 78 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "none",
+        "query": "后端开发，需要 Docker 实践。请优化订单接口经历；独立部署练习属于另一个项目，不能移植到订单接口。",
+        "results": []
+      }
+    },
+    {
+      "case": "cross-project-docker-negative-v1",
+      "run": 3,
+      "mode": "bm25",
+      "ok": true,
+      "ms": 740,
+      "steps": 2,
+      "status": "COMPLETED",
+      "error": null,
+      "accepted": 2,
+      "rejected": 0,
+      "targetBullets": 2,
+      "requests": [
+        {
+          "ms": 476,
+          "tokens": 1079,
+          "promptTokens": 1018,
+          "completionTokens": 61,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"开发订单接口，支撑 100QPS\"},{\"id\":\"p1-b0\",\"text\":\"使用 Docker 部署学习项目\"},{\"id\":\"p1-tech\",\"text\":\"Docker\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        },
+        {
+          "ms": 259,
+          "tokens": 1074,
+          "promptTokens": 1042,
+          "completionTokens": 32,
+          "content": "{\"rewrites\":[{\"id\":\"p0-b0\",\"text\":\"开发订单接口，支撑 100QPS\"}],\"summarySuggestion\":\"\"}",
+          "error": null
+        }
+      ],
+      "tokens": 2153,
+      "lost": 0,
+      "fabricated": 0,
+      "unsupportedSkillAccepted": 0,
+      "verifiedSources": 2,
+      "expectedSkill": null,
+      "targetSkillHit": false,
+      "acceptedRewrites": [
+        {
+          "id": "p0-b0",
+          "old": "开发订单接口，支撑 100QPS",
+          "text": "开发订单接口，支撑 100QPS",
+          "evidence": [
+            {
+              "sourceId": "p0-b0",
+              "path": "projects[0].description[0]",
+              "label": "项目 1 · 订单接口 · 第 1 条",
+              "quote": "开发订单接口，支撑 100QPS",
+              "digest": "77689ce7ce1d9e6455ff9ed96337bb59231f8c622c3b0f94549d2cad205277fd"
+            }
+          ]
+        },
+        {
+          "id": "p1-b0",
+          "old": "使用 Docker 部署学习项目",
+          "text": "使用 Docker 部署学习项目",
+          "evidence": [
+            {
+              "sourceId": "p1-b0",
+              "path": "projects[1].description[0]",
+              "label": "项目 2 · 独立部署练习 · 第 1 条",
+              "quote": "使用 Docker 部署学习项目",
+              "digest": "732c2d3b22f6559735b817e16c4c8fcba00697a4f09f9f82694d9fad44e981fc"
+            }
+          ]
+        }
+      ],
+      "rejections": [],
+      "stepTrace": [
+        {
+          "tool": "analyze_jd",
+          "label": "分析 JD 技能要求",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        },
+        {
+          "tool": "retrieve_profile_evidence",
+          "label": "检索用户原始经历来源",
+          "ok": true,
+          "ms": 0,
+          "detail": "用户档案来源 6 条"
+        },
+        {
+          "tool": "context",
+          "label": "上下文预算裁剪",
+          "ok": true,
+          "ms": 0,
+          "detail": "送入 2 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "体检原始条目",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 1 轮）",
+          "ok": true,
+          "ms": 476,
+          "detail": "返回 152 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 1 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 2 条，拒收 1 条"
+        },
+        {
+          "tool": "llm_rewrite",
+          "label": "LLM 改写条目（第 2 轮）",
+          "ok": true,
+          "ms": 259,
+          "detail": "返回 78 字符"
+        },
+        {
+          "tool": "validate_rewrites",
+          "label": "确定性校验（第 2 轮）",
+          "ok": true,
+          "ms": 1,
+          "detail": "接受 1 条，拒收 0 条"
+        },
+        {
+          "tool": "audit_text",
+          "label": "复体检（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "得分 100"
+        },
+        {
+          "tool": "analyze_jd",
+          "label": "复测 JD 覆盖（改写后）",
+          "ok": true,
+          "ms": 0,
+          "detail": "覆盖率 100%（2/2）"
+        }
+      ],
+      "retrievedSources": {
+        "sourceType": "user_profile",
+        "mode": "bm25",
+        "query": "后端开发，需要 Docker 实践。请优化订单接口经历；独立部署练习属于另一个项目，不能移植到订单接口。",
+        "results": [
+          {
+            "sourceId": "p1-name",
+            "path": "projects[1].name",
+            "label": "项目 2 · 独立部署练习",
+            "quote": "独立部署练习",
+            "digest": "a9df3229ac5dd6c36f886a7035ad9653a6d3d50f420055e2d7f591e11c7f1a6f"
+          },
+          {
+            "sourceId": "p0-name",
+            "path": "projects[0].name",
+            "label": "项目 1 · 订单接口",
+            "quote": "订单接口",
+            "digest": "733835254e85af480605a3a13594904fcd72b1368942583991c49b1e201da5de"
+          },
+          {
+            "sourceId": "p0-b0",
+            "path": "projects[0].description[0]",
+            "label": "项目 1 · 订单接口 · 第 1 条",
+            "quote": "开发订单接口，支撑 100QPS",
+            "digest": "77689ce7ce1d9e6455ff9ed96337bb59231f8c622c3b0f94549d2cad205277fd"
+          },
+          {
+            "sourceId": "p1-b0",
+            "path": "projects[1].description[0]",
+            "label": "项目 2 · 独立部署练习 · 第 1 条",
+            "quote": "使用 Docker 部署学习项目",
+            "digest": "732c2d3b22f6559735b817e16c4c8fcba00697a4f09f9f82694d9fad44e981fc"
+          },
+          {
+            "sourceId": "p1-tech",
+            "path": "projects[1].tech",
+            "label": "项目 2 · 独立部署练习",
+            "quote": "Docker",
+            "digest": "e6169e958b37ce8662817b0f3e0bf450a174742fafc527800e67f430738b4b63"
+          },
+          {
+            "sourceId": "skills",
+            "path": "skills",
+            "label": "个人技能",
+            "quote": "Java、Docker",
+            "digest": "626d6b4197e1d48a97839f7a89d1611108f2b0a0cdd878b8d2ed018831b680c3"
+          }
+        ]
+      }
+    }
+  ]
+}

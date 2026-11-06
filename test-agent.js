@@ -5,6 +5,7 @@
 const http = require('http');
 const { createOllamaClient } = require('./packages/llm-adapters/dist/index');
 const agent = require('./dist/main/agent');
+const evidenceLib = require('./dist/main/resume-evidence');
 const engine = require('./dist/main/resume-engine');
 
 // 看门狗：任何悬挂（伪服务器未关 / fetch 未归）60 秒后强制退出，防止 CI 假死
@@ -44,14 +45,14 @@ const PROFILE = {
   skills: 'Java, MySQL',
   projects: [{
     name: '订单系统', tech: 'Java/MySQL',
-    description: '本人负责订单系统优化，通过赋能业务实现降本增效\n参与用户模块开发，支撑日活 3 万'
+    description: '本人负责订单系统查询优化，通过赋能业务实现降本增效，P99 从 800ms 降到 120ms\n参与用户模块开发，支撑日活 3 万'
   }],
   internships: []
 };
 
 const GOOD_JSON = JSON.stringify({
   rewrites: [
-    { id: 'p0-b0', text: '主导订单系统查询优化，引入 Docker 化部署，P99 从 800ms 降到 120ms' },
+    { id: 'p0-b0', text: '主导订单系统查询优化，P99 从 800ms 降到 120ms' },
     { id: 'p0-b1', text: '承担用户模块开发，支撑日活 3 万' },
     { id: 'summary', text: '后端方向应届生，两段可展示项目经历' }
   ],
@@ -99,9 +100,51 @@ assert(v3.rejected.length === 1 && /数字被改动或丢失/.test(v3.rejected[0
     assert(v.accepted.length === 1, '通过：' + desc);
   }
 });
-// 补充原文没有的量化数据是允许的（只判丢没丢，不判多没多）
-const vAdd = agent.validateRewrites(items, [{ id: 'p0-b0', text: '主导订单系统查询优化，P99 从 800ms 降到 120ms' }]);
-assert(vAdd.accepted.length === 1, '补充原文没有的量化数据仍然允许（只判丢没丢）');
+// 新增指标也必须有原始经历来源；不能把用户审批当作编造数字的依据。
+const vAdd = agent.validateRewrites(items, [{ id: 'p0-b0', text: '主导订单系统查询优化，P99 从 800ms 降到 120ms，支撑 1000QPS' }]);
+assert(vAdd.rejected.length === 1 && /新增数字缺少经历证据/.test(vAdd.rejected[0].reason), '拒收没有原始经历证据的新增量化指标');
+
+for (const [original, text, passExpected, label] of [
+  ['接口差错率降低3%', '接口差错率降低-3%', false, '新增负号不再伪装成原来的正数'],
+  ['接口差错率变化-3%', '接口差错率变化3%', false, '删除负号会改变原值'],
+  ['查询响应从800ms降至120ms', '查询响应由800ms缩减至120ms', true, '缩减至与降至同义'],
+  ['延迟从800ms降至120ms，吞吐从100QPS升至200QPS', '吞吐从800ms降至120ms，延迟从100QPS升至200QPS', false, '前后数值不变也拒绝交换指标归属'],
+  ['响应从800ms降至120ms', '延迟由800ms缩短到120ms', true, '已知指标同义表达可通过'],
+  ['吞吐从100QPS升至200QPS', '吞吐由100QPS提高至200QPS', true, '提高至与升至同义']
+]) {
+  const p = { projects: [{ name: '接口服务', description: original }], internships: [] };
+  const e = evidenceLib.createProfileEvidence(p, '后端开发');
+  const checked = agent.validateRewrites(agent.buildTaskItems(p), [{ id: 'p0-b0', text }], p, '后端开发', e);
+  assert(passExpected ? checked.accepted.length === 1 : checked.rejected.length === 1, label);
+  if (passExpected) assert(agent.applyRewritesToProfile(p, checked.accepted).projects[0].description === text, label + '可通过应用前复核');
+}
+
+// 数字仍在也不能交换前后值、反转变化方向或删除变化关系。
+for (const [text, accept, label] of [
+  ['优化订单查询，P99 从 120ms 降到 800ms', false, '交换中文前后值'],
+  ['优化订单查询，P99 120ms→800ms', false, '反转箭头两端'],
+  ['优化订单查询，P99 from 120ms to 800ms', false, '交换英文前后值'],
+  ['优化订单查询，P99 从 800ms 升至 120ms', false, '数字未变但变化方向反转'],
+  ['优化订单查询，P99 800ms，另一个指标 120ms', false, '数字都在但删除前后关系'],
+  ['优化订单查询，P99 由 800ms 降低至 120ms', true, '同义降幅表达'],
+  ['优化订单查询，P99 800ms→120ms', true, '箭头保留前后值'],
+  ['优化订单查询，P99 from 800ms to 120ms', true, '英文保留前后值'],
+  ['优化订单查询，P99 优化后120ms，优化前800ms', true, '标签明确时允许先写结果'],
+  ['优化订单查询，P99 优化前800ms，优化后120ms', true, '前后标签保留关系']
+]) {
+  const v = agent.validateRewrites(items, [{ id: 'p0-b0', text }]);
+  assert(accept ? v.accepted.length === 1 : v.rejected.some(r => /数字前后关系/.test(r.reason)), label);
+}
+for (const [original, rewritten, accept, label] of [
+  ['查询延迟 800ms→120ms', '查询延迟从800ms升至120ms', false, '原文箭头也约束增减方向'],
+  ['处理3万请求，覆盖2个接口', '覆盖2个接口，处理3万请求', true, '独立数字允许调整句子顺序'],
+  ['处理3万请求，另有5万请求', '处理请求从3万增至5万', false, '不把独立数字编成增长关系'],
+  ['P99从800ms降至120ms，吞吐从100QPS升至200QPS', 'P99从120ms降至800ms，吞吐从100QPS升至200QPS', false, '多个指标中的单对反转仍拒收']
+]) {
+  const p = { projects: [{ name: '指标测试', description: original }], internships: [] };
+  const v = agent.validateRewrites(agent.buildTaskItems(p), [{ id: 'p0-b0', text: rewritten }]);
+  assert(accept ? v.accepted.length === 1 : v.rejected.some(r => /数字前后关系/.test(r.reason)), label);
+}
 
 const v4 = agent.validateRewrites(items, [{ id: 'p0-b0', text: '优秀的实现订单系统查询优化，P99 从 800ms 降到 120ms' }]);
 assert(v4.rejected.length === 1 && /空洞形容词/.test(v4.rejected[0].reason), '空洞形容词被拒收');
@@ -126,20 +169,20 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
   assert(result.rounds === 1, '一轮完成');
   assert(result.accepted.length === 3, '3 条改写全部接受');
   assert(result.auditAfter > result.auditBefore, '体检分提升（' + result.auditBefore + '→' + result.auditAfter + '）');
-  assert(result.jdAfter > result.jdBefore, 'JD 覆盖率提升（' + result.jdBefore + '%→' + result.jdAfter + '%）');
+  assert(result.jdAfter === result.jdBefore, '不编造技能的改写保持 JD 覆盖率（' + result.jdBefore + '%→' + result.jdAfter + '%）');
   assert(result.jdAfter >= 0 && result.jdAfter <= 100, 'JD 覆盖率数值合法');
 
   // 回归：复测后的「仍缺失技能」必须来自改写后的复测结果，而不是改写前的 jdBefore。
-  // GOOD_JSON 的改写把 Docker 补进了项目描述，所以这里不应再提示缺失 docker。
+  // 档案里没有 Docker，合规改写不能凭空补上，也不能消除缺失提示。
   {
     const beforeMissing = agent.TOOL_MAP.get('analyze_jd').run({
       resume: { summary: PROFILE.summary, skills: ['Java', 'MySQL'], projects: PROFILE.projects, internships: [] },
       jd: JD
     }).missing.map((m) => m.label);
     assert(beforeMissing.indexOf('docker') >= 0, '基线：改写前 docker 确实缺失');
-    assert(result.accepted.some((a) => /Docker/.test(a.text)), '基线：本次改写确实补上了 Docker');
-    assert(result.jdMissingAfter.indexOf('docker') < 0,
-      '复测后不再提示缺失 docker（实际：' + JSON.stringify(result.jdMissingAfter) + '）');
+    assert(!result.accepted.some((a) => /Docker/.test(a.text)), '合规改写没有补造 Docker');
+    assert(result.jdMissingAfter.indexOf('docker') >= 0,
+      '复测后仍如实提示缺失 docker（实际：' + JSON.stringify(result.jdMissingAfter) + '）');
   }
   const tools = result.steps.map((s) => s.tool);
   assert(tools.includes('analyze_jd') && tools.includes('audit_text') && tools.includes('llm_rewrite') && tools.includes('validate_rewrites'),
@@ -149,7 +192,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
 
   // 应用改写：拒收行为空时 bulletMap 完整替换
   const bulletMap = agent.applyRewrites(PROFILE, result.accepted);
-  assert(bulletMap.p0.length === 2 && bulletMap.p0[0].includes('Docker'), 'applyRewrites 生效');
+  assert(bulletMap.p0.length === 2 && bulletMap.p0[0].includes('查询优化'), 'applyRewrites 生效');
   assert(bulletMap.summary === '后端方向应届生，两段可展示项目经历', '简介改写生效');
 
   // ---------- 4) 全链路：坏 JSON → 重生成成功 ----------
@@ -395,7 +438,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     // 14a. 工具集构建与协议转换
     const ctxX = { profile: PROFILE, jd: JD, items: agent.buildTaskItems(PROFILE), accepted: new Map(), rejected: [] };
     const atools = buildAgentTools(ctxX);
-    assert(atools.length === 5, 'agentic 工具集含 5 个工具');
+    assert(atools.length === 6, 'agentic 工具集含 6 个工具（含用户经历检索）');
     const proto = toolsToProtocol(atools);
     assert(proto[0].type === 'function' && proto[0].function.name === 'analyze_jd', 'toolsToProtocol 输出 OpenAI function 格式');
     assert(proto.every((t) => t.function.parameters && t.function.parameters.type === 'object'), '全部工具带 parameters schema');
@@ -405,7 +448,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
       { toolCalls: [{ name: 'analyze_jd', args: {} }] },
       { toolCalls: [{ name: 'audit_text', args: {} }] },
       { toolCalls: [{ name: 'rewrite_bullets', args: { rewrites: [
-        { id: 'p0-b0', text: '主导订单系统查询优化，引入缓存，P99 从 800ms 降到 120ms' },
+        { id: 'p0-b0', text: '主导订单系统查询优化，P99 从 800ms 降到 120ms' },
         { id: 'p0-b1', text: '承担用户模块开发，支撑日活 3 万' },
         { id: 'summary', text: '后端方向应届生，有可量化的项目经历' }
       ] } }] },
@@ -414,7 +457,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     const callsSeen = [];
     const llmA = {
       chat: async (_msgs, opts) => {
-        assert(Array.isArray(opts.tools) && opts.tools.length === 5, 'agenticLoop 向 LLM 传入 5 个工具定义');
+        assert(Array.isArray(opts.tools) && opts.tools.length === 6, 'agenticLoop 向 LLM 传入 6 个工具定义');
         const r = script[Math.min(callsSeen.length, script.length - 1)];
         callsSeen.push(1);
         return { content: '', toolCalls: r.toolCalls, rawToolCalls: [] };
@@ -438,10 +481,10 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
   toolsZ.find((t) => t.name === 'analyze_jd').run({});
   const rwZ = toolsZ.find((t) => t.name === 'rewrite_bullets');
 
-  const fabricated = rwZ.run({ rewrites: [{ id: 'p0-b0', text: '主导订单系统查询优化，精通 Docker 与分布式系统' }] });
+  const fabricated = rwZ.run({ rewrites: [{ id: 'p0-b0', text: '主导订单系统查询优化，P99 从 800ms 降到 120ms，精通 Docker 与分布式系统' }] });
   assert(fabricated.accepted === 0 && fabricated.rejected.some((r) => /编造技能/.test(r.reason)),
     '编造 JD 要求但档案没有的技能 → 拒收（' + JSON.stringify(fabricated.rejected) + '）');
-  assert(ctxZ.rejected.some((r) => /Docker|分布式/.test(r.reason)), '拒收理由点名了那个技能，便于用户判断');
+  assert(ctxZ.rejected.some((r) => /docker|分布式/i.test(r.reason)), '拒收理由点名了那个技能，便于用户判断');
 
   const legit = rwZ.run({ rewrites: [{ id: 'p0-b1', text: '承担用户模块开发，用 MySQL 支撑日活 3 万' }] });
   assert(legit.accepted === 1, '提到档案里已有的技能（MySQL）不算编造');
@@ -487,7 +530,7 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     assert(errAg2 && /可改写/.test(errAg2.message), 'agentic：空档案报错');
 
     // 14h. 回归：agentic 路径的「仍缺失技能」同样要取改写后的复测结果，
-    //      不能沿用 ctx.jdAnalysis（改写前分析）。改写里补上 Docker 后就不该再提示缺失。
+    //      拒收凭空补造的 Docker 后，仍缺失列表与实际接受的候选保持一致。
     const scriptE = [
       { toolCalls: [{ name: 'analyze_jd', args: {} }] },
       { toolCalls: [{ name: 'rewrite_bullets', args: { rewrites: [
@@ -506,10 +549,10 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
       }
     };
     const resultE = await agenticLoop(PROFILE, JD, { llm: llmE, maxSteps: 8 });
-    assert(resultE.accepted.length === 3, 'agentic 回归：3 条改写通过校验门');
-    assert(resultE.jdAfter > resultE.jdBefore, 'agentic 回归：JD 覆盖率提升（' + resultE.jdBefore + '→' + resultE.jdAfter + '）');
-    assert(resultE.jdMissingAfter.indexOf('docker') < 0,
-      'agentic：复测后不再提示缺失 docker（实际：' + JSON.stringify(resultE.jdMissingAfter) + '）');
+    assert(resultE.accepted.length === 2 && resultE.rejected.some((r) => /编造技能/.test(r.reason)), 'agentic 回归：拒收 Docker，保留另两条合规改写');
+    assert(resultE.jdAfter === resultE.jdBefore, 'agentic 回归：拒收编造技能后覆盖率不虚增');
+    assert(resultE.jdMissingAfter.indexOf('docker') >= 0,
+      'agentic：复测后仍提示缺失 docker（实际：' + JSON.stringify(resultE.jdMissingAfter) + '）');
   }
 
   // ============================================================
@@ -624,12 +667,18 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     const arrProfile = {
       name: '张三', targetRole: '后端', skills: 'Java', summary: '简介一句',
       education: [],
-      projects: [{ name: '订单系统', description: ['第一行：负责订单接口', '第二行：用 MySQL 存数据'] }],
+      projects: [{ name: '订单系统', tech: 'MySQL、Redis', description: ['第一行：负责订单接口', '第二行：用 MySQL 存数据'] }],
       internships: []
     };
-    const accepted = [
+    const withEvidence = (profile, rewrites) => {
+      const checked = agent.validateRewrites(agent.buildTaskItems(profile), rewrites, profile, undefined,
+        evidenceLib.createProfileEvidence(profile, 'MySQL Redis 订单'));
+      if (checked.rejected.length) throw new Error('测试候选未通过校验：' + JSON.stringify(checked.rejected));
+      return checked.accepted;
+    };
+    const accepted = withEvidence(arrProfile, [
       { id: 'p0-b1', old: '第二行：用 MySQL 存数据', text: '第二行：用 MySQL 与 Redis 存数据' }
-    ];
+    ]);
     const out = agent.applyRewritesToProfile(arrProfile, accepted);
     const desc = out.projects[0].description;
     assert(typeof desc === 'string', '数组描述被归一化成字符串（模板与后续处理都按字符串走）');
@@ -641,10 +690,10 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
       '不改动传入的原始档案（深拷贝）');
 
     // 只应用「用户勾选」的子集：未勾选的改写不得写入
-    const twoAccepted = [
+    const twoAccepted = withEvidence(arrProfile, [
       { id: 'p0-b0', old: '第一行：负责订单接口', text: '第一行：主导订单接口开发' },
       { id: 'p0-b1', old: '第二行：用 MySQL 存数据', text: '第二行：用 MySQL 与 Redis 存数据' }
-    ];
+    ]);
     const onlySecond = agent.applyRewritesToProfile(arrProfile, [twoAccepted[1]]);
     const onlyLines = String(onlySecond.projects[0].description).split('\n');
     assert(onlyLines[0] === '第一行：负责订单接口', '未勾选的条目保持原文');
@@ -656,9 +705,9 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
       education: [], internships: [],
       projects: [{ name: '缓存项目', description: '第一句；第二句；第三句' }]
     };
-    const strOut = agent.applyRewritesToProfile(strProfile, [
+    const strOut = agent.applyRewritesToProfile(strProfile, withEvidence(strProfile, [
       { id: 'p0-b1', old: '第二句', text: '第二句（改）' }
-    ]);
+    ]));
     const strLines = String(strOut.projects[0].description).split('\n');
     assert(strLines.length === 3, '分号分隔的字符串按引擎语义切成 3 条');
     assert(strLines[1] === '第二句（改）' && strLines[0] === '第一句' && strLines[2] === '第三句',
@@ -790,6 +839,113 @@ assert(v7.rejected.length === 1 && /评分下降/.test(v7.rejected[0].reason), '
     assert(r3.partial === true, '标记 partial：结果可用但不算完成');
     assert(r3.run && r3.run.status === 'PARTIAL', '运行状态记为 PARTIAL 而非 COMPLETED（实际 ' + (r3.run && r3.run.status) + '）');
     assert(r3.error === null, 'partial 不是错误：error 为空，界面按「结果 + 警告」展示而不是失败页');
+  }
+
+  // 核心链路回归：真实校验、重生成合并、取消与运行记录。
+  {
+    const { createMemoryRunStore } = require('./packages/agent-core/dist/index');
+    const profile = { skills: 'Java', projects: [{ name: '订单系统', description: '负责订单系统开发，支撑日活 3 万\n负责优化查询，处理 2 万数据' }], internships: [] };
+    const jd = 'Java 后端开发工程师，要求熟悉 Docker、Kubernetes。';
+    const ctx = { profile, jd, items: agent.buildTaskItems(profile), accepted: new Map(), rejected: [], jdAnalysis: null, attempts: new Map() };
+    const tools = agent.buildAgentTools(ctx);
+    const rewrite = tools.find((t) => t.name === 'rewrite_bullets');
+    for (const skill of ['Docker', 'docker', 'Kubernetes', '容器化']) {
+      const out = rewrite.run({ rewrites: [{ id: 'p0-b0', text: '主导订单系统开发，支撑日活 3 万，采用 ' + skill + ' 部署' }] });
+      assert(out.accepted === 0 && out.rejected.some((r) => /编造技能/.test(r.reason)), '分析 JD 之前仍拒收无证据技能：' + skill);
+    }
+    tools.find((t) => t.name === 'analyze_jd').run({});
+    const afterAnalysis = rewrite.run({ rewrites: [{ id: 'p0-b0', text: '主导订单系统开发，支撑日活 3 万，采用 Docker 部署' }] });
+    assert(afterAnalysis.accepted === 0, '分析之后也按别名拒收大写 Docker');
+    const withEvidence = { ...profile, skills: 'Java、容器化' };
+    const legit = agent.validateRewrites(agent.buildTaskItems(withEvidence), [{ id: 'p0-b0', text: '主导订单系统开发，支撑日活 3 万，采用 Docker 部署' }], withEvidence, jd);
+    assert(legit.accepted.length === 1, '原档案已有同义技能时允许 Docker 表述');
+    const fabricated = await agent.runAgent(profile, jd, { llm: mockLlm([JSON.stringify({ rewrites: [{ id: 'p0-b0', text: '主导订单系统开发，支撑日活 3 万，采用 Docker 部署' }] })]), maxRounds: 1 });
+    assert(!fabricated.ok && fabricated.accepted.length === 0 && fabricated.rejected.some((r) => /编造技能/.test(r.reason)), '流水线使用同一道技能证据校验门');
+
+    const replies = [
+      { rewrites: [{ id: 'p0-b0', text: '主导订单系统开发，支撑日活 3 万' }, { id: 'p0-b1', text: '优化查询，处理 99 万数据' }] },
+      { rewrites: [{ id: 'p0-b0', text: '实现订单接口，支撑日活 3 万' }, { id: 'p0-b1', text: '优化查询，处理 2 万数据' }] }
+    ].map(JSON.stringify);
+    const store = createMemoryRunStore();
+    const retried = await agent.runAgent(profile, jd, { llm: mockLlm(replies), runStore: store, runId: 'pipeline-retry' });
+    assert(retried.ok && retried.rounds === 2 && retried.accepted.length === 2, '成功的第二轮按 ID 合并，候选不重复');
+    const applied = agent.applyRewritesToProfile(profile, retried.accepted).projects[0].description;
+    assert(applied.includes('实现订单接口') && !applied.includes('主导订单系统开发'), '应用最终轮的最新候选，而非第一轮旧文本');
+    assert(store.list().length === 1 && store.get('pipeline-retry').status === 'COMPLETED', '成功流水线留存一条可读取的运行记录');
+    assert(!JSON.stringify(store.get('pipeline-retry')).includes('实现订单接口'), '流水线运行记录不保存简历改写正文');
+
+    const pre = new AbortController(); pre.abort();
+    const preLlm = mockLlm([GOOD_JSON]);
+    const preCancelled = await agent.runAgent(profile, jd, { llm: preLlm, signal: pre.signal });
+    assert(preCancelled.cancelled && preCancelled.run.status === 'CANCELLED' && preLlm.calls() === 0, '预取消流水线不发起模型调用，返回 CANCELLED');
+
+    const ctl = new AbortController(); let signalSeen;
+    const waiting = agent.runAgent(profile, jd, { signal: ctl.signal, runStore: store, runId: 'pipeline-cancel',
+      llm: { chat: (_msgs, options) => { signalSeen = options.signal; return new Promise(() => {}); } } });
+    await new Promise((r) => setTimeout(r, 10)); ctl.abort();
+    const cancelled = await waiting;
+    assert(signalSeen.aborted && cancelled.cancelled && !cancelled.ok, '模型等待期间取消：信号透传，立即结束等待');
+    assert(store.get('pipeline-cancel').status === 'CANCELLED', '取消的流水线也保存 CANCELLED 运行记录');
+
+    const partialCtl = new AbortController(); const partialLlm = mockLlm(replies);
+    const partial = await agent.runAgent(profile, jd, { llm: partialLlm, signal: partialCtl.signal,
+      onStep: (s) => { if (s.tool === 'validate_rewrites') partialCtl.abort(); } });
+    assert(partial.cancelled && partial.accepted.length === 1 && partialLlm.calls() === 1, '校验后取消：保留已通过候选，不再重生成');
+    assert(partial.auditAfter >= partial.auditBefore && partial.run.status === 'CANCELLED', '取消后仍复测可用候选并正确记录终态');
+    const timedOut = await agent.runAgent(profile, jd, { maxDurationMs: 20, llm: { chat: () => new Promise(() => {}) } });
+    assert(!timedOut.ok && !timedOut.cancelled && timedOut.run.status === 'FAILED' && /超时/.test(timedOut.error), '流水线期限到达时结束等待，并区分超时与用户取消');
+
+    let usageCalls = 0;
+    const metered = await agent.runAgent(profile, jd, { runStore: store, runId: 'pipeline-usage', maxTokens: 100,
+      llm: { chat: async (_messages, options) => {
+        usageCalls++;
+        options.onUsage({ total_tokens: 5 });
+        options.onUsage(usageCalls === 1 ? { prompt_tokens: 10, completion_tokens: 5 } : { total_tokens: 25 });
+        return usageCalls === 1 ? '{}' : replies[1];
+      } } });
+    assert(metered.ok && usageCalls === 2 && metered.run.usage.tokens === 40, '流水线累计每轮实际 token，不重复计算同请求的累计上报');
+    assert(store.get('pipeline-usage').usage.tokens === 40 &&
+      metered.run.trace.filter(t => t.tool === 'llm_rewrite').map(t => t.tokens).join(',') === '15,25', '运行记录和每轮模型 trace 保存实际 token');
+
+    let budgetCalls = 0;
+    const exhausted = await agent.runAgent(profile, jd, { maxTokens: 50, runStore: store, runId: 'pipeline-token-budget',
+      llm: { chat: async (_messages, options) => { budgetCalls++; options.onUsage({ total_tokens: 60 }); return replies[1]; } } });
+    assert(!exhausted.ok && !exhausted.cancelled && exhausted.run.status === 'FAILED' && /token 预算/.test(exhausted.error), 'token 耗尽返回 FAILED，区别于用户取消');
+    assert(budgetCalls === 1 && exhausted.accepted.length === 0 && store.get('pipeline-token-budget').usage.tokens === 60, '超预算响应停止校验和后续调用，实际消耗仍写入记录');
+
+    const noBudgetLlm = mockLlm([replies[1]]);
+    const noBudget = await agent.runAgent(profile, jd, { maxTokens: 0, llm: noBudgetLlm });
+    assert(noBudgetLlm.calls() === 0 && /token 预算/.test(noBudget.error), '零 token 预算不发出模型请求');
+    const unreported = await agent.runAgent(profile, jd, { llm: mockLlm([replies[1]]) });
+    assert(unreported.ok && unreported.run.trace.filter(t => t.tool === 'llm_rewrite').every(t => t.tokens === null), '没有用量报告时 trace 标记未知，不估算 token');
+
+    let partialUsageCalls = 0;
+    const partialBudget = await agent.runAgent(profile, jd, { maxTokens: 50, llm: {
+      chat: async (_messages, options) => { options.onUsage({ total_tokens: 30 }); return replies[Math.min(partialUsageCalls++, 1)]; }
+    } });
+    assert(!partialBudget.ok && partialBudget.accepted.length === 1 && partialUsageCalls === 2 && partialBudget.run.usage.tokens === 60,
+      '第二轮超预算仍保留上一轮已通过的候选，且停止继续生成');
+
+    let streamClosed;
+    const disconnected = new Promise(resolve => { streamClosed = resolve; });
+    const usageServer = http.createServer((_req, res) => {
+      res.on('close', () => streamClosed(!res.writableEnded));
+      res.writeHead(200, { 'content-type': 'application/x-ndjson' });
+      res.write('{"message":{"content":"{}"}}\n{"prompt_eval_count":20,"eval_count":40}\n');
+      // 保持流打开：预算生效必须立即断开，而不是等结束帧或超时。
+    });
+    await new Promise(resolve => usageServer.listen(0, '127.0.0.1', resolve));
+    try {
+      const started = Date.now();
+      const streamed = await agent.runAgent(profile, jd, { maxTokens: 50, maxDurationMs: 5000, onChunk: () => {},
+        llm: createOllamaClient({ endpoint: 'http://127.0.0.1:' + usageServer.address().port, model: 'test' }) });
+      assert(!streamed.ok && !streamed.cancelled && /token 预算/.test(streamed.error) && Date.now() - started < 1000,
+        '流式过程中上报超预算时立即终止，无需等待模型结束');
+      assert(await Promise.race([disconnected, new Promise(resolve => setTimeout(() => resolve(false), 1000))]),
+        'token 预算耗尽确实关闭正在生成的 HTTP 连接');
+      assert(streamed.run.usage.tokens === 60 && streamed.run.trace.some(t => t.tool === 'llm_rewrite' && t.tokens === 60 && t.errorType === 'budget'),
+        '流式预算中断记录实际 token 与 budget 错误类型');
+    } finally { usageServer.closeAllConnections(); await new Promise(resolve => usageServer.close(resolve)); }
   }
 
   console.log('\nAgent 自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

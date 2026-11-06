@@ -1,27 +1,37 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-10-25T14:56:57.171Z",
+  "generatedAt": "2026-11-06T07:29:37.629Z",
   "product": {
     "name": "grad-resume-forge",
-    "version": "1.15.0",
-    "commit": "1f2dba6",
-    "commitDate": "2026-10-25T14:42:55+08:00",
+    "version": "1.15.1",
+    "commit": "4cf79ab",
+    "commitDate": "2026-10-28T14:50:26+08:00",
     "author": "jettcck <2653921463@qq.com>"
   },
   "quality": {
     "tests": {
       "suites": 30,
-      "assertions": 1542,
+      "assertions": 1715,
       "failures": 0,
-      "measuredAt": "2026-10-25T14:55:03.793Z",
-      "source": "npm test（本次实测）"
+      "exitCode": 0,
+      "measuredAt": "2026-11-06T07:26:26.265Z",
+      "source": "npm test（本次实测：npm-test-release-full-final.log）",
+      "failedNames": []
     },
     "ui": {
-      "assertions": 205,
+      "assertions": 210,
       "failures": 0,
-      "screenshots": 19,
-      "measuredAt": "2026-10-25T14:56:57.170Z",
-      "source": "npm run smoke:ui（本次实测）"
+      "screenshots": 20,
+      "exitCode": 0,
+      "measuredAt": "2026-11-06T07:23:36.455Z",
+      "source": "npm run smoke:ui（本次实测：npm-test-release-ui.log）"
+    },
+    "ipc": {
+      "assertions": 140,
+      "failures": 0,
+      "exitCode": 0,
+      "measuredAt": "2026-11-06T07:21:43.162Z",
+      "source": "npm run smoke:ipc（本次实测：npm-test-release-ipc.log）"
     }
   },
   "banks": {
@@ -45,27 +55,1290 @@
       "schemaRepairRate": 100,
       "validationErrors": 14,
       "repairs": 14,
-      "avgRuntimeMs": 1.4
+      "avgRuntimeMs": 2.5
     },
     "realModel": {
-      "provider": "cloud",
-      "model": "deepseek-chat",
-      "runAt": "2026-09-05T09:29:16.817Z",
-      "cases": null,
-      "commit": null,
-      "runs": 8,
-      "successRate": 1,
-      "acceptanceRate": 1,
-      "avgRounds": 2,
-      "avgLatencyMs": 2522.5,
-      "temperature": null,
-      "promptVersion": null
+      "source": "benchmarks/real-model.json",
+      "provider": "ollama",
+      "model": "qwen3:8b",
+      "endpoint": "http://127.0.0.1:11435",
+      "runAt": "2026-11-02T11:20:57.713Z",
+      "cases": 4,
+      "sample": 3,
+      "commit": "4cf79aba07f3772c0617801af1d92b3ccc966f16",
+      "commitShort": "4cf79ab",
+      "runs": 24,
+      "successRate": 45.8,
+      "acceptanceRate": 32.4,
+      "rateUnit": "percent",
+      "modes": [
+        "pipeline",
+        "agentic"
+      ],
+      "runner": null,
+      "maxRounds": 2,
+      "maxDurationMs": 180000,
+      "contextWindow": null,
+      "byMode": {
+        "pipeline": {
+          "totalRuns": 12,
+          "completedRuns": 8,
+          "failedRuns": 4,
+          "returnedRuns": 12,
+          "successRate": 66.7,
+          "successRateCi95": [
+            39.1,
+            86.2
+          ],
+          "acceptanceRate": 50,
+          "avgLatencyMs": 22633,
+          "p50LatencyMs": 21686,
+          "p95LatencyMs": 32659,
+          "avgSteps": 1.8,
+          "avgTokens": 1563,
+          "tokens": 18755,
+          "tokensReported": 18755,
+          "tokenReportedRequests": 21,
+          "modelRequests": 21,
+          "tokenCoverage": 100,
+          "accepted": 10,
+          "rejected": 10,
+          "metricLoss": 0,
+          "fabricated": 0,
+          "targetBullets": 30,
+          "acceptedCoverage": 33.3,
+          "hallucinationRate": 0,
+          "failureCounts": {
+            "all_rejected": 4
+          }
+        },
+        "agentic": {
+          "totalRuns": 12,
+          "completedRuns": 3,
+          "failedRuns": 9,
+          "returnedRuns": 12,
+          "successRate": 25,
+          "successRateCi95": [
+            8.9,
+            53.2
+          ],
+          "acceptanceRate": 25.5,
+          "avgLatencyMs": 81251,
+          "p50LatencyMs": 84717,
+          "p95LatencyMs": 132768,
+          "avgSteps": 10.1,
+          "avgTokens": 19448,
+          "tokens": 233376,
+          "tokensReported": 233376,
+          "tokenReportedRequests": 121,
+          "modelRequests": 121,
+          "tokenCoverage": 100,
+          "accepted": 13,
+          "rejected": 38,
+          "metricLoss": 0,
+          "fabricated": 0,
+          "targetBullets": 30,
+          "acceptedCoverage": 43.3,
+          "hallucinationRate": 0,
+          "failureCounts": {
+            "no_tool_calls": 5,
+            "incomplete": 2,
+            "step_budget": 2
+          }
+        }
+      },
+      "modelInfo": {
+        "digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+        "size": 5225388164,
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "qwen3",
+          "families": [
+            "qwen3"
+          ],
+          "parameter_size": "8.2B",
+          "quantization_level": "Q4_K_M",
+          "context_length": 40960,
+          "embedding_length": 4096,
+          "runner": "ggml"
+        },
+        "capabilities": [
+          "completion",
+          "tools",
+          "thinking"
+        ],
+        "ollamaVersion": "0.40.7"
+      },
+      "sourceSnapshot": {
+        "path": "benchmarks/source-snapshots/bd934b80b9cf8c35.json",
+        "sha256": "bd934b80b9cf8c35fd9ba156ccb14e45fe9b75a195acedc8cd95a8e5b8e35192",
+        "files": [
+          {
+            "path": "dist/main/agent.js",
+            "sha256": "0a0556483179fa944f1bedf20b859fc2adc5f7b67711dec272ae649053664147"
+          },
+          {
+            "path": "dist/main/exam-bank.js",
+            "sha256": "5f25adc2d781e6f2354a4710db4a352e8370c005511fa745126eb0ce89687949"
+          },
+          {
+            "path": "dist/main/lexicon.js",
+            "sha256": "69ff8af9a8df50d4a57a997df06c359905234fc73288f7c3453097af15a0441f"
+          },
+          {
+            "path": "dist/main/prompts.js",
+            "sha256": "f7446e4156db3b864528df7f9f1efb829d872752bd61e62b3dac5315eeeedbbd"
+          },
+          {
+            "path": "dist/main/resume-engine.js",
+            "sha256": "4b2c9b550f5724d7d0018b307cce82cdcf2d6b73396618b9bed213c08d035246"
+          },
+          {
+            "path": "dist/main/retrieval.js",
+            "sha256": "a6550af0a736f390579f5d39ad0fc62c241cbe14c30c376fab4639d2f1023c54"
+          },
+          {
+            "path": "evals/agent-bench-llm.js",
+            "sha256": "77245efdfaa5e8243088d566c3ef4192ffbb499f346b45ffa6ecf248bf0ce8d6"
+          },
+          {
+            "path": "evals/real-model-metrics.js",
+            "sha256": "6736ae4b18072e766266520ebd05055980f14437d3588c039eb5897d99bcc16a"
+          },
+          {
+            "path": "package-lock.json",
+            "sha256": "49130c234308186a53065414f3dd659a06583884245a1704d8cd3b9dcf404ad1"
+          },
+          {
+            "path": "package.json",
+            "sha256": "4e5c2ae84423d31c8ae1c5c306f5325424181182ce7edbeeec8816629f31dbcd"
+          },
+          {
+            "path": "packages/agent-core/dist/index.js",
+            "sha256": "fbf6023fd12428018f592dd79164239c0d4ebba0759fa72421b57d616e29f9f3"
+          },
+          {
+            "path": "packages/agent-core/dist/run-store.js",
+            "sha256": "000e82cb60e4415052b2216dfcbd35cd356b665ecf58845fd83efe3cca3166c8"
+          },
+          {
+            "path": "packages/agent-core/dist/runtime.js",
+            "sha256": "fc0ec105710395433ca5ce24056ef0238f13222e006bdcddadc9e448ed97ce6d"
+          },
+          {
+            "path": "packages/agent-core/dist/state-machine.js",
+            "sha256": "cf11d38f047494366defc018da4315beeaf719670768c6afd3e5066d840c9913"
+          },
+          {
+            "path": "packages/agent-core/dist/tools.js",
+            "sha256": "c7f449f68db47b823820f8f3e0cff1ceca3d3b8689782c908ad7a31546a416fa"
+          },
+          {
+            "path": "packages/agent-core/dist/types.js",
+            "sha256": "6d1193374ceac95c30f3d9ed0be6d0c1d4490fb0af785b1058b66cbc5946d071"
+          },
+          {
+            "path": "packages/llm-adapters/dist/index.js",
+            "sha256": "3d31b4618cb380527982e0d34e6691f6585aef2bddea98c45acbd9a18c04969b"
+          },
+          {
+            "path": "packages/retrieval/dist/index.js",
+            "sha256": "6040516084f849415db3c5d6fc85f6a3533faef0aa28dbbc3bd74e7a8b5fec7e"
+          },
+          {
+            "path": "prompts/agentic-system-v2.txt",
+            "sha256": "ed631e075a45bab0a0371de69cd683f550342f4b77f76aef0c21d3f48c66d2c9"
+          },
+          {
+            "path": "prompts/rewrite-rules-v1.txt",
+            "sha256": "4f218015993b31e70bb04a020a27aa69a5a4c44b0994cb45c098281ccf0135d5"
+          },
+          {
+            "path": "prompts/rewrite-system-v1.txt",
+            "sha256": "85538fa827e1c767f42db680d21746e902f5c581f1e300a10ffd68a54294f221"
+          }
+        ]
+      },
+      "failureCounts": {
+        "all_rejected": 4,
+        "no_tool_calls": 5,
+        "incomplete": 2,
+        "step_budget": 2
+      },
+      "successRateCi95": [
+        27.9,
+        64.9
+      ],
+      "avgSteps": 5.9,
+      "avgTokens": 10505,
+      "avgRounds": null,
+      "avgLatencyMs": 51942,
+      "temperature": 0.3,
+      "promptVersion": {
+        "rewriteSystem": "rewrite-system-v1",
+        "rewriteRules": "rewrite-rules-v1",
+        "agenticSystem": "agentic-system-v2"
+      },
+      "promptFiles": {
+        "rewrite-system-v1.txt": "85538fa827e1c767f42db680d21746e902f5c581f1e300a10ffd68a54294f221",
+        "rewrite-rules-v1.txt": "4f218015993b31e70bb04a020a27aa69a5a4c44b0994cb45c098281ccf0135d5",
+        "agentic-system-v2.txt": "ed631e075a45bab0a0371de69cd683f550342f4b77f76aef0c21d3f48c66d2c9"
+      },
+      "caseSet": {
+        "id": "agent-bench-fixed-v1",
+        "count": 4,
+        "sha256": "32fa07f1e373f738c0e2fe183be0ca280f6959fc9f3ae9ba25bb4b6dbc4b141b"
+      },
+      "gitDirty": true,
+      "runtime": {
+        "node": "v24.12.0",
+        "platform": "win32",
+        "arch": "x64",
+        "packageVersion": "1.15.0"
+      },
+      "suiteVersion": "3",
+      "reproducible": {
+        "reproducible": true,
+        "missingFields": []
+      }
+    },
+    "modelComparison": [
+      {
+        "source": "benchmarks/real-model-1.5b.json",
+        "model": "qwen2.5:1.5b",
+        "provider": "ollama",
+        "runAt": "2026-11-02T10:44:03.622Z",
+        "cases": 4,
+        "sample": 3,
+        "modes": [
+          "pipeline",
+          "agentic"
+        ],
+        "byMode": {
+          "pipeline": {
+            "totalRuns": 12,
+            "completedRuns": 11,
+            "failedRuns": 1,
+            "returnedRuns": 12,
+            "successRate": 91.7,
+            "successRateCi95": [
+              64.6,
+              98.5
+            ],
+            "acceptanceRate": 70.6,
+            "avgLatencyMs": 615,
+            "p50LatencyMs": 264,
+            "p95LatencyMs": 2172,
+            "avgSteps": 1.3,
+            "avgTokens": 446,
+            "tokens": 5356,
+            "tokensReported": 5356,
+            "tokenReportedRequests": 15,
+            "modelRequests": 15,
+            "tokenCoverage": 100,
+            "accepted": 12,
+            "rejected": 5,
+            "metricLoss": 0,
+            "fabricated": 0,
+            "targetBullets": 30,
+            "acceptedCoverage": 40,
+            "hallucinationRate": 0,
+            "failureCounts": {
+              "all_rejected": 1
+            }
+          },
+          "agentic": {
+            "totalRuns": 12,
+            "completedRuns": 0,
+            "failedRuns": 12,
+            "returnedRuns": 12,
+            "successRate": 0,
+            "successRateCi95": [
+              0,
+              24.2
+            ],
+            "acceptanceRate": null,
+            "avgLatencyMs": 723,
+            "p50LatencyMs": 666,
+            "p95LatencyMs": 1383,
+            "avgSteps": 2.3,
+            "avgTokens": 2214,
+            "tokens": 26569,
+            "tokensReported": 26569,
+            "tokenReportedRequests": 27,
+            "modelRequests": 27,
+            "tokenCoverage": 100,
+            "accepted": 0,
+            "rejected": 0,
+            "metricLoss": 0,
+            "fabricated": 0,
+            "targetBullets": 30,
+            "acceptedCoverage": 0,
+            "hallucinationRate": null,
+            "failureCounts": {
+              "no_tool_calls": 12
+            }
+          }
+        },
+        "rateUnit": "percent",
+        "modelInfo": {
+          "digest": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+          "size": 986061892,
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "qwen2",
+            "families": [
+              "qwen2"
+            ],
+            "parameter_size": "1.5B",
+            "quantization_level": "Q4_K_M",
+            "context_length": 32768,
+            "embedding_length": 1536,
+            "runner": "ggml"
+          },
+          "capabilities": [
+            "completion",
+            "tools"
+          ],
+          "ollamaVersion": "0.40.7"
+        },
+        "caseSet": {
+          "id": "agent-bench-fixed-v1",
+          "count": 4,
+          "sha256": "32fa07f1e373f738c0e2fe183be0ca280f6959fc9f3ae9ba25bb4b6dbc4b141b"
+        },
+        "promptVersion": {
+          "rewriteSystem": "rewrite-system-v1",
+          "rewriteRules": "rewrite-rules-v1",
+          "agenticSystem": "agentic-system-v2"
+        },
+        "suiteVersion": "3",
+        "sourceSnapshot": {
+          "path": "benchmarks/source-snapshots/e7e66a9466a4678a.json",
+          "sha256": "e7e66a9466a4678af251e5a6f0b77a79e7057685466737993a863109026df37a"
+        }
+      },
+      {
+        "source": "benchmarks/real-model.json",
+        "model": "qwen3:8b",
+        "provider": "ollama",
+        "runAt": "2026-11-02T11:20:57.713Z",
+        "cases": 4,
+        "sample": 3,
+        "modes": [
+          "pipeline",
+          "agentic"
+        ],
+        "byMode": {
+          "pipeline": {
+            "totalRuns": 12,
+            "completedRuns": 8,
+            "failedRuns": 4,
+            "returnedRuns": 12,
+            "successRate": 66.7,
+            "successRateCi95": [
+              39.1,
+              86.2
+            ],
+            "acceptanceRate": 50,
+            "avgLatencyMs": 22633,
+            "p50LatencyMs": 21686,
+            "p95LatencyMs": 32659,
+            "avgSteps": 1.8,
+            "avgTokens": 1563,
+            "tokens": 18755,
+            "tokensReported": 18755,
+            "tokenReportedRequests": 21,
+            "modelRequests": 21,
+            "tokenCoverage": 100,
+            "accepted": 10,
+            "rejected": 10,
+            "metricLoss": 0,
+            "fabricated": 0,
+            "targetBullets": 30,
+            "acceptedCoverage": 33.3,
+            "hallucinationRate": 0,
+            "failureCounts": {
+              "all_rejected": 4
+            }
+          },
+          "agentic": {
+            "totalRuns": 12,
+            "completedRuns": 3,
+            "failedRuns": 9,
+            "returnedRuns": 12,
+            "successRate": 25,
+            "successRateCi95": [
+              8.9,
+              53.2
+            ],
+            "acceptanceRate": 25.5,
+            "avgLatencyMs": 81251,
+            "p50LatencyMs": 84717,
+            "p95LatencyMs": 132768,
+            "avgSteps": 10.1,
+            "avgTokens": 19448,
+            "tokens": 233376,
+            "tokensReported": 233376,
+            "tokenReportedRequests": 121,
+            "modelRequests": 121,
+            "tokenCoverage": 100,
+            "accepted": 13,
+            "rejected": 38,
+            "metricLoss": 0,
+            "fabricated": 0,
+            "targetBullets": 30,
+            "acceptedCoverage": 43.3,
+            "hallucinationRate": 0,
+            "failureCounts": {
+              "no_tool_calls": 5,
+              "incomplete": 2,
+              "step_budget": 2
+            }
+          }
+        },
+        "rateUnit": "percent",
+        "modelInfo": {
+          "digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+          "size": 5225388164,
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "qwen3",
+            "families": [
+              "qwen3"
+            ],
+            "parameter_size": "8.2B",
+            "quantization_level": "Q4_K_M",
+            "context_length": 40960,
+            "embedding_length": 4096,
+            "runner": "ggml"
+          },
+          "capabilities": [
+            "completion",
+            "tools",
+            "thinking"
+          ],
+          "ollamaVersion": "0.40.7"
+        },
+        "caseSet": {
+          "id": "agent-bench-fixed-v1",
+          "count": 4,
+          "sha256": "32fa07f1e373f738c0e2fe183be0ca280f6959fc9f3ae9ba25bb4b6dbc4b141b"
+        },
+        "promptVersion": {
+          "rewriteSystem": "rewrite-system-v1",
+          "rewriteRules": "rewrite-rules-v1",
+          "agenticSystem": "agentic-system-v2"
+        },
+        "suiteVersion": "3",
+        "sourceSnapshot": {
+          "path": "benchmarks/source-snapshots/bd934b80b9cf8c35.json",
+          "sha256": "bd934b80b9cf8c35fd9ba156ccb14e45fe9b75a195acedc8cd95a8e5b8e35192"
+        }
+      }
+    ],
+    "resumeEvidence": {
+      "source": "benchmarks/resume-evidence.json",
+      "provider": "ollama",
+      "model": "qwen2.5:1.5b",
+      "endpoint": "http://127.0.0.1:11434",
+      "runAt": "2026-11-02T11:49:44.254Z",
+      "cases": 4,
+      "sample": 3,
+      "commit": "4cf79aba07f3772c0617801af1d92b3ccc966f16",
+      "commitShort": "4cf79ab",
+      "runs": 24,
+      "successRate": 100,
+      "acceptanceRate": 100,
+      "rateUnit": "percent",
+      "modes": [
+        "none",
+        "bm25"
+      ],
+      "runner": "pipeline",
+      "maxRounds": 2,
+      "maxDurationMs": 60000,
+      "contextWindow": "server-default",
+      "byMode": {
+        "none": {
+          "totalRuns": 12,
+          "completedRuns": 12,
+          "failedRuns": 0,
+          "returnedRuns": 12,
+          "successRate": 100,
+          "successRateCi95": [
+            75.8,
+            100
+          ],
+          "acceptanceRate": 100,
+          "avgLatencyMs": 275,
+          "p50LatencyMs": 273,
+          "p95LatencyMs": 356,
+          "avgSteps": 1,
+          "avgTokens": 551,
+          "tokens": 6610,
+          "tokensReported": 6610,
+          "tokenReportedRequests": 12,
+          "modelRequests": 12,
+          "tokenCoverage": 100,
+          "accepted": 12,
+          "rejected": 0,
+          "metricLoss": 0,
+          "fabricated": 0,
+          "targetBullets": 15,
+          "acceptedCoverage": 80,
+          "hallucinationRate": 0,
+          "failureCounts": {},
+          "targetSkillHits": 0,
+          "targetSkillRuns": 9,
+          "targetSkillCoverage": 0,
+          "sourceCoverage": 100,
+          "unsupportedSkillAccepted": 0,
+          "evidenceRejections": 0
+        },
+        "bm25": {
+          "totalRuns": 12,
+          "completedRuns": 12,
+          "failedRuns": 0,
+          "returnedRuns": 12,
+          "successRate": 100,
+          "successRateCi95": [
+            75.8,
+            100
+          ],
+          "acceptanceRate": 100,
+          "avgLatencyMs": 299,
+          "p50LatencyMs": 278,
+          "p95LatencyMs": 420,
+          "avgSteps": 1,
+          "avgTokens": 989,
+          "tokens": 11863,
+          "tokensReported": 11863,
+          "tokenReportedRequests": 12,
+          "modelRequests": 12,
+          "tokenCoverage": 100,
+          "accepted": 15,
+          "rejected": 0,
+          "metricLoss": 0,
+          "fabricated": 0,
+          "targetBullets": 15,
+          "acceptedCoverage": 100,
+          "hallucinationRate": 0,
+          "failureCounts": {},
+          "targetSkillHits": 0,
+          "targetSkillRuns": 9,
+          "targetSkillCoverage": 0,
+          "sourceCoverage": 100,
+          "unsupportedSkillAccepted": 0,
+          "evidenceRejections": 0
+        }
+      },
+      "modelInfo": {
+        "digest": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+        "details": {
+          "parent_model": "",
+          "format": "gguf",
+          "family": "qwen2",
+          "families": [
+            "qwen2"
+          ],
+          "parameter_size": "1.5B",
+          "quantization_level": "Q4_K_M"
+        },
+        "ollamaVersion": "0.40.7"
+      },
+      "sourceSnapshot": {
+        "path": "benchmarks/source-snapshots/51434fb61d8d04ec.json",
+        "sha256": "51434fb61d8d04ec6a8d7069b231488536f472bdd581bfff0e832cb1ac86e230"
+      },
+      "failureCounts": {},
+      "successRateCi95": [
+        86.2,
+        100
+      ],
+      "avgSteps": 1,
+      "avgTokens": 770,
+      "avgRounds": null,
+      "avgLatencyMs": 287,
+      "temperature": 0.3,
+      "promptVersion": {
+        "rewriteSystem": "rewrite-system-v1",
+        "rewriteRules": "rewrite-rules-v3",
+        "agenticSystem": "agentic-system-v3"
+      },
+      "promptFiles": null,
+      "caseSet": {
+        "id": "resume-evidence-fixed-v1",
+        "count": 4,
+        "sha256": "8a6cbcb4a988793eb26bbe08e4d1ccee96ca88c0531ff9daa936ac6af74783ca",
+        "inputs": [
+          {
+            "id": "backend-redis-source-v1",
+            "expectedSkill": "redis",
+            "expectedSource": "p0-tech",
+            "forbiddenSkills": [
+              "docker",
+              "容器化"
+            ],
+            "profile": {
+              "skills": "Java",
+              "projects": [
+                {
+                  "name": "订单缓存",
+                  "tech": "Java、Redis",
+                  "description": "负责缓存模块开发，响应从 800ms 降至 120ms"
+                }
+              ],
+              "internships": []
+            },
+            "jd": "Java 后端开发，要求具备 Redis 缓存项目经验，保持实际指标。"
+          },
+          {
+            "id": "frontend-vue-source-v1",
+            "expectedSkill": "vue",
+            "expectedSource": "p0-tech",
+            "forbiddenSkills": [
+              "react"
+            ],
+            "profile": {
+              "skills": "JavaScript",
+              "projects": [
+                {
+                  "name": "商城前端",
+                  "tech": "Vue、JavaScript",
+                  "description": "完成商城页面开发，交付 5 个页面"
+                }
+              ],
+              "internships": []
+            },
+            "jd": "前端开发实习，要求具备 Vue 页面开发经验，不要增加没有做过的功能。"
+          },
+          {
+            "id": "finance-excel-source-v1",
+            "expectedSkill": "excel",
+            "expectedSource": "p0-tech",
+            "forbiddenSkills": [
+              "python"
+            ],
+            "profile": {
+              "skills": "财务基础",
+              "projects": [
+                {
+                  "name": "月度报表",
+                  "tech": "Excel",
+                  "description": "负责月度报表整理，处理 2000 行数据"
+                }
+              ],
+              "internships": []
+            },
+            "jd": "财务实习，要求具备 Excel 报表处理经验，保留原始数据规模。"
+          },
+          {
+            "id": "cross-project-docker-negative-v1",
+            "expectedSkill": null,
+            "expectedSource": null,
+            "forbiddenSkills": [
+              "docker",
+              "容器化"
+            ],
+            "profile": {
+              "skills": "Java、Docker",
+              "projects": [
+                {
+                  "name": "订单接口",
+                  "tech": "Java",
+                  "description": "开发订单接口，支撑 100QPS"
+                },
+                {
+                  "name": "独立部署练习",
+                  "tech": "Docker",
+                  "description": "使用 Docker 部署学习项目"
+                }
+              ],
+              "internships": []
+            },
+            "jd": "后端开发，需要 Docker 实践。请优化订单接口经历；独立部署练习属于另一个项目，不能移植到订单接口。"
+          }
+        ]
+      },
+      "gitDirty": true,
+      "runtime": {
+        "node": "v24.12.0",
+        "platform": "win32",
+        "arch": "x64"
+      },
+      "suiteVersion": "1",
+      "reproducible": {
+        "reproducible": true,
+        "missingFields": []
+      }
+    },
+    "resumeEvidenceComparison": [
+      {
+        "source": "benchmarks/resume-evidence.json",
+        "provider": "ollama",
+        "model": "qwen2.5:1.5b",
+        "endpoint": "http://127.0.0.1:11434",
+        "runAt": "2026-11-02T11:49:44.254Z",
+        "cases": 4,
+        "sample": 3,
+        "commit": "4cf79aba07f3772c0617801af1d92b3ccc966f16",
+        "commitShort": "4cf79ab",
+        "runs": 24,
+        "successRate": 100,
+        "acceptanceRate": 100,
+        "rateUnit": "percent",
+        "modes": [
+          "none",
+          "bm25"
+        ],
+        "runner": "pipeline",
+        "maxRounds": 2,
+        "maxDurationMs": 60000,
+        "contextWindow": "server-default",
+        "byMode": {
+          "none": {
+            "totalRuns": 12,
+            "completedRuns": 12,
+            "failedRuns": 0,
+            "returnedRuns": 12,
+            "successRate": 100,
+            "successRateCi95": [
+              75.8,
+              100
+            ],
+            "acceptanceRate": 100,
+            "avgLatencyMs": 275,
+            "p50LatencyMs": 273,
+            "p95LatencyMs": 356,
+            "avgSteps": 1,
+            "avgTokens": 551,
+            "tokens": 6610,
+            "tokensReported": 6610,
+            "tokenReportedRequests": 12,
+            "modelRequests": 12,
+            "tokenCoverage": 100,
+            "accepted": 12,
+            "rejected": 0,
+            "metricLoss": 0,
+            "fabricated": 0,
+            "targetBullets": 15,
+            "acceptedCoverage": 80,
+            "hallucinationRate": 0,
+            "failureCounts": {},
+            "targetSkillHits": 0,
+            "targetSkillRuns": 9,
+            "targetSkillCoverage": 0,
+            "sourceCoverage": 100,
+            "unsupportedSkillAccepted": 0,
+            "evidenceRejections": 0
+          },
+          "bm25": {
+            "totalRuns": 12,
+            "completedRuns": 12,
+            "failedRuns": 0,
+            "returnedRuns": 12,
+            "successRate": 100,
+            "successRateCi95": [
+              75.8,
+              100
+            ],
+            "acceptanceRate": 100,
+            "avgLatencyMs": 299,
+            "p50LatencyMs": 278,
+            "p95LatencyMs": 420,
+            "avgSteps": 1,
+            "avgTokens": 989,
+            "tokens": 11863,
+            "tokensReported": 11863,
+            "tokenReportedRequests": 12,
+            "modelRequests": 12,
+            "tokenCoverage": 100,
+            "accepted": 15,
+            "rejected": 0,
+            "metricLoss": 0,
+            "fabricated": 0,
+            "targetBullets": 15,
+            "acceptedCoverage": 100,
+            "hallucinationRate": 0,
+            "failureCounts": {},
+            "targetSkillHits": 0,
+            "targetSkillRuns": 9,
+            "targetSkillCoverage": 0,
+            "sourceCoverage": 100,
+            "unsupportedSkillAccepted": 0,
+            "evidenceRejections": 0
+          }
+        },
+        "modelInfo": {
+          "digest": "65ec06548149b04c096a120e4a6da9d4017ea809c91734ea5631e89f96ddc57b",
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "qwen2",
+            "families": [
+              "qwen2"
+            ],
+            "parameter_size": "1.5B",
+            "quantization_level": "Q4_K_M"
+          },
+          "ollamaVersion": "0.40.7"
+        },
+        "sourceSnapshot": {
+          "path": "benchmarks/source-snapshots/51434fb61d8d04ec.json",
+          "sha256": "51434fb61d8d04ec6a8d7069b231488536f472bdd581bfff0e832cb1ac86e230"
+        },
+        "failureCounts": {},
+        "successRateCi95": [
+          86.2,
+          100
+        ],
+        "avgSteps": 1,
+        "avgTokens": 770,
+        "avgRounds": null,
+        "avgLatencyMs": 287,
+        "temperature": 0.3,
+        "promptVersion": {
+          "rewriteSystem": "rewrite-system-v1",
+          "rewriteRules": "rewrite-rules-v3",
+          "agenticSystem": "agentic-system-v3"
+        },
+        "promptFiles": null,
+        "caseSet": {
+          "id": "resume-evidence-fixed-v1",
+          "count": 4,
+          "sha256": "8a6cbcb4a988793eb26bbe08e4d1ccee96ca88c0531ff9daa936ac6af74783ca",
+          "inputs": [
+            {
+              "id": "backend-redis-source-v1",
+              "expectedSkill": "redis",
+              "expectedSource": "p0-tech",
+              "forbiddenSkills": [
+                "docker",
+                "容器化"
+              ],
+              "profile": {
+                "skills": "Java",
+                "projects": [
+                  {
+                    "name": "订单缓存",
+                    "tech": "Java、Redis",
+                    "description": "负责缓存模块开发，响应从 800ms 降至 120ms"
+                  }
+                ],
+                "internships": []
+              },
+              "jd": "Java 后端开发，要求具备 Redis 缓存项目经验，保持实际指标。"
+            },
+            {
+              "id": "frontend-vue-source-v1",
+              "expectedSkill": "vue",
+              "expectedSource": "p0-tech",
+              "forbiddenSkills": [
+                "react"
+              ],
+              "profile": {
+                "skills": "JavaScript",
+                "projects": [
+                  {
+                    "name": "商城前端",
+                    "tech": "Vue、JavaScript",
+                    "description": "完成商城页面开发，交付 5 个页面"
+                  }
+                ],
+                "internships": []
+              },
+              "jd": "前端开发实习，要求具备 Vue 页面开发经验，不要增加没有做过的功能。"
+            },
+            {
+              "id": "finance-excel-source-v1",
+              "expectedSkill": "excel",
+              "expectedSource": "p0-tech",
+              "forbiddenSkills": [
+                "python"
+              ],
+              "profile": {
+                "skills": "财务基础",
+                "projects": [
+                  {
+                    "name": "月度报表",
+                    "tech": "Excel",
+                    "description": "负责月度报表整理，处理 2000 行数据"
+                  }
+                ],
+                "internships": []
+              },
+              "jd": "财务实习，要求具备 Excel 报表处理经验，保留原始数据规模。"
+            },
+            {
+              "id": "cross-project-docker-negative-v1",
+              "expectedSkill": null,
+              "expectedSource": null,
+              "forbiddenSkills": [
+                "docker",
+                "容器化"
+              ],
+              "profile": {
+                "skills": "Java、Docker",
+                "projects": [
+                  {
+                    "name": "订单接口",
+                    "tech": "Java",
+                    "description": "开发订单接口，支撑 100QPS"
+                  },
+                  {
+                    "name": "独立部署练习",
+                    "tech": "Docker",
+                    "description": "使用 Docker 部署学习项目"
+                  }
+                ],
+                "internships": []
+              },
+              "jd": "后端开发，需要 Docker 实践。请优化订单接口经历；独立部署练习属于另一个项目，不能移植到订单接口。"
+            }
+          ]
+        },
+        "gitDirty": true,
+        "runtime": {
+          "node": "v24.12.0",
+          "platform": "win32",
+          "arch": "x64"
+        },
+        "suiteVersion": "1",
+        "reproducible": {
+          "reproducible": true,
+          "missingFields": []
+        }
+      },
+      {
+        "source": "benchmarks/resume-evidence-8b.json",
+        "provider": "ollama",
+        "model": "qwen3:8b",
+        "endpoint": "http://127.0.0.1:11435",
+        "runAt": "2026-11-02T11:57:09.297Z",
+        "cases": 4,
+        "sample": 3,
+        "commit": "4cf79aba07f3772c0617801af1d92b3ccc966f16",
+        "commitShort": "4cf79ab",
+        "runs": 24,
+        "successRate": 95.8,
+        "acceptanceRate": 95.8,
+        "rateUnit": "percent",
+        "modes": [
+          "none",
+          "bm25"
+        ],
+        "runner": "pipeline",
+        "maxRounds": 2,
+        "maxDurationMs": 60000,
+        "contextWindow": "server-default",
+        "byMode": {
+          "none": {
+            "totalRuns": 12,
+            "completedRuns": 11,
+            "failedRuns": 1,
+            "returnedRuns": 12,
+            "successRate": 91.7,
+            "successRateCi95": [
+              64.6,
+              98.5
+            ],
+            "acceptanceRate": 91.7,
+            "avgLatencyMs": 11716,
+            "p50LatencyMs": 10851,
+            "p95LatencyMs": 17325,
+            "avgSteps": 1.3,
+            "avgTokens": 1116,
+            "tokens": 13391,
+            "tokensReported": 13391,
+            "tokenReportedRequests": 15,
+            "modelRequests": 15,
+            "tokenCoverage": 100,
+            "accepted": 11,
+            "rejected": 1,
+            "metricLoss": 0,
+            "fabricated": 0,
+            "targetBullets": 15,
+            "acceptedCoverage": 73.3,
+            "hallucinationRate": 0,
+            "failureCounts": {
+              "all_rejected": 1
+            },
+            "targetSkillHits": 0,
+            "targetSkillRuns": 9,
+            "targetSkillCoverage": 0,
+            "sourceCoverage": 100,
+            "unsupportedSkillAccepted": 0,
+            "evidenceRejections": 1
+          },
+          "bm25": {
+            "totalRuns": 12,
+            "completedRuns": 12,
+            "failedRuns": 0,
+            "returnedRuns": 12,
+            "successRate": 100,
+            "successRateCi95": [
+              75.8,
+              100
+            ],
+            "acceptanceRate": 100,
+            "avgLatencyMs": 12799,
+            "p50LatencyMs": 10856,
+            "p95LatencyMs": 24478,
+            "avgSteps": 1,
+            "avgTokens": 1502,
+            "tokens": 18028,
+            "tokensReported": 18028,
+            "tokenReportedRequests": 12,
+            "modelRequests": 12,
+            "tokenCoverage": 100,
+            "accepted": 12,
+            "rejected": 0,
+            "metricLoss": 0,
+            "fabricated": 0,
+            "targetBullets": 15,
+            "acceptedCoverage": 80,
+            "hallucinationRate": 0,
+            "failureCounts": {},
+            "targetSkillHits": 8,
+            "targetSkillRuns": 9,
+            "targetSkillCoverage": 88.9,
+            "sourceCoverage": 100,
+            "unsupportedSkillAccepted": 0,
+            "evidenceRejections": 0
+          }
+        },
+        "modelInfo": {
+          "digest": "500a1f067a9f782620b40bee6f7b0c89e17ae61f686b92c24933e4ca4b2b8b41",
+          "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "qwen3",
+            "families": [
+              "qwen3"
+            ],
+            "parameter_size": "8.2B",
+            "quantization_level": "Q4_K_M"
+          },
+          "ollamaVersion": "0.40.7"
+        },
+        "sourceSnapshot": {
+          "path": "benchmarks/source-snapshots/ea75d9ec489a21dd.json",
+          "sha256": "ea75d9ec489a21dd4df5ed588c8322de4deb5191eace2cf56bf67e799c972719"
+        },
+        "failureCounts": {
+          "all_rejected": 1
+        },
+        "successRateCi95": [
+          79.8,
+          99.3
+        ],
+        "avgSteps": 1.1,
+        "avgTokens": 1309,
+        "avgRounds": null,
+        "avgLatencyMs": 12257,
+        "temperature": 0.3,
+        "promptVersion": {
+          "rewriteSystem": "rewrite-system-v1",
+          "rewriteRules": "rewrite-rules-v3",
+          "agenticSystem": "agentic-system-v3"
+        },
+        "promptFiles": null,
+        "caseSet": {
+          "id": "resume-evidence-fixed-v1",
+          "count": 4,
+          "sha256": "8a6cbcb4a988793eb26bbe08e4d1ccee96ca88c0531ff9daa936ac6af74783ca",
+          "inputs": [
+            {
+              "id": "backend-redis-source-v1",
+              "expectedSkill": "redis",
+              "expectedSource": "p0-tech",
+              "forbiddenSkills": [
+                "docker",
+                "容器化"
+              ],
+              "profile": {
+                "skills": "Java",
+                "projects": [
+                  {
+                    "name": "订单缓存",
+                    "tech": "Java、Redis",
+                    "description": "负责缓存模块开发，响应从 800ms 降至 120ms"
+                  }
+                ],
+                "internships": []
+              },
+              "jd": "Java 后端开发，要求具备 Redis 缓存项目经验，保持实际指标。"
+            },
+            {
+              "id": "frontend-vue-source-v1",
+              "expectedSkill": "vue",
+              "expectedSource": "p0-tech",
+              "forbiddenSkills": [
+                "react"
+              ],
+              "profile": {
+                "skills": "JavaScript",
+                "projects": [
+                  {
+                    "name": "商城前端",
+                    "tech": "Vue、JavaScript",
+                    "description": "完成商城页面开发，交付 5 个页面"
+                  }
+                ],
+                "internships": []
+              },
+              "jd": "前端开发实习，要求具备 Vue 页面开发经验，不要增加没有做过的功能。"
+            },
+            {
+              "id": "finance-excel-source-v1",
+              "expectedSkill": "excel",
+              "expectedSource": "p0-tech",
+              "forbiddenSkills": [
+                "python"
+              ],
+              "profile": {
+                "skills": "财务基础",
+                "projects": [
+                  {
+                    "name": "月度报表",
+                    "tech": "Excel",
+                    "description": "负责月度报表整理，处理 2000 行数据"
+                  }
+                ],
+                "internships": []
+              },
+              "jd": "财务实习，要求具备 Excel 报表处理经验，保留原始数据规模。"
+            },
+            {
+              "id": "cross-project-docker-negative-v1",
+              "expectedSkill": null,
+              "expectedSource": null,
+              "forbiddenSkills": [
+                "docker",
+                "容器化"
+              ],
+              "profile": {
+                "skills": "Java、Docker",
+                "projects": [
+                  {
+                    "name": "订单接口",
+                    "tech": "Java",
+                    "description": "开发订单接口，支撑 100QPS"
+                  },
+                  {
+                    "name": "独立部署练习",
+                    "tech": "Docker",
+                    "description": "使用 Docker 部署学习项目"
+                  }
+                ],
+                "internships": []
+              },
+              "jd": "后端开发，需要 Docker 实践。请优化订单接口经历；独立部署练习属于另一个项目，不能移植到订单接口。"
+            }
+          ]
+        },
+        "gitDirty": true,
+        "runtime": {
+          "node": "v24.12.0",
+          "platform": "win32",
+          "arch": "x64"
+        },
+        "suiteVersion": "1",
+        "reproducible": {
+          "reproducible": true,
+          "missingFields": []
+        }
+      }
+    ]
+  },
+  "services": {
+    "pythonApi": {
+      "tests": 29,
+      "endpoints": 6,
+      "source": "pytest（本次实测）",
+      "measuredAt": "2026-11-06T07:29:37.619Z",
+      "framework": "FastAPI",
+      "asyncClient": "httpx.AsyncClient",
+      "corpus": "题库导出（data/corpus.json）"
     }
+  },
+  "retrieval": {
+    "available": true,
+    "queries": 62,
+    "corpusDocs": 151,
+    "caseSetVersion": 2,
+    "caseSetSha256": "3956f39e1b8cc69b",
+    "vector": {
+      "attempted": false,
+      "available": false,
+      "model": "nomic-embed-text",
+      "endpoint": "http://127.0.0.1:11434"
+    },
+    "recommendedThreshold": {
+      "kind": "absolute",
+      "minScore": 5,
+      "hit3": 0.8333333333333334,
+      "ndcg5": 0.827199062562909,
+      "recall5": 0.8981481481481481,
+      "oodFalsePositiveRate": 0.375
+    },
+    "bm25": {
+      "hit1": 79.63,
+      "hit3": 85.19,
+      "hit5": 92.59,
+      "recall5": 91.67,
+      "mrr": 0.835,
+      "ndcg5": 0.836,
+      "hit3Ci": [
+        75.93,
+        92.59
+      ],
+      "oodFalsePositiveRate": 75,
+      "latencyP50Ms": 0.079,
+      "latencyP95Ms": 0.46,
+      "byType": {
+        "keyword": {
+          "n": 14,
+          "hit3": 92.86,
+          "ndcg5": 0.956
+        },
+        "paraphrase": {
+          "n": 18,
+          "hit3": 66.67,
+          "ndcg5": 0.657
+        },
+        "colloquial": {
+          "n": 12,
+          "hit3": 91.67,
+          "ndcg5": 0.922
+        },
+        "multi_hop": {
+          "n": 10,
+          "hit3": 100,
+          "ndcg5": 0.89
+        }
+      }
+    },
+    "vectorMode": null,
+    "hybrid": null,
+    "runAt": "2026-10-28T06:37:16.511Z",
+    "commit": "cb3905c",
+    "reproducible": {
+      "reproducible": true,
+      "missingFields": []
+    },
+    "source": "benchmarks/retrieval-report.json"
   },
   "notes": [
     "文档只能引用本文件里的数字；test-docs-consistency.js 会在 npm test 里校验。",
     "product.commit 是「生成这份基线时的 HEAD」，也就是携带本文件的提交的父提交——避免自己引用自己的死循环。",
     "agent.bench 是 mock 层用例，证明运行时与校验门正确，不证明模型效果。",
-    "agent.realModel 来自 evals/llm-report.json；temperature / promptVersion 为空表示当次运行没有记录，属于不可复现项。"
+    "agent.modelComparison 为第二步旧提示词与源码快照的双模式基线；agent.resumeEvidenceComparison 为第三步流水线用户经历检索对照，两者用例集不同。",
+    "resumeEvidence 的 none 仅允许目标原文作依据；bm25 同时提供检索来源与 JD 技能映射，比较的是这套检索增强链路，不是 BM25 算法单独贡献。",
+    "agent.realModel 来自 benchmarks/real-model.json（优先）或 evals/llm-report.json（回退）；reproducible=false 表示缺关键复现字段，其指标只能当参考值。"
   ]
 }

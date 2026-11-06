@@ -62,6 +62,8 @@ export interface LlmStatus {
 
 export interface ChatOptions {
   onChunk?: (piece: string) => void;
+  /** 服务端上报的实际 token 用量（流式或非流式）；缺失时不回调，不估算。 */
+  onUsage?: (usage: LlmUsage) => void;
   tools?: Array<Record<string, unknown>>;
   /** 外部取消信号：用户取消 Agent 时立即中断正在等待的 HTTP 请求 */
   signal?: AbortSignal;

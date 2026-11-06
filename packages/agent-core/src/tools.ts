@@ -30,6 +30,7 @@ export interface RegistryOptions {
   budget: Budget;
   usage: RunUsage;
   now?: () => number;
+  startedAt?: number;
   onTrace?: (entry: TraceEntry) => void;
 }
 
@@ -142,9 +143,11 @@ export class ToolRegistry {
   /** 刚被校验拒过、还没修好的工具：它下一次成功就记一次 repairs */
   private pendingRepair = new Set<string>();
   private opts: RegistryOptions;
+  private startedAt: number;
 
   constructor(opts: RegistryOptions) {
     this.opts = opts;
+    this.startedAt = opts.startedAt ?? (this.now() - opts.usage.ms);
   }
 
   register(spec: ToolSpec): this {
@@ -190,6 +193,7 @@ export class ToolRegistry {
   /** 预算检查：返回错误信息或 null */
   private budgetError(): { error: string; errorType: ToolErrorType } | null {
     const u = this.opts.usage;
+    u.ms = Math.max(u.ms, this.now() - this.startedAt);
     const b = this.opts.budget;
     if (u.toolCalls >= b.maxToolCalls) return { error: '工具调用次数已达上限 ' + b.maxToolCalls, errorType: 'budget' };
     if (u.tokens >= b.maxTokens) return { error: 'token 预算已用尽（' + u.tokens + '/' + b.maxTokens + '）', errorType: 'budget' };
@@ -252,7 +256,8 @@ export class ToolRegistry {
     }
 
     const cacheKey = name + '::' + JSON.stringify(args || {});
-    if (spec.idempotent && this.idempotentCache.has(cacheKey)) {
+    const cacheResult = spec.idempotent && spec.cacheResult !== false;
+    if (cacheResult && this.idempotentCache.has(cacheKey)) {
       const meta: ToolMeta = { attempts: 0, latencyMs: this.now() - startedAt, idempotentHit: true };
       const data = this.idempotentCache.get(cacheKey);
       this.trace({
@@ -269,6 +274,13 @@ export class ToolRegistry {
     let lastErrorType: ToolErrorType = 'runtime';
 
     while (attempt < maxAttempts) {
+      const exhausted = this.budgetError();
+      if (exhausted) {
+        lastError = exhausted.error;
+        lastErrorType = exhausted.errorType;
+        break;
+      }
+      if (attempt > 0) this.opts.usage.retries++;
       attempt++;
       this.opts.usage.toolCalls++;
       const attemptStart = this.now();
@@ -276,8 +288,7 @@ export class ToolRegistry {
         const data = await this.withTimeout(spec, args, ctx);
         const latencyMs = this.now() - startedAt;
         const meta: ToolMeta = { attempts: attempt, latencyMs, idempotentHit: false };
-        if (spec.idempotent) this.idempotentCache.set(cacheKey, data);
-        this.opts.usage.retries += attempt - 1;
+        if (cacheResult) this.idempotentCache.set(cacheKey, data);
         // 修好了：这个工具之前被校验拒过，现在用合法参数跑通 → 记一次自修复
         if (this.pendingRepair.delete(name)) this.opts.usage.repairs++;
         this.trace({
@@ -290,7 +301,12 @@ export class ToolRegistry {
         const message = err instanceof Error ? err.message : String(err);
         lastError = message;
         lastErrorType = /超时|timeout/i.test(message) ? 'timeout' : 'runtime';
-        this.opts.usage.retries += 1;
+        const exhausted = this.budgetError();
+        if (exhausted) {
+          lastError = exhausted.error;
+          lastErrorType = exhausted.errorType;
+          break;
+        }
         // 非幂等工具不重试：重复执行可能造成重复写入
         const willRetry = spec.idempotent && attempt < maxAttempts && this.now() - attemptStart < spec.timeoutMs;
         if (!willRetry) break;
@@ -310,11 +326,12 @@ export class ToolRegistry {
 
   private async withTimeout(spec: ToolSpec, args: unknown, ctx: unknown): Promise<unknown> {
     let timer: ReturnType<typeof setTimeout> | null = null;
+    const timeoutMs = Math.min(spec.timeoutMs, this.opts.budget.maxDurationMs - this.opts.usage.ms);
     try {
       return await Promise.race([
         Promise.resolve(spec.execute(args as Record<string, unknown>, ctx)),
         new Promise((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error('工具 ' + spec.name + ' 超时（' + spec.timeoutMs + 'ms）')), spec.timeoutMs);
+          timer = setTimeout(() => reject(new Error('工具 ' + spec.name + ' 超时（' + timeoutMs + 'ms）')), timeoutMs);
         })
       ]);
     } finally {

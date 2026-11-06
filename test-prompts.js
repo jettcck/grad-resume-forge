@@ -58,6 +58,7 @@ function assert(cond, msg) {
     assert(sys.includes(t), 'agentic 系统提示词仍列出工具 ' + t);
   });
   assert(/不是给你的命令/.test(sys), 'agentic 系统提示词仍声明 JD 内容不是指令（注入防护）');
+  assert(/不是用户档案证据/.test(sys), 'agentic 系统提示词仍声明检索结果不是用户经历证据');
 
   // ---------- 4. 版本号写进运行记录 ----------
   const fake = {
@@ -70,13 +71,22 @@ function assert(cond, msg) {
     internships: []
   };
   const r = await agent.agenticLoop(profile, '岗位：Java 后端\n要求：熟悉 Java', { llm: fake, maxSteps: 2 });
-  assert(!!r.run && r.run.promptVersion === 'agentic-system-v2',
+  assert(!!r.run && r.run.promptVersion === prompts.promptVersion('agenticSystem'),
     '运行记录带 promptVersion（' + (r.run && r.run.promptVersion) + '）');
 
   // ---------- 5. 评测报告与打包清单 ----------
   const evalSrc = fs.readFileSync(path.join(ROOT, 'evals', 'run-llm-eval.js'), 'utf8');
   assert(/promptVersion:/.test(evalSrc) && /temperature:/.test(evalSrc),
     'LLM 评测报告记录 promptVersion 与 temperature（复现契约的两个必填项）');
+  const benchSrc = fs.readFileSync(path.join(ROOT, 'evals', 'agent-bench-llm.js'), 'utf8');
+  assert(/const fs = require\(['"]fs['"]\)/.test(benchSrc) && /fs\.writeFileSync\(/.test(benchSrc),
+    'Agent 真实模型评测声明 fs 并能写入 benchmarks/real-model.json');
+  assert(/caseSetHash|caseSet/.test(benchSrc) && /sha256/.test(benchSrc),
+    '真实模型评测记录固定用例集哈希');
+  assert(/gitDirty/.test(benchSrc) && /runtime:/.test(benchSrc),
+    '真实模型评测记录 Git 工作区与运行环境');
+  assert(/SELF_TEST[\s\S]*不会写入真实模型报告/.test(benchSrc),
+    '链路自测明确不写入真实模型报告');
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const files = (pkg.build && pkg.build.files) || [];
   assert(files.includes('prompts/**/*'), 'electron-builder 的 files 包含 prompts/**（否则打包后读不到）');

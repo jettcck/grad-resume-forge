@@ -89,7 +89,17 @@ export class Bm25Index {
 
   get size(): number { return this.docs.length; }
 
-  search(query: string, topK = 5): Hit[] {
+  /**
+   * @param opts.minScore 分数下限。默认 0 表示「只要命中任意词就返回」；
+   *   语料外问题会被常用词（怎么/什么/需要）带出噪声，抬高下限可以压掉误召回。
+   *   这个阈值必须由评测扫出来，不能拍脑袋定 —— 见 evals/retrieval-eval.js 的阈值扫描。
+   * @param opts.relativeToTop 相对阈值：只保留分数 ≥ 最高分 × 该比例的文档。
+   *   对「查询长短差异大」的场景比绝对阈值稳，因为 BM25 分数的绝对值随 query 长度变化。
+   * @param opts.minCoverage 查询词覆盖率下限（命中的去重查询词 / 全部去重查询词）。
+   *   这是 IR 里的 coordination level matching：语料外问题通常只能撞上一两个词，
+   *   而高分往往来自那一两个极罕见词（df=1）的 IDF，光靠分数阈值切不掉。
+   */
+  search(query: string, topK = 5, opts: { minScore?: number; relativeToTop?: number; minCoverage?: number } = {}): Hit[] {
     const qTokens = tokenize(query);
     if (!qTokens.length) return [];
     const N = this.docs.length;
@@ -97,20 +107,28 @@ export class Bm25Index {
 
     const scored = this.docs.map((d) => {
       let score = 0;
+      let matched = 0;
       for (const term of qSet) {
         const f = d.tf.get(term);
         if (!f) continue;
+        matched++;
         const df = this.df.get(term) || 0;
         // BM25 的 IDF（加 1 防止 log 负数）
         const idf = Math.log(1 + (N - df + 0.5) / (df + 0.5));
         const norm = 1 - this.b + this.b * (d.len / this.avgLen);
         score += idf * (f * (this.k1 + 1)) / (f + this.k1 * norm);
       }
-      return { id: d.id, score };
+      return { id: d.id, score, coverage: matched / qSet.size };
     });
 
+    const minScore = opts.minScore == null ? 0 : opts.minScore;
+    const minCoverage = opts.minCoverage == null ? 0 : opts.minCoverage;
+    const topScore = scored.reduce((m, x) => (x.score > m ? x.score : m), 0);
+    const relativeFloor = opts.relativeToTop == null ? 0 : topScore * opts.relativeToTop;
+    const floor = Math.max(minScore, relativeFloor);
+
     return scored
-      .filter((x) => x.score > 0)
+      .filter((x) => x.score > floor && x.coverage >= minCoverage)
       .sort((a, b) => b.score - a.score)
       .slice(0, topK)
       .map((x, i) => ({ id: x.id, score: Number(x.score.toFixed(6)), rank: i + 1 }));

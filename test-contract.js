@@ -246,8 +246,9 @@ assert(brokenClicks.length === 0,
 
 // ---------- 12) 不该出现新的「暴露了却没人调用」的接口 ----------
 // 这类接口通常是「写了一半忘了接线」，会影响用户对功能是否存在的判断。
-// 允许清单里的两个是有意保留的完整实现（无 UI 入口，将来可能接上），不是半成品。
-const UNUSED_ALLOW = ['resume.audit', 'snapshots.get'];
+// audit 与 snapshots.get 是完整实现；applyRewrites 保留为无写入的兼容预览接口，
+// smoke-real-ipc.js 仍验证其来源/数字复核，正式 UI 保存必须走 commitRewrites。
+const UNUSED_ALLOW = ['resume.audit', 'snapshots.get', 'resume.applyRewrites'];
 const usedCalls = new Set([...rendererSrc.matchAll(/window\.api\.(\w+)\.(\w+)/g)].map((m) => m[1] + '.' + m[2]));
 const unusedApi = [...exposed].filter((k) => !usedCalls.has(k) && !UNUSED_ALLOW.includes(k));
 assert(unusedApi.length === 0,

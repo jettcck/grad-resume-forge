@@ -160,11 +160,11 @@ prompt 是「会被反复调参的输入」，不是逻辑。放在 `agent.ts` �
 同一套用例打真实端点（DeepSeek / Ollama 均可）。`--self-test` 用本地假服务跑通链路，
 所以「评测台本身」在没有模型、没有网络的环境里也能验证。
 
-**已有的真实结果**（`evals/llm-report.json`，2026-09-05，deepseek-chat，8 次运行）：
+**历史真实结果**（`evals/llm-report.json`，2026-09-05，deepseek-chat，8 次运行）：
 成功率 100%、校验门接收率 100%、平均 2 轮、平均延迟 2.5s（流水线 1.1s / agentic 3.9s）。
 
-**必须承认的缺口**：这份报告没有记录 `temperature` 与 `promptVersion`，因此严格来说**不可完全复现**。
-这是下一步要补的第一件事（见第 7 节）。
+这份历史报告现在会被基线明确标记为 `reproducible=false`，因为缺少 `temperature`、`promptVersion`、`cases` 和 `commit`；它只能作为历史参考，不能作为当前版本的严格性能基线。
+当前评测脚本已固定温度 `0.3`、4 个跨场景用例、每个用例的重复次数、用例集 SHA-256、Prompt 文件 SHA-256、完整 commit、运行环境和工作区脏状态。真实端点运行后写入 `benchmarks/real-model.json`，`--self-test` 永不写入真实报告。
 
 ### 6.3 复现契约
 
@@ -173,15 +173,20 @@ prompt 是「会被反复调参的输入」，不是逻辑。放在 `agent.ts` �
 ```json
 {
   "model": "deepseek-chat",
-  "temperature": 0.2,
-  "promptVersion": "rewrite-v3",
-  "cases": 65,
-  "commit": "dc3b4c6",
-  "runs": 30
+  "temperature": 0.3,
+  "promptVersion": {
+    "agenticSystem": "agentic-system-v2"
+  },
+  "cases": 4,
+  "sample": 30,
+  "caseSet": { "id": "agent-bench-fixed-v1", "sha256": "..." },
+  "commit": "完整 commit SHA",
+  "gitDirty": false,
+  "runtime": { "node": "v22.x", "packageVersion": "1.15.0" }
 }
 ```
 
-缺任何一项，指标就只能当「参考值」，不能当基线。
+缺任何关键项，报告的 `reproducible` 必须为 `false`，指标只能当「参考值」，不能当严格基线。
 
 ---
 
@@ -196,7 +201,8 @@ node test-prompts.js        # 提示词版本化：文件/版本号/无内联副
 npm run eval:agent
 
 # 真实模型评测（不配端点则明确跳过，不会假装跑过）
-# 跑完自动写 benchmarks/real-model.json：模型 + 温度 + promptVersion + 采样数 + commit
+# 4 个固定用例 × 每个用例重复 30 次，共 120 次运行
+# 自动写 benchmarks/real-model.json：模型、参数、Prompt/用例哈希、完整 commit、环境
 set AGENT_BENCH_ENDPOINT=https://api.deepseek.com/v1
 set AGENT_BENCH_MODEL=deepseek-chat
 set AGENT_BENCH_KEY=sk-xxx
@@ -221,7 +227,7 @@ npm run baseline:full
 
 | 优先级 | 事项 | 现状 | 计划 |
 |---|---|---|---|
-| P1 | 真实模型基线 | 有一份 2026-09 的 8 次运行报告（缺 `temperature` / `promptVersion`） | 报告字段已补，缺的是用固定参数跑 30 次，产出 `benchmarks/real-model.json` |
+| P1 | 真实模型基线 | 历史报告仅 8 次运行且缺 `temperature` / `promptVersion` / `cases` / `commit`，基线已标记 `reproducible=false` | 评测脚本已固定参数并记录用例/提示词哈希、完整 commit、运行环境；缺的是用真实端点跑 4 用例 × 30 次，产出 `benchmarks/real-model.json` |
 | ~~P2~~ | ~~检索接入 Agent~~ | **已实现**：`retrieve_knowledge(query, topK, mode)` 已进入 Agent 工具链，支持 `none` / `bm25` / `vector` / `hybrid`；向量不可用时明确返回状态，hybrid 明确降级 BM25 | `src/main/retrieval.ts` + `evals/agent-retrieval-eval.js`；用同一查询对比 no-retrieval / BM25 / vector |
 | ~~P3~~ | ~~参数错误自修复~~ | **已实现**：结构化错误（`fix.path`）→ 回灌 → 一次内改对；同一错误连续 3 次即 `validation_exhausted` | 实测 7/7 用例修复，`usage.repairs` 计入基线 |
 | ~~P4~~ | ~~Prompt 版本化~~ | **已实现**：`prompts/*-v1.txt` + `src/main/prompts.ts` + 运行记录/评测报告带版本 | 改 prompt 时新建 v2 文件，用同一批用例做 A/B |

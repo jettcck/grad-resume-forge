@@ -57,6 +57,22 @@ function newRunId(now: number): string {
   return 'run_' + now.toString(36) + '_' + Math.random().toString(36).slice(2, 8);
 }
 
+/** 即使适配器未处理 signal，也及时结束等待；底层任务仍由适配器负责中止。 */
+export function awaitWithSignal<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  const abortError = (): Error => Object.assign(new Error('运行已中断'), { name: 'AbortError' });
+  if (!signal) return Promise.resolve().then(fn);
+  if (signal.aborted) return Promise.reject(abortError());
+  return new Promise<T>((resolve, reject) => {
+    const cleanup = (): void => signal.removeEventListener('abort', onAbort);
+    const onAbort = (): void => { cleanup(); reject(abortError()); };
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve().then(() => {
+      if (signal.aborted) throw abortError();
+      return fn();
+    }).then((value) => { cleanup(); resolve(value); }, (err) => { cleanup(); reject(err); });
+  });
+}
+
 export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutcome> {
   const now = opts.now || (() => Date.now());
   const startedAt = now();
@@ -75,6 +91,7 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
     budget,
     usage,
     now,
+    startedAt,
     // 是否保留入参原文由注册层决定（在这里二次处理时原文已经丢了 —— 评审指出的问题）
     storeTraceArgs: opts.storeTraceArgs === true,
     onTrace: (e) => trace.push(e)
@@ -99,21 +116,39 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
   const SUBMIT = 'submit_result';
 
   const cancelRequested = (): boolean => !!(opts.signal && opts.signal.aborted);
+  const controller = new AbortController();
+  const forwardAbort = (): void => controller.abort();
+  if (cancelRequested()) controller.abort();
+  else opts.signal?.addEventListener('abort', forwardAbort, { once: true });
+  let deadlineExpired = false;
+  const deadline = setTimeout(() => {
+    deadlineExpired = true;
+    controller.abort();
+  }, budget.maxDurationMs);
+
+  const stopIfNeeded = (): boolean => {
+    usage.ms = now() - startedAt;
+    if (cancelRequested()) {
+      cancelled = true;
+      sm.settle('CANCELLED', '用户取消', now());
+      return true;
+    }
+    if (deadlineExpired || usage.ms >= budget.maxDurationMs) {
+      timedOut = true;
+      loopError = '运行超时（超过 ' + Math.round(budget.maxDurationMs / 1000) + ' 秒）';
+    } else if (usage.tokens >= budget.maxTokens) {
+      loopError = 'token 预算已用尽（' + usage.tokens + '/' + budget.maxTokens + '）';
+    } else return false;
+    sm.settle('FAILED', timedOut ? 'timeout' : 'budget', now());
+    trace.push({ runId, stepId: stepsUsed, tool: 'agent', inputSummary: '', outputSummary: loopError,
+      latencyMs: 0, retryCount: 0, tokens: null, errorType: 'budget', startedAt: now() });
+    emit({ runId, stepId: stepsUsed, tool: 'agent', label: '预算耗尽，停止运行', ok: false, ms: 0, detail: loopError });
+    return true;
+  };
 
   try {
     for (let i = 1; i <= budget.maxSteps && !finished; i++) {
-      usage.ms = now() - startedAt;
-      if (cancelRequested()) {
-        cancelled = true;
-        sm.settle('CANCELLED', '用户取消', now());
-        break;
-      }
-      if (usage.ms > budget.maxDurationMs) {
-        timedOut = true;
-        loopError = '运行超时（超过 ' + Math.round(budget.maxDurationMs / 1000) + ' 秒）';
-        sm.settle('FAILED', 'timeout', now());
-        break;
-      }
+      if (stopIfNeeded()) break;
 
       stepsUsed = i;
       usage.steps = i;
@@ -122,17 +157,12 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
       let reply: Awaited<ReturnType<typeof adapter.decide>>;
       const t0 = now();
       try {
-        reply = await adapter.decide(messages, opts.signal);
+        reply = await awaitWithSignal(() => adapter.decide(messages, controller.signal), controller.signal);
       } catch (err) {
-        // 用户取消会让正在等待的模型请求抛中断异常 —— 那不是「模型出错」。
-        // 判据取信号本身（最可靠）以及 AbortError 名字，避免把取消记成 FAILED
-        // （实测：不区分时用户取消会看到「运行失败」）。
-        const errName = err instanceof Error ? err.name : '';
-        const aborted = cancelRequested() || errName === 'AbortError';
-        if (aborted) {
-          cancelled = true;
-          emit({ runId, stepId: i, tool: 'agent', label: '已取消（模型请求已中断）', ok: false, ms: now() - t0, detail: '用户取消' });
-          sm.settle('CANCELLED', '用户取消', now());
+        // 根据用户信号和运行预算区分取消、超时与模型错误。
+        // 适配器可能用不同异常表达中断，不能仅凭异常名称判定取消。
+        if (stopIfNeeded()) {
+          if (cancelled) emit({ runId, stepId: i, tool: 'agent', label: '已取消（模型请求已中断）', ok: false, ms: now() - t0, detail: '用户取消' });
           break;
         }
         loopError = err instanceof Error ? err.message : String(err);
@@ -141,6 +171,7 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
         break;
       }
       if (typeof reply.tokens === 'number') usage.tokens += reply.tokens;
+      if (stopIfNeeded()) break;
 
       const calls = reply.calls || [];
       if (!calls.length) {
@@ -160,11 +191,7 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
       adapter.pushAssistant(messages, { content: reply.content || '', raw: reply.raw, calls });
 
       for (const call of calls) {
-        if (cancelRequested()) {
-          cancelled = true;
-          sm.settle('CANCELLED', '用户取消（工具调用之间）', now());
-          break;
-        }
+        if (stopIfNeeded()) break;
         const t1 = now();
 
         if (call.name === SUBMIT) {
@@ -219,7 +246,9 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
           break;
         }
 
-        const outcome: ToolOutcome = await registry.call(call.name, call.args, undefined, i);
+        const outcome: ToolOutcome = await awaitWithSignal(
+          () => registry.call(call.name, call.args, undefined, i), controller.signal
+        );
         const latency = now() - t1;
         emit({
           runId, stepId: i, tool: call.name,
@@ -229,12 +258,23 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
           retryCount: outcome.meta.attempts > 1 ? outcome.meta.attempts - 1 : 0
         });
         adapter.pushToolResult(messages, { name: call.name, rawId: call.rawId }, outcome);
+        if (stopIfNeeded()) break;
+        if (!outcome.ok && outcome.errorType === 'budget') {
+          loopError = outcome.error;
+          sm.settle('FAILED', 'budget', now());
+          break;
+        }
       }
-      if (cancelled) break;
+      if (cancelled || timedOut || loopError) break;
     }
   } catch (err) {
-    loopError = loopError || (err instanceof Error ? err.message : String(err));
-    sm.settle('FAILED', 'runtime_error', now());
+    if (!stopIfNeeded()) {
+      loopError = loopError || (err instanceof Error ? err.message : String(err));
+      sm.settle('FAILED', 'runtime_error', now());
+    }
+  } finally {
+    clearTimeout(deadline);
+    opts.signal?.removeEventListener('abort', forwardAbort);
   }
 
   if (!finished && !cancelled && !timedOut && !loopError) {

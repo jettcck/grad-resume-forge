@@ -528,7 +528,12 @@ Object.assign(CPP_SOLUTIONS, extra.CPP_EXTRA);
     for (const q of CODE_BANK) {
       const code = PY_SOLUTIONS[q.id];
       if (!code) continue;
-      const r = await runner.judgeCode(q, 'python', code, 'all');
+      // 这里验证的是「参考解法是否正确」，不是「它够不够快」。
+      // 解释器启动 + 机器负载（同时开模型服务时尤其明显）会把耗时推到题面限时边缘，
+      // 表现为偶发 TLE。所以只在测试里放宽限时，产品限时不受影响；
+      // TLE 行为本身另有「死循环判 TLE」用例专门覆盖。
+      const relaxed = { ...q, timeLimitMs: Math.max(q.timeLimitMs, 5000) };
+      const r = await runner.judgeCode(relaxed, 'python', code, 'all');
       assert(r.verdict === 'AC' && r.passed === r.total,
         'Python 参考解法全过：' + q.title + '（' + r.passed + '/' + r.total + (r.verdict !== 'AC' ? ' · ' + r.verdict : '') + '）');
     }
