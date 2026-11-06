@@ -152,6 +152,13 @@ if (rewriteFixture.rejected.length) throw new Error('测试候选未通过校验
 const REWRITES = rewriteFixture.accepted;
 
 (async () => {
+  {
+    const box = { state: { profile: { updatedAt: 1234 } }, document: {
+      getElementById: () => ({ querySelector: () => null }), querySelectorAll: () => []
+    } };
+    vm.createContext(box); vm.runInContext(extractFunction(source, 'collectProfile'), box);
+    assert(box.collectProfile().updatedAt === 1234, '表单收集保留存档版本戳，编辑后正常改写可提交');
+  }
   for (const operation of ['onSaveProfile', 'loadDemoProfile', 'loadVersion']) {
     const box = makeSandbox(JSON.parse(JSON.stringify(ORIGINAL)));
     Object.assign(box, { collectProfile: () => ORIGINAL, clearSaveBarDirty() {},

@@ -35,7 +35,7 @@
 | Agent 运行时 | **1,109 行**（独立包，零 Electron 依赖） | `wc -l packages/agent-core/src/*.ts` |
 | LLM 适配层 | 429 行（Ollama + OpenAI 兼容双协议，含流式解析） | `wc -l packages/llm-adapters/src/*.ts` |
 | 评测代码 | 957 行 | `wc -l evals/*.js` |
-| 自动化断言 | **1,715 项**（30 个测试脚本，另有 210 项界面断言和 140 项真实 IPC 断言，全绿） | 逐文件 `node test-*.js` 汇总 |
+| 自动化断言 | **1,716 项**（30 个测试脚本，另有 210 项界面断言和 140 项真实 IPC 断言，全绿） | 逐文件 `node test-*.js` 汇总 |
 | Agent 状态 | **11 个**（7 非终态 + 4 终态），允许转移表约束 | `packages/agent-core/src/state-machine.ts:8` |
 | 自主 Agent 工具 | **6 个**（analyze_jd / retrieve_profile_evidence / retrieve_knowledge / audit_text / rewrite_bullets / submit_result） | `src/main/agent.ts` |
 | 评测用例 | **72 个 / 12 类场景**（含 injection / bad_args / lazy / all_rejected） | `node evals/agent-bench.js` |
@@ -66,7 +66,7 @@
 | 指标 | 表述要点 |
 |---|---|
 | 30,051 行 | 只在"个人项目规模"语境用，**不要**当能力证明 |
-| 1,715 项断言 | 强调"30 个脚本全绿 + 210 项界面断言"，比数字本身有说服力 |
+| 1,716 项断言 | 强调"30 个脚本全绿 + 210 项界面断言"，比数字本身有说服力 |
 | 72 用例 / 12 类场景 | 强调**场景分类设计**（happy / lazy / injection / bad_args），不是"写了 72 个测试" |
 | 编造技能率 0% | 配一句"靠校验门 + 注入用例验证"，否则听起来像吹 |
 | 数字保全率 100% | 同上，说明是"改写不许动数字"的硬约束 |

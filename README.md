@@ -130,7 +130,7 @@ Electron
 ```bash
 npm install
 npm start          # launch the app
-npm test           # full suite: 1,715 assertions / 30 suites + rule-layer evals
+npm test           # full suite: 1,716 assertions / 30 suites + rule-layer evals
 npm run eval       # rule-layer golden-case evals
 npm run eval:llm   # LLM-layer evals (requires local Ollama)
 ```
@@ -178,7 +178,7 @@ git push --follow-tags   # CI builds the Windows installer & publishes to Releas
 
 ## 📊 Testing & Evals
 
-**1,715 automated assertions** across **30 suites** (plus **210 UI assertions** in the screenshot pipeline), run on every push (CI gate).
+**1,716 automated assertions** across **30 suites** (plus **210 UI assertions** in the screenshot pipeline), run on every push (CI gate).
 
 v1.15.1 adds synchronous rewrite validation, snapshot and save with account/version checks, and ignores responses from previous accounts. Cloud cancellation and deadlines cover response bodies; embedded inference supports cancellation and reports actual tokens. Number checks preserve signs and recognized metric ownership, while accepting equivalent change wording. Real IPC smoke passed 140 assertions. Real-model evaluations were not rerun after these fixes.
 

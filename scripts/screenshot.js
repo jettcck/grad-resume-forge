@@ -368,6 +368,8 @@ function registerIpc() {
   // 应用改写：与主进程一致，直接用引擎的实现（渲染层不再自己切分）
   h('resume:applyRewrites', (profile, accepted) => agentReal.applyRewritesToProfile(profile, accepted));
   h('resume:commitRewrites', (uid, profile, accepted) => {
+    const saved = store.getProfile(uid);
+    if (saved?.updatedAt != null && profile.updatedAt !== saved.updatedAt) throw new Error('档案已另行保存，请重新优化后再应用');
     const next = agentReal.applyRewritesToProfile(profile, accepted);
     store.saveAgentSnapshot(uid, 'Agent 改写前', profile);
     return store.saveProfile(uid, next);

@@ -115,7 +115,7 @@ Electron
 ```bash
 npm install
 npm start          # 启动应用
-npm test           # 全量测试（1,715 项断言 / 30 个脚本 + 规则层评测）
+npm test           # 全量测试（1,716 项断言 / 30 个脚本 + 规则层评测）
 npm run eval       # 规则层 golden case 评测
 npm run eval:llm   # LLM 层评测（需要本机 Ollama）
 ```
@@ -188,7 +188,7 @@ git config http.proxy http://127.0.0.1:7890
 
 ## 📊 测试与评测
 
-**1,715 项自动化断言**（30 个脚本）**+ 210 项界面断言**，push 即跑（CI 门禁）。所有数字的唯一来源是 [`benchmarks/baseline.json`](./benchmarks/baseline.json)，文档与它的偏差会让 `npm test` 直接失败。
+**1,716 项自动化断言**（30 个脚本）**+ 210 项界面断言**，push 即跑（CI 门禁）。所有数字的唯一来源是 [`benchmarks/baseline.json`](./benchmarks/baseline.json)，文档与它的偏差会让 `npm test` 直接失败。
 
 | 套件 | 内容 | 命令 |
 |---|---|---|

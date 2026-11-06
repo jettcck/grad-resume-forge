@@ -918,6 +918,7 @@ function cardTitle(iconName, title, hint) {
 }
 
 function renderProfile() {
+  const generation = accountGeneration;
   const p = state.profile;
   const root = document.getElementById('route-profile');
   root.innerHTML = '';
@@ -1076,6 +1077,7 @@ function renderProfile() {
   // 以前没有这个监听：侧栏只在整页渲染时算一次，于是「填了城市但清单还是未完成」，
   // 而且未保存的改动不进内存，切到简历预览页看到的还是旧档案（匹配度显示旧岗位）。
   const refreshSide = debounce(() => {
+    if (generation !== accountGeneration) return;
     if (!document.getElementById('card-completeness')) return; // 已离开录入页
     state.profile = collectProfile();
     state.profileDirty = true;
@@ -1534,7 +1536,8 @@ function collectProfile() {
     name: val(basics, 'name'), phone: val(basics, 'phone'), email: val(basics, 'email'),
     city: val(basics, 'city'), github: val(basics, 'github'), targetRole: val(basics, 'targetRole'),
     summary: val(basics, 'summary'), skills: val(skills, 'skills'),
-    education, internships, projects, awards
+    education, internships, projects, awards,
+    updatedAt: state.profile?.updatedAt
   };
 }
 
