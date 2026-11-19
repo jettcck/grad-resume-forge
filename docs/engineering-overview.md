@@ -46,7 +46,7 @@
 ```
 
 **分层的硬标准**：`agent-core` 不认识简历业务、不 import Electron。
-`test-runtime.js` 用一套「假领域」（假工具 + 假适配器）测它，52 条断言全跑在 core 上。
+`test-runtime.js` 用一套「假领域」（假工具 + 假适配器）测它，74 条断言全跑在 core 上。
 
 ---
 
@@ -298,7 +298,7 @@ node evals/agent-bench-llm.js --sample 20
 ## 8. 测试
 
 ```
-32 个测试文件 / 1,652 条断言
+32 个测试文件 / 1,674 条断言
 npm test   # 含 evals：mock 层评测 + LLM 层 self-test + 规则层评测
 ```
 

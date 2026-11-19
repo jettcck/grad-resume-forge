@@ -10,14 +10,14 @@ import re
 
 from pydantic import BaseModel, Field, field_validator
 
-# 与 src/main/validate.ts 的口径一致：数字 + 可选单位，去空白后逐个比对
+# 与 src/main/agent.ts 的口径一致：保留正负号和单位，归一化空白、Unicode 负号。
 _NUMBER = re.compile(
-    r"\d+(?:[.,]\d+)?\s*(?:%|‰|万|亿|千|百|ms|s|秒|分钟|小时|天|周|月|年|人|次|个|条|倍|元|GB|MB|KB|TB|QPS|qps)?"
+    r"[+\-−]?\d+(?:[.,]\d+)?\s*(?:%|‰|万|亿|千|百|k|K|w|W|ms|MS|s|S|秒|分钟|小时|天|周|月|年|人|次|个|条|倍|元|美元|GB|MB|KB|TB|QPS|qps|G|M)?"
 )
 
 
 def extract_numbers(text: str | None) -> list[str]:
-    return [match.group(0).replace(" ", "") for match in _NUMBER.finditer(text or "")]
+    return [re.sub(r"\s+", "", match.group(0)).replace("−", "-") for match in _NUMBER.finditer(text or "")]
 
 
 def keeps_all_numbers(original: str, rewritten: str) -> bool:
@@ -42,6 +42,13 @@ class RewriteRequest(BaseModel):
     bullets: list[Bullet] = Field(min_length=1, max_length=20)
     job_description: str = Field(default="", max_length=4000)
     max_chars: int = Field(default=60, ge=20, le=200)
+
+    @field_validator("bullets")
+    @classmethod
+    def _unique_ids(cls, value: list[Bullet]) -> list[Bullet]:
+        if len({bullet.id for bullet in value}) != len(value):
+            raise ValueError("bullets 的 id 必须唯一")
+        return value
 
 
 class RewrittenBullet(BaseModel):

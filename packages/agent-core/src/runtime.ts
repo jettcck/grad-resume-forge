@@ -241,8 +241,7 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
           // critical 缺失（如整轮没分析 JD）时不能记成 COMPLETED：
           // 那就是「部分完成假成功」，评审在真实运行里复现过（ok=true 且 incomplete 有值）。
           // 用 PARTIAL 表达「产出可用但不是完成」，让上层与界面都能如实区分。
-          if (criticalMissing.length) sm.transition('PARTIAL', 'partial', now());
-          else sm.transition('COMPLETED', 'completed', now());
+          // 收尾复测成功后才提交终态，避免 finalize 抛错后留下 COMPLETED 记录。
           break;
         }
 
@@ -285,8 +284,11 @@ export async function runAgentRuntime(opts: RuntimeOptions): Promise<RuntimeOutc
   let finalized: unknown = null;
   try {
     finalized = adapter.finalize();
+    if (finished) sm.transition(incomplete ? 'PARTIAL' : 'COMPLETED', incomplete ? 'partial' : 'completed', now());
   } catch (err) {
     loopError = loopError || ('收尾复测失败：' + (err instanceof Error ? err.message : String(err)));
+    finished = false;
+    sm.settle('FAILED', 'finalize_error', now());
   }
 
   usage.ms = now() - startedAt;

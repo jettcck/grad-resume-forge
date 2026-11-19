@@ -28,6 +28,8 @@ mock 层基线（`node evals/agent-bench.js` 可复现）：行为符合预期 *
 
 所有数字只有一个来源：[`benchmarks/baseline.json`](./benchmarks/baseline.json)；文档与它不一致时 `npm test` 会直接失败。
 
+v1.15.2 修复规则改写吞掉行首数字、同毫秒保存及系统时钟回拨造成档案版本碰撞、Agent 收尾失败仍记为完成的问题。Python 服务拒绝正负号翻转与异常模型响应；CI 补齐 Python 和真实桌面烟测，本地打包补齐检索模块与提示词。
+
 v1.15.1 修复了账号切换期间的旧档案写入和迟到响应：改写校验、快照与保存由主进程同步提交，旧账号或另行保存后的旧版本会被拒收。云端取消与超时覆盖正文读取，应用内推理可取消并回传实际 token。数字校验保留正负号，核对已识别的指标归属，并接受“降至／缩减至”等同义表达。真实 IPC 回归 140 项通过；本次修复后真实模型评测未执行。
 
 **用户经历检索与溯源已接入改写**：BM25 检索当前用户的原始档案，项目／实习按经历隔离；改写预览展示来源原文与摘要，应用时再次核对。第三步新固定四用例共 **48 次真实流水线对照**（rewrite-rules-v3）。qwen3:8b 的目标技能表达并附同项目来源，检索组 **8/9（88.9%）**，无检索组 **0/9**；qwen2.5:1.5b 两组均 **0/9**。校验门检查阿拉伯数字 token、明确的前后值与变化方向及已知技能别名；职责和更复杂的因果归属仍需人审。见 [完整报告](./docs/resume-evidence.md)，实现位于 `src/main/resume-evidence.ts`。第二步双模式结果保留为旧提示词和对应源码快照的历史基线，见 [第二步报告](./docs/real-model-eval.md)。
@@ -115,7 +117,7 @@ Electron
 ```bash
 npm install
 npm start          # 启动应用
-npm test           # 全量测试（1,716 项断言 / 30 个脚本 + 规则层评测）
+npm test           # 全量测试（1,931 项断言 / 35 个脚本 + 规则层评测）
 npm run eval       # 规则层 golden case 评测
 npm run eval:llm   # LLM 层评测（需要本机 Ollama）
 ```
@@ -188,7 +190,7 @@ git config http.proxy http://127.0.0.1:7890
 
 ## 📊 测试与评测
 
-**1,716 项自动化断言**（30 个脚本）**+ 210 项界面断言**，push 即跑（CI 门禁）。所有数字的唯一来源是 [`benchmarks/baseline.json`](./benchmarks/baseline.json)，文档与它的偏差会让 `npm test` 直接失败。
+**1,931 项自动化断言**（35 个脚本）**+ 210 项界面断言**，push 即跑（CI 门禁）。所有数字的唯一来源是 [`benchmarks/baseline.json`](./benchmarks/baseline.json)，文档与它的偏差会让 `npm test` 直接失败。
 
 | 套件 | 内容 | 命令 |
 |---|---|---|

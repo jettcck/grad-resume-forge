@@ -1,6 +1,7 @@
 // 核心引擎自测（不依赖 Electron）
 const engine = require('./dist/main/resume-engine');
 const agent = require('./dist/main/agent');
+let enginePassed = 0, engineFailed = 0;
 
 // 数字保全不变量：规则引擎的改写是「删套话 + 换强动词」式的字符串手术，理论上不该动数字。
 // 但这条性质此前没有任何断言；LLM 那条路径有校验门守着（validateRewrites），规则路径同样得有。
@@ -20,8 +21,8 @@ const agent = require('./dist/main/agent');
 });
 
 function assert(cond, msg) {
-  if (!cond) { console.error('❌ FAIL:', msg); process.exitCode = 1; }
-  else console.log('✅ PASS:', msg);
+  if (!cond) { engineFailed++; console.error('❌ FAIL:', msg); process.exitCode = 1; }
+  else { enginePassed++; console.log('✅ PASS:', msg); }
 }
 
 // 1) 改写：弱动词 -> 强动词，去套话
@@ -29,6 +30,12 @@ const r1 = engine.rewriteBullet('负责赋能业务，使用优秀的方法论�
 console.log('  改写结果:', r1);
 assert(!r1.includes('赋能') && !r1.includes('方法论') && !r1.includes('优秀的'), '删除套话/空洞形容词');
 assert(r1.startsWith('主导'), '弱动词「负责」被替换为「主导」');
+
+assert(engine.rewriteBullet('800ms 内完成响应', 'backend', 0).includes('800ms'), '开头耗时数字完整保留');
+assert(engine.rewriteBullet('-5% 的成本变化', 'backend', 0).includes('-5%'), '开头负数完整保留');
+assert(engine.rewriteBullet('3.5 万条记录', 'backend', 0).includes('3.5 万'), '开头小数完整保留');
+assert(engine.rewriteBullet('1. 优化接口响应', 'backend', 0) === '优化接口响应' &&
+  engine.rewriteBullet('- 优化接口响应', 'backend', 0) === '优化接口响应', '编号和项目符号仍正确去除');
 
 // 2) 量化识别
 assert(engine.hasMetric('把 P99 从 800ms 降到 120ms') === true, '识别含量化数据的条目');
@@ -273,4 +280,4 @@ assert(wJava.tips.some((t) => t.includes('词表级筛查')), '结果里如实�
 assert(engine.skillWeightInJd(jdWeighted.toLowerCase(), ['java']) === 3, '硬性要求权重判定为 3');
 assert(engine.skillWeightInJd(jdWeighted.toLowerCase(), ['kafka', '消息队列']) === 1, '加分项权重判定为 1');
 
-console.log('\n引擎自测完成，最终 exitCode =', process.exitCode || 0);
+console.log('\n引擎自测完成:', enginePassed, 'passed,', engineFailed, 'failed | exitCode =', process.exitCode || 0);

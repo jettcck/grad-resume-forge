@@ -26,6 +26,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: services/python-api/requirements*.txt
+
+      - name: Install Python test dependencies
+        run: python -m pip install -r services/python-api/requirements-dev.txt
+
       # 生产依赖的高危公告直接卡住流水线（本地用的是国内镜像，不提供 audit 接口，
       # 所以这一步只在 CI 上有意义；发现修复版就用 package.json 的 overrides 固定）
       - name: Production dependency audit
@@ -39,3 +49,33 @@ jobs:
 
       - name: Run tests
         run: npm test
+
+  desktop-smoke:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile desktop application
+        run: npm run build
+
+      - name: Smoke test real IPC
+        run: npm run smoke:ipc
+
+      - name: Smoke test UI assertions
+        run: npm run smoke:ui
+
+      - name: Smoke test PDF import
+        run: npm run smoke:pdf
+
+      - name: Smoke test single instance
+        run: npm run smoke:si

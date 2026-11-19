@@ -282,6 +282,21 @@ function makeAdapter(opts) {
       '运行记录可列表、可按 runId 取回');
     assert(store.clear() === 1 && store.list().length === 0, '运行记录可清理');
 
+    // 收工校验通过不代表收尾成功；异常必须反映到结果和持久化记录。
+    for (const partial of [false, true]) {
+      const broken = makeAdapter({
+        script: [{ calls: [{ name: 'submit_result', args: {} }] }],
+        checksFn: () => partial ? [{ key: 'missing', critical: true, ok: false, label: '未完成' }] : []
+      }).adapter;
+      broken.finalize = () => { throw new Error('finalize-regression'); };
+      const failed = await core.runAgentRuntime({ adapter: broken, tools: [], store, budget: { maxSteps: 4 } });
+      assert(failed.status === 'FAILED' && failed.finished === false,
+        (partial ? '部分完成' : '完成') + '候选收尾失败返回 FAILED');
+      assert(failed.record.status === 'FAILED' && store.get(failed.runId).status === 'FAILED' &&
+        /finalize-regression/.test(failed.loopError), '收尾失败持久化失败状态和真实错误');
+    }
+    store.clear();
+
     // 取消：保留已完成的改写，状态为 CANCELLED
     const controller = new AbortController();
     const t2 = makeTool('rewrite2', { permission: 'write' });

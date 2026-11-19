@@ -163,14 +163,18 @@ class LlmClient:
                 "上游返回的不是 JSON", code="upstream_bad_payload", status=502, retryable=False
             ) from exc
 
-        choices = body.get("choices") or []
-        if not choices:
+        if not isinstance(body, dict):
+            raise LlmError(
+                "上游返回的不是 JSON 对象", code="upstream_bad_payload", status=502, retryable=False
+            )
+        choices = body.get("choices")
+        if not isinstance(choices, list) or not choices or not isinstance(choices[0], dict):
             raise LlmError(
                 "上游返回缺少 choices", code="upstream_bad_payload", status=502, retryable=False
             )
-        message = choices[0].get("message") or {}
-        content = message.get("content")
-        if content is None:
+        message = choices[0].get("message")
+        content = message.get("content") if isinstance(message, dict) else None
+        if not isinstance(content, str) or not content.strip():
             raise LlmError(
                 "上游返回缺少 content", code="upstream_bad_payload", status=502, retryable=False
             )
@@ -179,5 +183,5 @@ class LlmClient:
             model=str(body.get("model") or self._settings.llm_model),
             attempts=attempts,
             latency_ms=latency_ms,
-            usage=body.get("usage") or {},
+            usage=body["usage"] if isinstance(body.get("usage"), dict) else {},
         )

@@ -1,5 +1,13 @@
 'use strict';
 
+// 所有 DOM 断言都打印 ✅/❌；让失败真正阻断烟测，而不是只留在日志里。
+let uiAssertionFailures = 0;
+const originalLog = console.log.bind(console);
+console.log = (...args) => {
+  uiAssertionFailures += args.reduce((n, arg) => n + (String(arg).match(/❌/g) || []).length, 0);
+  originalLog(...args);
+};
+
 // ============================================================
 //  UI 截图管线：启动真实渲染器（自带最小 IPC 集），预置演示账号与档案，
 //  逐页截图到 shots/ —— 供界面重设计前后对比。
@@ -1757,7 +1765,7 @@ async function main() {
   mockAgentAvailable = false;
 
   console.log('done. shots in', SHOTS);
-  app.exit(0);
+  app.exit(uiAssertionFailures ? 1 : 0);
 }
 
 async function verify(win, js) {

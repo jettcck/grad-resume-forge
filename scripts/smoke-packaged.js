@@ -55,6 +55,7 @@ function verifyAsar(asarPath) {
     'data/cities.json',
     'packages/agent-core/dist/index.js',
     'packages/llm-adapters/dist/index.js',
+    'packages/retrieval/dist/index.js',
     // 提示词是运行时读的文本文件（不在 dist 里），漏打包会让 Agent 一启动就抛错
     'dist/main/resume-evidence.js',
     'prompts/agentic-system-v3.txt',

@@ -485,4 +485,20 @@ assert(directElectron.length === 0,
 assert(/delete env\.ELECTRON_RUN_AS_NODE/.test(R('scripts/run-electron.js')),
   'run-electron.js 会剥掉 ELECTRON_RUN_AS_NODE');
 
+const buildEntrypoints = ['start', 'dev', 'dist', 'dist:linux', 'release', 'release:linux'];
+assert(buildEntrypoints.every((name) => pkgJson.scripts[name].startsWith('npm run build &&')),
+  '启动和打包入口编译核心包，干净检出不依赖历史 dist');
+const manualAsar = R('scripts/build-asar.js');
+assert(["'prompts'", "'packages/retrieval/dist'"].every((entry) => manualAsar.includes(entry)),
+  '本地 asar 包含提示词和检索包，改写入口可加载全部依赖');
+
+const smokeSource = R('scripts/screenshot.js');
+const smokeCounter = smokeSource.slice(smokeSource.indexOf('let uiAssertionFailures'), smokeSource.indexOf('// ============================================================'));
+const smokeConsole = { log: () => {} };
+const smokeCounts = require('vm').runInNewContext(smokeCounter +
+  '\nconsole.log("✅ 正常"); const clean = uiAssertionFailures; console.log("❌ 失败\\n❌ 第二项"); [clean, uiAssertionFailures];',
+  { console: smokeConsole });
+assert(smokeCounts[0] === 0 && smokeCounts[1] === 2 && /app\.exit\(uiAssertionFailures \? 1 : 0\)/.test(smokeSource),
+  'UI 烟测累计多行断言失败并返回非零退出码，成功时返回零');
+
 console.log('\n契约自测完成:', pass, 'passed,', failCnt, 'failed | exitCode =', process.exitCode || 0);

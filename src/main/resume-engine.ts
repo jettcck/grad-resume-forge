@@ -165,7 +165,8 @@ export function rewriteBullet(raw: string, domain: Domain, index: number): strin
   let s = clean(raw);
   if (!s) return '';
 
-  s = s.replace(/^[-*·•\d.、\s]+/, '');
+  // 只剥离项目符号和带分隔符的编号；不能吞掉开头的数值（800ms、-5%）。
+  s = s.replace(/^(?:(?:[-*·•]\s+)|(?:\d+[.、]\s+))/, '');
 
   // 顺序：先删带「的/地」的长搭配，再删短词，避免留下孤立助词
   s = stripEmptyAdjectives(s);

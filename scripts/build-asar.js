@@ -31,11 +31,13 @@ const COPY = [
   'THIRD-PARTY-NOTICES.md',
   'third-party',
   'data',
+  'prompts',
   'src/renderer',
   'dist/main',
   'packages/agent-cli/dist',
   'packages/agent-core/dist',
-  'packages/llm-adapters/dist'
+  'packages/llm-adapters/dist',
+  'packages/retrieval/dist'
 ];
 // packages/*/dist 里的 .d.ts 运行时用不到，旧 asar 也没有，跳过
 const SKIP_FILE = (rel) => rel.endsWith('.d.ts');

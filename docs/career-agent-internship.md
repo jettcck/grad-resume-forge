@@ -1,6 +1,6 @@
 # 技术岗 Agent 开发实习 · 求职优化建议
 
-> 基于 `grad-resume-forge`（简历锻造炉）v1.15.1 的真实代码与实测数据撰写。
+> 基于 `grad-resume-forge`（简历锻造炉）v1.15.2 的真实代码与实测数据撰写。
 > 所有数字的唯一来源是 [`benchmarks/baseline.json`](../benchmarks/baseline.json)（`npm run baseline:full` 重算）；
 > 文档与它不一致时 `npm test` 会失败（`test-docs-consistency.js`）。
 > 初版：2026-10-22 · 真实模型数据同步：2026-11-02 · 修复回归：2026-11-03
@@ -12,7 +12,7 @@
 **你的定位**：不是"用过 LangChain 做过 demo"的候选人，而是**独立设计并实现过可控 Agent Runtime、且有评测体系与质量门禁**的工程型候选人。这在实习池里是稀缺的。
 
 **最强证据**（三件，面试时优先讲）：
-1. `packages/agent-core` 把 Agent 运行时从业务里剥出来，**11 状态机 + 允许转移表 + 工具契约 + 四项预算 + 取消/回放**，能脱离 Electron 用假领域测试（70 条断言）。
+1. `packages/agent-core` 把 Agent 运行时从业务里剥出来，**11 状态机 + 允许转移表 + 工具契约 + 四项预算 + 取消/回放**，能脱离 Electron 用假领域测试（74 条断言）。
 2. `evals/agent-bench.js` **72 个任务用例、12 类场景**，mock 层确定性评测进 CI，有**双口径指标**（行为符合预期 100% vs 业务完成率 66.7%）和**质量门禁**。
 3. **改写通过率 88.2% / 数字保全率 100% / 编造技能率 0%** —— 防幻觉不是靠 prompt 求它别编，是靠校验门 + 注入攻击用例验证的。
 
@@ -35,13 +35,13 @@
 | Agent 运行时 | **1,109 行**（独立包，零 Electron 依赖） | `wc -l packages/agent-core/src/*.ts` |
 | LLM 适配层 | 429 行（Ollama + OpenAI 兼容双协议，含流式解析） | `wc -l packages/llm-adapters/src/*.ts` |
 | 评测代码 | 957 行 | `wc -l evals/*.js` |
-| 自动化断言 | **1,716 项**（30 个测试脚本，另有 210 项界面断言和 140 项真实 IPC 断言，全绿） | 逐文件 `node test-*.js` 汇总 |
+| 自动化断言 | **1,931 项**（35 个测试脚本，另有 210 项界面断言和 140 项真实 IPC 断言，全绿） | 逐文件 `node test-*.js` 汇总 |
 | Agent 状态 | **11 个**（7 非终态 + 4 终态），允许转移表约束 | `packages/agent-core/src/state-machine.ts:8` |
 | 自主 Agent 工具 | **6 个**（analyze_jd / retrieve_profile_evidence / retrieve_knowledge / audit_text / rewrite_bullets / submit_result） | `src/main/agent.ts` |
 | 评测用例 | **72 个 / 12 类场景**（含 injection / bad_args / lazy / all_rejected） | `node evals/agent-bench.js` |
 | 编程题库 | **43 题 × 3 语言**（JS/Python/C++），207 条断言 | `node test-code.js` |
 | 客观题库 | **151 题 / 12 方向 / 133 知识点标签** | `node scripts/audit-exam-bank.js` |
-| 产品版本 | v1.15.1 | `package.json` |
+| 产品版本 | v1.15.2 | `package.json` |
 
 ### 评测实测基线（`node evals/agent-bench.js` 可直接复现）
 
@@ -66,7 +66,7 @@
 | 指标 | 表述要点 |
 |---|---|
 | 30,051 行 | 只在"个人项目规模"语境用，**不要**当能力证明 |
-| 1,716 项断言 | 强调"30 个脚本全绿 + 210 项界面断言"，比数字本身有说服力 |
+| 1,931 项断言 | 强调"35 个脚本全绿 + 210 项界面断言"，比数字本身有说服力 |
 | 72 用例 / 12 类场景 | 强调**场景分类设计**（happy / lazy / injection / bad_args），不是"写了 72 个测试" |
 | 编造技能率 0% | 配一句"靠校验门 + 注入用例验证"，否则听起来像吹 |
 | 数字保全率 100% | 同上，说明是"改写不许动数字"的硬约束 |
@@ -126,7 +126,7 @@
 > · 设计 11 状态机（CREATED→ANALYZING_JD→PLANNING→EXECUTING_TOOLS→VALIDATING→CRITIC_REVIEW→COMPLETED + 4 终态），用**允许转移表**约束推进，非法转移直接抛错——开发期即拦截过一次 `VALIDATING→COMPLETED` 漏配导致的整次运行判失败
 > · 工具契约层：6 个工具统一声明 `inputSchema / permission(readonly|write) / timeoutMs / maxRetries / idempotent / cacheResult`；**仅幂等工具自动重试**，非幂等写操作宁可失败交上层决策
 > · 四项预算（maxSteps / maxToolCalls / maxDurationMs / maxTokens）+ AbortSignal 在工具间**安全点**取消，状态记 CANCELLED 且**保留已完成改写**
-> · 拆分标准可验证：core 在无 Electron、无业务数据的假领域下跑通 **70 条断言**
+> · 拆分标准可验证：core 在无 Electron、无业务数据的假领域下跑通 **74 条断言**
 
 ### 示例 2：评测体系（最加分条目）
 
@@ -280,7 +280,7 @@
       ├─ llm-adapters (0.4k) ── Ollama + OpenAI 兼容，流式解析
       └─ agent-cli ── run / eval / replay（脱离界面）
 3. 三个关键设计决策（每个都带"为什么"和"代价"）
-   · 为什么把 runtime 抽成独立包 → 能在无 Electron 下测试（52 断言）
+   · 为什么把 runtime 抽成独立包 → 能在无 Electron 下测试（74 断言）
    · 为什么状态机要抛错 → 非法转移会以"状态显示不对"悄悄漏给用户
    · 为什么工具只有幂等的才重试 → 写操作重试可能重复写入
 4. 评测结果（表格，直接贴 agent-bench 输出）

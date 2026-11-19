@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import httpx
+import pytest
 
 from app.routers.rewrite import parse_rewrites
+from app.schemas import keeps_all_numbers
 from tests.helpers import CountingHandler, chat_response, make_client, rewrites_json
 
 BULLETS = [
@@ -168,3 +170,66 @@ async def test_rewrite_rate_limited():
 def test_parse_rewrites_tolerates_noise_around_json():
     content = '以下是改写结果：\n{"rewrites":[{"id":"a","text":"做了一件事"}]}\n希望有帮助'
     assert parse_rewrites(content) == {"a": "做了一件事"}
+
+
+@pytest.mark.parametrize("original,rewritten,expected", [
+    ("变化 -5%", "变化 +5%", False),
+    ("变化 +5%", "变化 -5%", False),
+    ("变化 −5%", "变化 -5%", True),
+    ("覆盖 3\t万人", "覆盖 3 万人", True),
+    ("响应 800ms", "响应 800s", False),
+    ("费用 5 美元", "费用 5 元", False),
+    ("流量 5k", "流量 5w", False),
+    ("响应从 800ms 降到 120ms", "将响应从 800ms 缩减至 120ms", True),
+])
+def test_number_preservation(original, rewritten, expected):
+    assert keeps_all_numbers(original, rewritten) is expected
+
+
+async def test_rewrite_rejects_sign_change_and_returns_original():
+    bullet = {"id": "a", "text": "成本变化 -5%"}
+    handler = CountingHandler([chat_response(rewrites_json({"a": "成本变化 +5%"}))])
+    async with make_client(handler) as client:
+        response = await client.post("/v1/rewrite/bullets", json={"bullets": [bullet]})
+    item = response.json()["rewrites"][0]
+    assert response.status_code == 200
+    assert item["rejected"] is True
+    assert item["text"] == bullet["text"]
+
+
+@pytest.mark.parametrize("upstream_body", [
+    [], None, "unexpected", {"choices": {}}, {"choices": [None]},
+    {"choices": [{"message": []}]}, {"choices": [{"message": {"content": None}}]},
+    {"choices": [{"message": {"content": {"rewrites": []}}}]},
+    {"choices": [{"message": {"content": "  "}}]},
+])
+async def test_malformed_upstream_response_maps_to_502(upstream_body):
+    handler = CountingHandler([httpx.Response(200, json=upstream_body)])
+    async with make_client(handler) as client:
+        response = await client.post("/v1/rewrite/bullets", json={"bullets": [BULLETS[0]]})
+    assert response.status_code == 502
+    assert response.json()["detail"]["error"]["code"] == "upstream_bad_payload"
+    assert handler.calls == 1
+
+
+@pytest.mark.parametrize("text", [None, 42, {}, []])
+async def test_non_string_rewrite_is_rejected(text):
+    import json
+    handler = CountingHandler([chat_response(json.dumps({"rewrites": [{"id": "a", "text": text}]}))])
+    async with make_client(handler) as client:
+        response = await client.post("/v1/rewrite/bullets", json={"bullets": [{"id": "a", "text": "开发系统"}]})
+    assert response.status_code == 502
+    assert response.json()["detail"]["error"]["code"] == "upstream_bad_payload"
+
+
+async def test_duplicate_bullet_ids_are_rejected_before_upstream_call():
+    handler = CountingHandler([chat_response("unused")])
+    async with make_client(handler) as client:
+        response = await client.post("/v1/rewrite/bullets", json={"bullets": [BULLETS[0], BULLETS[0]]})
+    assert response.status_code == 422
+    assert handler.calls == 0
+
+
+def test_duplicate_rewrite_ids_are_rejected():
+    with pytest.raises(ValueError, match="重复"):
+        parse_rewrites('{"rewrites":[{"id":"a","text":"第一条"},{"id":"a","text":"第二条"}]}')

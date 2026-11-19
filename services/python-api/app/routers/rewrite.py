@@ -36,9 +36,14 @@ def parse_rewrites(content: str) -> dict[str, str]:
     for item in items:
         if not isinstance(item, dict):
             continue
-        item_id = str(item.get("id", "")).strip()
-        text = str(item.get("text", "")).strip()
+        item_id = item.get("id")
+        text = item.get("text")
+        if not isinstance(item_id, str) or not isinstance(text, str):
+            continue
+        item_id, text = item_id.strip(), text.strip()
         if item_id and text:
+            if item_id in result:
+                raise ValueError("模型输出包含重复改写 id")
             result[item_id] = text
     if not result:
         raise ValueError("模型输出里没有任何有效改写")

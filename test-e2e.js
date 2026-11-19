@@ -83,6 +83,20 @@ const profile = {
 const savedProfile = store.saveProfile(uid, profile);
 assert(savedProfile.userId === uid && savedProfile.updatedAt, '个人信息保存成功');
 
+// 版本号不能碰撞：同毫秒连续保存和系统时钟回拨都要让旧改写失效。
+const realNow = Date.now;
+let sameTick, rolledBack;
+try {
+  Date.now = () => savedProfile.updatedAt;
+  sameTick = store.saveProfile(uid, profile);
+  Date.now = () => savedProfile.updatedAt - 1000;
+  rolledBack = store.saveProfile(uid, profile);
+} finally {
+  Date.now = realNow;
+}
+assert(sameTick.updatedAt > savedProfile.updatedAt, '同毫秒保存生成不同档案版本');
+assert(rolledBack.updatedAt > sameTick.updatedAt, '时钟回拨仍递增档案版本，旧改写不可覆盖新保存');
+
 // 7) 读回
 const gotProfile = store.getProfile(uid);
 assert(gotProfile && gotProfile.name === '李明', '个人信息读回正确');

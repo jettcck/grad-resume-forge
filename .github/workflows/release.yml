@@ -35,6 +35,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: services/python-api/requirements*.txt
+
+      - name: Install Python test dependencies
+        run: python -m pip install -r services/python-api/requirements-dev.txt
+
       - name: Install Linux display server for packaged smoke
         if: matrix.label == 'linux'
         run: sudo apt-get update && sudo apt-get install -y xvfb

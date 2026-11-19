@@ -1,37 +1,37 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-11-06T07:41:05.946Z",
+  "generatedAt": "2026-11-19T16:44:07.866Z",
   "product": {
     "name": "grad-resume-forge",
-    "version": "1.15.1",
-    "commit": "1833615",
-    "commitDate": "2026-11-06T15:34:02+08:00",
+    "version": "1.15.2",
+    "commit": "8aadba0",
+    "commitDate": "2026-11-06T15:42:03+08:00",
     "author": "jettcck <2653921463@qq.com>"
   },
   "quality": {
     "tests": {
-      "suites": 30,
+      "suites": 35,
       "failedNames": [],
-      "assertions": 1716,
+      "assertions": 1931,
       "failures": 0,
       "exitCode": 0,
-      "measuredAt": "2026-11-06T07:39:57.970Z",
-      "source": "npm test（本次实测：npm-test-release-full-verified.log）"
+      "measuredAt": "2026-11-19T16:50:07.710Z",
+      "source": "npm test（本次实测：npm-test-audit-final-20261120.log；引擎统计补全：npm-test-audit-engine-final-20261120.log）"
     },
     "ui": {
       "assertions": 210,
       "failures": 0,
       "screenshots": 20,
       "exitCode": 0,
-      "measuredAt": "2026-11-06T07:39:33.212Z",
-      "source": "npm run smoke:ui（本次实测：npm-test-release-ui-final.log）"
+      "measuredAt": "2026-11-19T16:50:07.711Z",
+      "source": "npm run smoke:ui（本次实测：npm-test-audit-ui-final-20261120.log）"
     },
     "ipc": {
       "assertions": 140,
       "failures": 0,
       "exitCode": 0,
-      "measuredAt": "2026-11-06T07:21:43.162Z",
-      "source": "npm run smoke:ipc（本次实测：npm-test-release-ipc.log）"
+      "measuredAt": "2026-11-19T16:50:07.711Z",
+      "source": "npm run smoke:ipc（本次实测：npm-test-audit-ipc-20261120.log）"
     }
   },
   "banks": {
@@ -1257,10 +1257,10 @@
   },
   "services": {
     "pythonApi": {
-      "tests": 29,
+      "tests": 53,
       "endpoints": 6,
-      "source": "pytest（本次实测）",
-      "measuredAt": "2026-11-06T07:41:05.944Z",
+      "source": "pytest（本次实测：npm-test-audit-python-20261120.log）",
+      "measuredAt": "2026-11-19T16:44:07.866Z",
       "framework": "FastAPI",
       "asyncClient": "httpx.AsyncClient",
       "corpus": "题库导出（data/corpus.json）"

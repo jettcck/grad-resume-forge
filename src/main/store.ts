@@ -340,8 +340,10 @@ export function getProfile(userId: string): (Profile & { userId?: string; update
 
 export function saveProfile(userId: string, profile: Partial<Profile>): Profile & { userId?: string; updatedAt?: number; createdAt?: number } {
   if (!findUserById(userId)) throw new Error('用户不存在');
-  const now = Date.now();
   const prev = db.profiles[userId] || {};
+  // updatedAt 同时是改写提交的版本号；同毫秒保存和时钟回拨也必须产生新版本。
+  const previousVersion = typeof prev.updatedAt === 'number' && Number.isFinite(prev.updatedAt) ? prev.updatedAt : 0;
+  const now = Math.max(Date.now(), previousVersion + 1);
   db.profiles[userId] = { ...prev, ...profile, userId, updatedAt: now, createdAt: prev.createdAt || now };
   persist();
   return db.profiles[userId];

@@ -29,7 +29,7 @@ renderer (Electron)                 main (Node/TS)                    packages/
 ```
 
 关键取舍：**把运行时从业务里剥出来**。`packages/agent-core` 不 import Electron、不 import 业务数据，
-因此可以在一台没有 GUI、没有网络的机器上跑完整测试（52 条断言，见 `test-runtime.js`）。
+因此可以在一台没有 GUI、没有网络的机器上跑完整测试（74 条断言，见 `test-runtime.js`）。
 
 ---
 
